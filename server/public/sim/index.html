@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>واتس هم — محاكي الواتساب</title>
+<style>
+:root{--wa:#075E54;--wa2:#128C7E;--chat:#ECE5DD;--mine:#DCF8C6;--theirs:#fff}
+*{box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
+body{margin:0;background:#0b141a;color:#fff;display:flex;flex-direction:column;height:100vh}
+header{background:var(--wa);padding:10px 16px;display:flex;align-items:center;gap:12px}
+header img{width:36px;height:36px;border-radius:50%;background:#fff}
+header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
+.controls{background:#111b21;padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #222}
+.controls select,.controls input{padding:7px 10px;border-radius:8px;border:1px solid #333;background:#1f2c33;color:#fff;font-size:13px}
+.controls button{padding:7px 12px;border-radius:8px;border:none;background:var(--wa2);color:#fff;cursor:pointer;font-size:13px}
+.controls button.ghost{background:#1f2c33;border:1px solid #333}
+#chat{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:4px;background-image:radial-gradient(#2a3942 1px,transparent 1px);background-size:18px 18px}
+.msg{max-width:75%;padding:8px 12px;border-radius:10px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word;position:relative;box-shadow:0 1px 1px rgba(0,0,0,.3)}
+.msg.mine{background:var(--mine);color:#111;align-self:flex-end;border-top-left-radius:0}
+.msg.theirs{background:var(--theirs);color:#111;align-self:flex-start;border-top-right-radius:0}
+.msg img{max-width:100%;border-radius:8px;margin-top:4px}
+.msg .time{display:block;font-size:10px;color:#667;text-align:left;margin-top:2px}
+.msg .sys{background:#ffe9a8;color:#5c4a00}
+.actions{display:flex;flex-direction:column;gap:6px;align-items:flex-start;background:var(--theirs);color:#111;padding:10px;border-radius:10px;max-width:75%;align-self:flex-start;box-shadow:0 1px 1px rgba(0,0,0,.3)}
+.actions .lbl{font-size:13px;margin-bottom:4px;white-space:pre-wrap}
+.actions button{border:1px solid #075E54;background:#fff;color:#075E54;border-radius:18px;padding:6px 14px;cursor:pointer;font-size:13px}
+.actions button:hover{background:#e7f6f3}
+.actions .listitem{width:100%;text-align:right;border:none;border-bottom:1px solid #eee;border-radius:0;padding:8px 4px}
+.composer{display:flex;gap:8px;padding:10px 16px;background:#111b21}
+.composer input{flex:1;padding:11px 14px;border-radius:24px;border:none;background:#2a3942;color:#fff;font-size:14px;outline:none}
+.composer button{background:var(--wa2);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:18px;cursor:pointer}
+.pin{background:#1f2c33;border:1px solid #333;color:#ddd;border-radius:18px;padding:6px 12px;cursor:pointer;font-size:12px}
+.pin:hover{border-color:var(--wa2)}
+#typing{display:none;font-size:12px;color:#9aa;padding:0 16px}
+</style>
+</head>
+<body>
+<header>
+  <img src="/logo.png" style="border-radius:50%;background:#fff;width:64px;height:64px">
+  <div><h1>واتس هم</h1><small>محاكي واتساب — جرّب تدفق الطلب كاملاً</small></div>
+</header>
+<div class="controls">
+  <select id="restSel"></select>
+  <select id="phoneSel">
+    <option value="+966500000001">👤 عميل محمد (عنده عنوان)</option>
+    <option value="new">➕ عميل جديد</option>
+    <option value="0561111111">🛵 كابتن أحمد</option>
+    <option value="0562222222">🛵 كابتن خالد</option>
+  </select>
+  <input id="phoneNew" placeholder="رقم العميل الجديد" style="display:none" value="+96655">
+  <button onclick="sendText('مرحبا')">👋 ابدأ</button>
+  <button class="ghost" onclick="sendLoc(24.74,46.68)">📍 موقع داخل الزوم</button>
+  <button class="ghost" onclick="sendLoc(28.38,36.57)">📍 موقع خارج الزوم</button>
+  <button class="ghost" onclick="resetChat()">🔄 تصفير</button>
+</div>
+<div id="chat"></div>
+<div id="typing">جارٍ الكتابة…</div>
+<div class="composer">
+  <input id="inp" placeholder="اكتب رسالة…" onkeydown="if(event.key==='Enter')send()">
+  <button onclick="send()">➤</button>
+</div>
+<script>
+const API='/api';
+let PHONE='+966500000001', RID=1;
+let latestOrderId=null;
+const fmt=t=>{const d=new Date(t.replace(' ','T')+'Z');return d.toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'})};
+function el(html){const d=document.createElement('div');d.innerHTML=html;return d.firstChild}
+function addMsg({direction,body,type,payload_json,created_at,message_type}){
+  const chat=document.getElementById('chat');
+  const pj=JSON.parse(payload_json||'{}');
+  if(message_type==='buttons'||message_type==='list'){
+    const wrap=el(`<div class="actions"><div class="lbl"></div></div>`);
+    wrap.querySelector('.lbl').textContent=body||'';
+    if(message_type==='list'){(pj.list||[]).forEach(sec=>(sec.rows||[]).forEach(r=>{
+      const b=el(`<button class="listitem">${r.title}${r.description?`<br><small>${r.description}</small>`:''}</button>`);
+      b.onclick=()=>{sendPayload(r.id)};wrap.appendChild(b);
+    }))}
+    if(message_type==='buttons'){(pj.buttons||[]).forEach(b=>{
+      const btn=el(`<button>${b.title}</button>`);btn.onclick=()=>sendPayload(b.id);wrap.appendChild(btn);
+    })}
+    chat.appendChild(wrap);chat.scrollTop=chat.scrollHeight;return;
+  }
+  const m=el(`<div class="msg ${direction==='in'?'mine':'theirs'}"><span class="t"></span></div>`);
+  m.querySelector('.t').textContent=body||(message_type==='location'?'📍 [موقع]':'');
+  if(message_type==='image'&&pj.image)m.innerHTML+=`<img src="${pj.image}" onerror="this.style.display='none'">`;
+  m.innerHTML+=`<span class="time">${fmt(created_at)}</span>`;
+  chat.appendChild(m);chat.scrollTop=chat.scrollHeight;
+}
+async function refresh(clear){
+  const r=await fetch(`${API}/whatsapp/simulate/${encodeURIComponent(PHONE)}/conversations`);
+  const rows=await r.json();
+  if(clear)document.getElementById('chat').innerHTML='';
+  const chat=document.getElementById('chat');
+  const seen=new Set();
+  [...document.querySelectorAll('.msg,.actions')].forEach(x=>seen.add(x.dataset.id));
+  rows.forEach(m=>{if(!seen.has('m'+m.id)){const n=document.createElement('div');n.dataset.id='m'+m.id;chat.appendChild(n);}});
+  // إعادة الرسم البسيط: أفرّغ وأعيد العرض (سهل ومضمون)
+  document.getElementById('chat').innerHTML='';
+  rows.forEach(m=>addMsg(m));
+  // كشف رقم الطلب آخر رسالة
+  const match=(rows[rows.length-1]?.body||'').match(/#\d+/);
+  if(match)latestOrderId=match[0];
+}
+function sendPayload(payload){
+  // أزرار إرسال الموقع ترسل موقعاً فعلياً داخل النطاق (تحاكي مشاركة الموقع من واتساب)
+  if(payload==='send_location'){sendLoc(24.74,46.68);return;}
+  const typ=payload.startsWith('loc:')?'location':'interactive';
+  fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,restaurant_id:RID,type:typ,payload})})
+  .then(()=>{typingOn();setTimeout(()=>{typingOff();refresh()},400)});
+}
+function send(){const v=document.getElementById('inp').value.trim();if(!v)return;document.getElementById('inp').value='';sendText(v)}
+function sendText(body){fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,restaurant_id:RID,type:'text',body})}).then(()=>{typingOn();setTimeout(()=>{typingOff();refresh()},400)})}
+function sendLoc(lat,lng){fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,restaurant_id:RID,type:'location',lat,lng})}).then(()=>{typingOn();setTimeout(()=>{typingOff();refresh()},400)})}
+function typingOn(){document.getElementById('typing').style.display='block'}
+function typingOff(){document.getElementById('typing').style.display='none'}
+function resetChat(){if(!confirm('مسح جلسة المحاكاة؟'))return;fetch(`${API}/whatsapp/simulate/${encodeURIComponent(PHONE)}/reset`,{method:'POST'}).then(()=>refresh(true))}
+(async()=>{
+  const r=await fetch(`${API}/restaurants`);const rests=await r.json();
+  const sel=document.getElementById('restSel');
+  rests.forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=x.name_ar;sel.appendChild(o)});
+  sel.onchange=()=>{RID=Number(sel.value);refresh(true)};
+  document.getElementById('phoneSel').onchange=e=>{
+    const v=e.target.value;
+    if(v==='new'){document.getElementById('phoneNew').style.display='inline-block';PHONE=document.getElementById('phoneNew').value}
+    else{PHONE=v;document.getElementById('phoneNew').style.display='none'}
+    refresh(true);
+  };
+  document.getElementById('phoneNew').onchange=e=>{PHONE=e.target.value;refresh(true)};
+  const isCap = (p) => p==='0561111111' || p==='0562222222';
+  document.getElementById('phoneSel').addEventListener('change', e => {
+    const v = e.target.value;
+    if (isCap(v)) { document.getElementById('inp').placeholder = 'كابتن: أرسل أمراً مثل: اقبل / استلمت / انطلقت / وصلت / رمز 123456 / حالة'; }
+    else { document.getElementById('inp').placeholder = 'اكتب رسالة (مثل: مرحبا، القائمة)…'; }
+  });
+  await refresh(true);
+  // رسالة ترحيب تلقائية عند عميل جديد
+  if(PHONE==='+966555000001'){
+    document.getElementById('inp').placeholder='اكتب رسالة (مثل: مرحبا، القائمة)…';
+  }
+})();
+setInterval(()=>refresh(),3000);
+</script>
+</body>
+</html>
