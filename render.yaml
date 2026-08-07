@@ -1,0 +1,22 @@
+# Render Blueprint — انشر المنصة بضغطة واحدة
+services:
+  - type: web
+    name: whats-ham
+    runtime: node
+    repo: https://github.com/familylive/wassal
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: |
+      cd server && npm install --no-audit --no-fund
+      cd ../client && npm install --no-audit --no-fund && npm run build
+      cd ../server && node seed.js && node seed-hashibasha.js
+    startCommand: cd server && node index.js
+    healthCheckPath: /
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: WHATSAPP_PROVIDER
+        value: simulator
+      - key: PAYMENT_MODE
+        value: mock
