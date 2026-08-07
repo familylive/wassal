@@ -1,0 +1,249 @@
+[
+ {
+  "name": "الوجبات الرئيسية",
+  "items": [
+   {
+    "name": "نفر حاشي كبسة",
+    "price": 60.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0048-Small",
+    "cal": 1890
+   },
+   {
+    "name": "كبسة حارة حاشي",
+    "price": 60.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/half-spicy-Hashi-Kabsa",
+    "cal": 1890
+   },
+   {
+    "name": "نفر حاشي مضغوط",
+    "price": 60.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0087-1",
+    "cal": 1490
+   },
+   {
+    "name": "مكموت حاشي",
+    "price": 58.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/Makmoot-Hashi",
+    "cal": 1490
+   },
+   {
+    "name": "أرز شواية",
+    "price": 8.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/shawaya-rice",
+    "cal": 900
+   },
+   {
+    "name": "ربع حبة دجاج شواية",
+    "price": 12.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/forth-shawaya",
+    "cal": 955
+   },
+   {
+    "name": "نصف حبة دجاج شواية",
+    "price": 23.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/chicken-shawaya",
+    "cal": 1910
+   },
+   {
+    "name": "نصف حبة دجاج شواية بدون أرز",
+    "price": 19.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/shawaya-no-rice",
+    "cal": 1010
+   },
+   {
+    "name": "نص حبه دجاج كبسة",
+    "price": 23.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0019",
+    "cal": 1680
+   },
+   {
+    "name": "نصف حبة دجاج كبسة حارة",
+    "price": 23.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/half-chicken-Spicy-Kabsah",
+    "cal": 1680
+   },
+   {
+    "name": "نص حبه دجاج مضغوط",
+    "price": 23.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0053",
+    "cal": 1330
+   },
+   {
+    "name": "نفر غنم كبسة",
+    "price": 75.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0082",
+    "cal": 1740
+   },
+   {
+    "name": "نفر غنم مضغوط",
+    "price": 75.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0087-2",
+    "cal": 1770
+   }
+  ]
+ },
+ {
+  "name": "الإيدامات",
+  "items": [
+   {
+    "name": "ملوخية",
+    "price": 9.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0060",
+    "cal": 140
+   },
+   {
+    "name": "مسقعة",
+    "price": 9.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0061",
+    "cal": 190
+   },
+   {
+    "name": "خضار مشكل بالدجاج",
+    "price": 9.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0059",
+    "cal": 110
+   }
+  ]
+ },
+ {
+  "name": "سلطات",
+  "items": [
+   {
+    "name": "سلطة الزبادي خيار 140 جم",
+    "price": 5.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0064",
+    "cal": 120
+   },
+   {
+    "name": "سلطة خضراء 140 جم",
+    "price": 5.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0068",
+    "cal": 25
+   },
+   {
+    "name": "سلطة سومطرة 150 جم",
+    "price": 4.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0065",
+    "cal": 120
+   },
+   {
+    "name": "سلطة طحينة 150 جم",
+    "price": 4.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0066",
+    "cal": 240
+   },
+   {
+    "name": "سلطة الطماطم بالبصل 140 جم",
+    "price": 5.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0062",
+    "cal": 40
+   },
+   {
+    "name": "سلطة حارة 150 جم",
+    "price": 4.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0062-277x300",
+    "cal": 70
+   },
+   {
+    "name": "شطة حارة 88مل",
+    "price": 1.5,
+    "img": null,
+    "cal": 10
+   }
+  ]
+ },
+ {
+  "name": "الحلى",
+  "items": [
+   {
+    "name": "حلى الكريمة",
+    "price": 9.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_0063",
+    "cal": 180
+   },
+   {
+    "name": "كنافة بالقشطة",
+    "price": 9.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0079-2",
+    "cal": 250
+   },
+   {
+    "name": "كنافة - حشوات اخرى",
+    "price": 11.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0081",
+    "cal": null
+   },
+   {
+    "name": "تشيز كيك | لوتس",
+    "price": 6.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0071",
+    "cal": 471
+   },
+   {
+    "name": "جالاكسي",
+    "price": 6.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0077",
+    "cal": 250
+   },
+   {
+    "name": "تشيز كيك | آيس كريم",
+    "price": 6.0,
+    "img": null,
+    "cal": 150
+   },
+   {
+    "name": "فيمتو",
+    "price": 6.0,
+    "img": null,
+    "cal": 147
+   }
+  ]
+ },
+ {
+  "name": "مشروبات",
+  "items": [
+   {
+    "name": "زبادي 170 جم",
+    "price": 2.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/HashiBasha_WB_Day2_0076",
+    "cal": null
+   },
+   {
+    "name": "لبن 200 مليلتر",
+    "price": 2.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/yogurt",
+    "cal": null
+   },
+   {
+    "name": "لبن القرية",
+    "price": 4.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/alsafi",
+    "cal": null
+   },
+   {
+    "name": "بيبسي 330 مل",
+    "price": 3.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/alqariah-",
+    "cal": null
+   },
+   {
+    "name": "بيبسي 1 لتر",
+    "price": 6.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/330ml-pepsi",
+    "cal": null
+   },
+   {
+    "name": "بيبسي 2.24 لتر",
+    "price": 10.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/1l-pepsi",
+    "cal": null
+   },
+   {
+    "name": "ماء",
+    "price": 1.0,
+    "img": "https://hashibasha.com/wp-content/uploads/2024/06/2.25l-pepsi",
+    "cal": null
+   }
+  ]
+ }
+]
