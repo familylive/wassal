@@ -36,6 +36,7 @@ export default function Restaurant() {
     if (!socket) return;
     const f = () => { loadOrders(); loadStats(); if (user.role !== 'cashier') notify('🔔 تحديث في الطلبات'); };
     socket.on('order:new', f); socket.on('order:update', f);
+    socket.on('order:cancelled', (d) => { loadOrders(); loadStats(); notify('❌ أُلغي الطلب ' + (d.order_no || '') + (d.reason ? ' — ' + d.reason : '')); });
     socket.on('captain:accept', () => { loadOrders(); loadStats(); notify('🤝 كابتن قبل التوصيل!'); });
     return () => { socket.off('order:new', f); socket.off('order:update', f); socket.off('captain:accept'); };
   }, [socket]);
@@ -398,6 +399,12 @@ function OrderModal({ o, onClose, refresh }) {
           <div style={{ fontSize: 13.5, lineHeight: 1.9 }}>{d.national_address || `${d.lat},${d.lng}`}<br />العميل: {d.customer?.name} — {d.customer?.phone}</div>
           {d.captain && <div style={{ fontSize: 13.5, marginTop: 8 }}>🛵 الكابتن: {d.captain.name} — {d.captain.phone}</div>}
           {d.rating_restaurant && <div style={{ fontSize: 13.5, marginTop: 8 }}>⭐ تقييم العميل: مطعم {'⭐'.repeat(d.rating_restaurant)} · سرعة {'⭐'.repeat(d.rating_speed || 0)} · كابتن {'⭐'.repeat(d.rating_captain || 0)}</div>}
+          {d.status === 'cancelled' && (
+            <div style={{ fontSize: 13.5, marginTop: 10, background: '#fde8e8', border: '1px solid #f5c6c6', borderRadius: 10, padding: 10 }}>
+              ❌ <b>أُلغي الطلب</b> — استبيان العميل:<br />
+              السبب: <b>{d.cancel_reason || '—'}</b>{d.cancel_note ? <><br />التفاصيل: {d.cancel_note}</> : null}
+            </div>
+          )}
         </div>
         <div>
           <h4 style={{ marginBottom: 8 }}>🕐 مسار الطلب + المحادثة</h4>
@@ -480,6 +487,14 @@ function ReportsTab({ user, rid }) {
                 </Card>
                 <Card title="🏆 الأصناف الأكثر طلباً">
                   {data.top.map((t, i) => <div key={i} style={{ padding: '3px 0', fontSize: 13.5 }}>{i + 1}. {t.name} ×{t.qty}</div>)}
+                </Card>
+                <Card title={`❌ الطلبات الملغاة وأسبابها (${data.cancelTotal || 0})`}>
+                  {(data.cancellations || []).map((c, i) => (
+                    <div key={i} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                      <span>{c.cancel_reason}</span><b>{c.c} طلب</b>
+                    </div>
+                  ))}
+                  {!data.cancellations?.length && <div style={{ fontSize: 13, color: 'var(--mut)' }}>لا توجد إلغاءات في هذه الفترة ✅</div>}
                 </Card>
               </div>
               <h4 style={{ margin: '10px 0 8px' }}>📦 تفاصيل الطلبات ({orders.length})</h4>
