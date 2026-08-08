@@ -105,6 +105,7 @@ function mainMenu(phone, rid) {
     { id: 'track', title: '📦 حالة الطلب', description: 'تتبع طلبك الحالي' },
     { id: 'loyalty', title: '⭐ نقاطي ومستواي', description: 'رصيد نقاط الولاء' },
     { id: 'addresses', title: '📍 عناويني', description: 'عناوين التوصيل المحفوظة' },
+    { id: 'cancel', title: '❌ إلغاء الطلب', description: 'إلغاء طلب نشط مع ذكر السبب' },
     { id: 'restaurants', title: '🏪 جميع المطاعم', description: 'الرجوع لقائمة المطاعم' }
   ] }] });
 }
@@ -135,6 +136,9 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // الأوامر العامة في أي وقت
   const bLower = b.toLowerCase();
+  if (['إلغاء', 'الغاء', 'ألغي', 'الغاء الطلب', 'إلغاء الطلب', 'cancel'].includes(bLower) || p === 'cancel') {
+    return handleCancelRequest(phone, rid, customer, data);
+  }
   if (['المطاعم', 'restaurants', 'الدليل'].includes(bLower) || p === 'restaurants') {
     return showRestaurants(phone);
   }
@@ -162,6 +166,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'address_confirm': return handleAddressConfirm(phone, rid, customer, data, p);
     case 'delivery_time': return handleDeliveryTime(phone, rid, customer, data, p);
     case 'tracking': return handleTracking(phone, rid, customer, data, p);
+    case 'cancel_reason': return handleCancelReason(phone, rid, customer, data, p, b);
+    case 'cancel_reason_text': return handleCancelReasonText(phone, rid, customer, data, b);
     case 'rate_restaurant': return handleRate(phone, rid, customer, data, p, b, 'restaurant');
     case 'rate_speed': return handleRate(phone, rid, customer, data, p, b, 'speed');
     case 'rate_captain': return handleRate(phone, rid, customer, data, p, b, 'captain');
@@ -201,12 +207,32 @@ function showCategories(phone, rid, customer) {
 // بطاقة صنف تفاعلية: صورة + اسم + سعر + أزرار (إضافة العدد والتصفح)
 function sendItemCard(phone, rid, idx, items) {
   const item = items[idx];
-  const txt = `*${item.name}*\n${item.description ? item.description + '\n' : ''}💰 ${rls(item.price)} ر.س`;
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const inCart = cart.items.find(i => i.item_id === item.id);
+  const txt = `*${item.name}*\n${item.description ? item.description + '\n' : ''}💰 ${rls(item.price)} ر.س${inCart ? `\n🛒 في سلتك: *×${inCart.quantity}*` : ''}`;
   if (item.image) send(phone, rid, null, 'image', txt, { image: item.image });
   else send(phone, rid, null, 'text', txt);
-  const btns = [{ id: 'add1', title: '➕ إضافة 1' }, { id: 'qty', title: '🔢 كمية أخرى' }];
+  let btns;
+  if (inCart) btns = [{ id: 'inc1', title: '➕ زيادة 1' }, { id: 'dec1', title: '➖ نقصان 1' }];
+  else btns = [{ id: 'add1', title: '➕ إضافة 1' }, { id: 'qty', title: '🔢 كمية أخرى' }];
   btns.push(idx < items.length - 1 ? { id: 'next', title: '⬅️ التالي' } : { id: 'cart', title: '🛒 السلة' });
   return send(phone, rid, null, 'buttons', `(${idx + 1}/${items.length}) اختر:`, { buttons: btns });
+}
+// زيادة/نقصان كمية صنف في السلة
+function adjustQty(phone, rid, itemId, delta) {
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const ex = cart.items.find(i => i.item_id === itemId);
+  if (ex) {
+    ex.quantity += delta;
+    if (ex.quantity <= 0) cart.items = cart.items.filter(i => i.item_id !== itemId);
+  } else if (delta > 0) {
+    const item = q.get("SELECT * FROM items WHERE id=?", itemId);
+    if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: delta });
+  }
+  saveSession(phone, 'browse_items', { ...session.data, cart });
+  return ex;
 }
 function browseItemAt(phone, rid, customer, idx) {
   const session = getSession(phone);
@@ -234,6 +260,16 @@ function handleItems(phone, rid, customer, p) {
   const data = session.data;
   if (p === 'next') return browseItemAt(phone, rid, customer, (data.itemIndex || 0) + 1);
   if (p === 'prev') return browseItemAt(phone, rid, customer, (data.itemIndex || 0) - 1);
+  if (p === 'inc1' || p === 'dec1') {
+    const idx = data.itemIndex || 0;
+    const items = (data.catItems || []).map(id => q.get("SELECT * FROM items WHERE id=?", id)).filter(Boolean);
+    const item = items[idx];
+    if (item) {
+      const ex = adjustQty(phone, rid, item.id, p === 'inc1' ? 1 : -1);
+      if (p === 'dec1' && !ex) send(phone, rid, null, 'text', '🗑 تمت إزالة الصنف من السلة');
+      return browseItemAt(phone, rid, customer, idx);
+    }
+  }
   if (p.startsWith('item:')) return itemDetail(phone, rid, customer, p);
   if (p === 'add1' || p === 'qty' || p === 'cart') return handleItemDetail(phone, rid, customer, data, p, '');
   return showCategories(phone, rid, customer);
@@ -285,6 +321,7 @@ function showCart(phone, rid, customer) {
   }
   saveSession(phone, 'cart', session.data);
   send(phone, rid, null, 'text', cartText(rid, cart));
+  send(phone, rid, null, 'text', '🔢 لتعديل كمية أي صنف: تصفح صنفه من القائمة واضغط ➕ زيادة أو ➖ نقصان');
   return send(phone, rid, null, 'buttons', 'ماذا تريد؟', { buttons: [
     { id: 'checkout', title: '✅ إتمام الطلب' }, { id: 'coupon', title: '🏷 كود خصم' }, { id: 'menu', title: '⬅️ القائمة' }
   ] });
@@ -703,4 +740,71 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     `📍 *وصلت* — إبلاغ العميل بالوصول\n` +
     `🔐 *رمز 123456* — إغلاق الطلب برمز الاستلام\n` +
     `📦 *حالة* — طلباتك النشطة`);
+}
+
+
+// ---------- إلغاء الطلب مع استبيان السبب ----------
+function activeOrderFor(phone) {
+  const cust = q.get("SELECT id FROM customers WHERE phone=?", phone);
+  if (!cust) return null;
+  return q.get("SELECT * FROM orders WHERE customer_id=? AND status NOT IN ('delivered','cancelled') AND order_no != 'DRAFT' ORDER BY id DESC LIMIT 1", cust.id);
+}
+function handleCancelRequest(phone, rid, customer, data) {
+  const order = activeOrderFor(phone);
+  if (!order) return send(phone, rid, null, 'text', 'لا يوجد طلب نشط يمكنك إلغاؤه حالياً ✅');
+  const now = Date.now();
+  const created = new Date(order.created_at.replace(' ', 'T') + 'Z').getTime();
+  const isPaid = order.payment_status === 'paid' && order.payment_method !== 'cash';
+  if (isPaid) {
+    // مدفوع (Apple Pay/مدى): الإلغاء مقبول خلال دقيقتين من الدفع فقط
+    const pay = q.get("SELECT created_at FROM payments WHERE order_id=? AND status='paid' ORDER BY id DESC LIMIT 1", order.id);
+    const paidTime = pay ? new Date(pay.created_at.replace(' ', 'T') + 'Z').getTime() : created;
+    const sincePaid = Math.floor((now - paidTime) / 1000);
+    if (sincePaid >= 120) {
+      return send(phone, rid, order.id, 'text', `❌ لا يمكن إلغاء الطلب ${order.order_no} بعد مرور دقيقتين على الدفع — تم تأكيد المبلغ.\nيمكنك التواصل مع المطعم لترتيب الإرجاع.`);
+    }
+    const wait = 120 - sincePaid;
+    send(phone, rid, order.id, 'text', `⏳ يمكنك إلغاء الطلب خلال ${wait} ثانية فقط (قاعدة الدقيقتين بعد الدفع).`);
+  } else {
+    // غير مدفوع (كاش): الإلغاء مقبول بعد مرور دقيقتين من إنشاء الطلب
+    const sinceCreated = Math.floor((now - created) / 1000);
+    if (sinceCreated < 120) {
+      const wait = 120 - sinceCreated;
+      return send(phone, rid, order.id, 'text', `⏳ يمكنك إلغاء الطلب ${order.order_no} بعد مرور دقيقتين من إنشائه.\n⏱ باقي ${wait} ثانية — حاول بعد قليل.`);
+    }
+  }
+  saveSession(phone, 'cancel_reason', { ...data, cancelOrderId: order.id });
+  send(phone, rid, order.id, 'text', `❓ لماذا تريد إلغاء الطلب ${order.order_no}؟\n(ملاحظتك ستصل لمشرف المطعم)`);
+  return send(phone, rid, order.id, 'buttons', '', { buttons: [
+    { id: 'cr:late_reply', title: '⏱ تأخر الرد' },
+    { id: 'cr:late_captain', title: '🛵 تأخر الكابتن' },
+    { id: 'cr:other', title: '📝 سبب آخر' }
+  ] });
+}
+async function handleCancelReason(phone, rid, customer, data, p, b) {
+  const map = { 'cr:late_reply': 'تأخر الرد', 'cr:late_captain': 'تأخر الكابتن', 'cr:other': 'سبب آخر' };
+  const reason = map[p] || (['تأخر الرد', 'تأخر الكابتن', 'سبب آخر'].includes(b) ? b : null);
+  if (!reason) return send(phone, rid, data.cancelOrderId, 'buttons', 'اختر سبب الإلغاء:', { buttons: [
+    { id: 'cr:late_reply', title: '⏱ تأخر الرد' }, { id: 'cr:late_captain', title: '🛵 تأخر الكابتن' }, { id: 'cr:other', title: '📝 سبب آخر' }
+  ] });
+  if (reason === 'سبب آخر') {
+    saveSession(phone, 'cancel_reason_text', { ...data, cancelReason: reason });
+    return send(phone, rid, data.cancelOrderId, 'text', '📝 اكتب سبب الإلغاء بالتفصيل:');
+  }
+  return finishCancel(phone, rid, customer, data, reason);
+}
+async function handleCancelReasonText(phone, rid, customer, data, b) {
+  if (!b || b.length < 2) return send(phone, rid, data.cancelOrderId, 'text', 'الرجاء كتابة السبب (أو أرسل "تخطي")');
+  const note = b === 'تخطي' ? null : b.slice(0, 200);
+  return finishCancel(phone, rid, customer, data, data.cancelReason || 'سبب آخر', note);
+}
+async function finishCancel(phone, rid, customer, data, reason, note = null) {
+  const { cancelOrder } = await import('./orderService.js');
+  const order = q.get("SELECT * FROM orders WHERE id=?", data.cancelOrderId);
+  if (!order) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
+  cancelOrder(order.id, reason, { note, actorType: 'customer', actorId: customer.id });
+  send(phone, rid, order.id, 'text', `✅ تم إلغاء الطلب ${order.order_no}.\nشكراً لملاحظتك — وصلت لإدارة المطعم 🙏`);
+  const session = getSession(phone);
+  saveSession(phone, 'idle', { ...session.data, orderId: null, cart: { items: [] } });
+  return mainMenu(phone, rid);
 }
