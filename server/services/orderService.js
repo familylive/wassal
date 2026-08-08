@@ -77,13 +77,17 @@ export async function closeOrderWithCode(code, senderPhone, actorType = 'captain
   return { ok: true, order: q.get("SELECT * FROM orders WHERE id=?", order.id) };
 }
 
-export function cancelOrder(orderId, reason = '') {
+export function cancelOrder(orderId, reason = '', opts = {}) {
   const order = q.get("SELECT * FROM orders WHERE id=?", orderId);
   if (!order) return { error: 'طلب غير موجود' };
-  q.run("UPDATE orders SET status='cancelled', updated_at=datetime('now') WHERE id=?", orderId);
-  addEvent(orderId, 'cancelled', reason ? `أُلغي الطلب: ${reason}` : 'أُلغي الطلب');
+  const note = opts.note || null;
+  q.run("UPDATE orders SET status='cancelled', cancel_reason=?, cancel_note=?, cancel_requested_at=COALESCE(cancel_requested_at, datetime('now')), updated_at=datetime('now') WHERE id=?",
+    reason || null, note, orderId);
+  addEvent(orderId, 'cancelled', `أُلغي الطلب${reason ? ' — السبب: ' + reason + (note ? ' (' + note + ')' : '') : ''}`, opts.actorType || 'customer', opts.actorId || null);
   if (order.captain_id) { q.run("UPDATE captains SET status='available' WHERE id=?", order.captain_id); emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status: 'cancelled' }); }
+  emitTo(`restaurant:${order.restaurant_id}`, 'order:cancelled', { orderId, order_no: order.order_no, reason: reason || null, note });
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status: 'cancelled' });
+  emitTo('admin', 'order:cancelled', { orderId, order_no: order.order_no, reason: reason || null });
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'text', body: `تم إلغاء الطلب ${order.order_no}${reason ? ' — ' + reason : ''}` });
   return { ok: true };
