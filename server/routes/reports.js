@@ -49,7 +49,10 @@ router.get('/summary', (req, res) => {
   const delivery = q.get(`SELECT COUNT(*) AS total, SUM(CASE WHEN o.status='delivered' THEN 1 ELSE 0 END) AS delivered,
     SUM(CASE WHEN o.status IN ('arrived','delivered') THEN 1 ELSE 0 END) AS reached
     FROM orders o ${base}`, ...params);
-  res.json({ period: { key: req.query.period || 'daily', ...period }, summary, statuses, payments, top, delivery });
+  // أسباب الإلغاء (استبيان العملاء)
+  const cancellations = q.all(`SELECT o.cancel_reason, COUNT(*) c FROM orders o WHERE ${where} AND o.order_no != 'DRAFT' AND o.status='cancelled' AND o.cancel_reason IS NOT NULL AND o.created_at >= datetime('now','-${days} days') GROUP BY o.cancel_reason ORDER BY c DESC`, ...params);
+  const cancelTotal = q.get(`SELECT COUNT(*) c FROM orders o WHERE ${where} AND o.order_no != 'DRAFT' AND o.status='cancelled' AND o.created_at >= datetime('now','-${days} days')`, ...params);
+  res.json({ period: { key: req.query.period || 'daily', ...period }, summary, statuses, payments, top, delivery, cancellations, cancelTotal: cancelTotal.c });
 });
 
 router.get('/ratings', (req, res) => {
