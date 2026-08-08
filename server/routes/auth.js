@@ -47,7 +47,8 @@ router.post('/register-captain', requireAuth, requireRole('admin'), (req, res) =
 });
 
 // إنشاء حساب موظف فرع (صاحب المطعم الرئيسي) — مشرف / مدير جودة / كاشير
-router.post('/register-branch-user', requireAuth, requireRole('restaurant'), (req, res) => {
+router.post('/register-branch-user', requireAuth, (req, res) => {
+  if (!['restaurant','owner','manager','supervisor','quality'].includes(req.user.role)) return res.status(403).json({ error: 'لا تملك صلاحية' });
   const { branch_id, name, phone, password, role = 'supervisor' } = req.body || {};
   const branch = q.get("SELECT * FROM branches WHERE id=? AND restaurant_id=?", branch_id, req.user.restaurant_id);
   if (!branch) return res.status(400).json({ error: 'الفرع غير موجود لمطعمك' });
