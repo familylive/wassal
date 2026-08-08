@@ -10,6 +10,9 @@ db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
 // ترحيلات للقواعد القائمة
 try { db.exec("ALTER TABLE orders ADD COLUMN branch_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_code TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN cancel_reason TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN cancel_note TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN cancel_requested_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurant_users ADD COLUMN branch_id INTEGER"); } catch {}
 // جلسات واتساب: موحدة لكل عميل — نعيد إنشاء الجدول فقط إذا كان بالبنية القديمة (مفتاح مركب)
 try {
