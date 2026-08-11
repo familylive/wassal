@@ -10,8 +10,8 @@ const router = Router();
 
 // سجل تشخيصي لطلبات الويب هوك (في الذاكرة)
 const webhookHits = [];
-function logHit(kind, summary) {
-  webhookHits.push({ t: new Date().toISOString(), kind, summary: String(summary).slice(0, 120) });
+function logHit(kind, summary, raw = '') {
+  webhookHits.push({ t: new Date().toISOString(), kind, summary: String(summary).slice(0, 120), raw: String(raw).slice(0, 250) });
   if (webhookHits.length > 100) webhookHits.shift();
   console.log('WEBHOOK', kind, String(summary).slice(0, 100));
 }
@@ -84,8 +84,9 @@ router.post('/webhook', async (req, res) => {
     }
     // صيغة LetsBot (baileys) — إن لم تكن رسائل Meta
     if (!msgs.length) {
+      const rawSample = JSON.stringify(req.body);
       for (const m of parseLetsBot(req.body)) {
-        logHit('message', m.phone + ':' + (m.body || m.payload || m.type));
+        logHit('message', m.phone + ':' + (m.body || m.payload || m.type), rawSample);
         if (m.type === 'text') await handleIncoming({ phone: m.phone, body: m.body, type: 'text' });
         else if (m.type === 'location') await handleIncoming({ phone: m.phone, type: 'location', lat: m.lat, lng: m.lng });
         else if (m.type === 'interactive') await handleIncoming({ phone: m.phone, type: 'interactive', payload: m.payload });
