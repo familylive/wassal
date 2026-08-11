@@ -315,9 +315,12 @@ function addToCart(phone, rid, customer, item, qty) {
   const ex = cart.items.find(i => i.item_id === item.id);
   if (ex) ex.quantity += qty; else cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: qty });
   cart.offer = cart.offer || null;
-  saveSession(phone, 'cart', { ...session.data, cart });
-  send(phone, rid, null, 'text', `✅ تمت إضافة *${item.name}* ×${qty} إلى السلة.`);
-  return showCart(phone, rid, customer);
+  const totalQty = cart.items.reduce((s, i) => s + i.quantity, 0);
+  saveSession(phone, 'browse_items', { ...session.data, cart });
+  // تأكيد سريع فقط — السلة الكاملة تُرسل عند الضغط على 🛒 السلة أو إتمام الطلب
+  send(phone, rid, null, 'text', `✅ أُضيف *${item.name}* ×${qty} — الإجمالي ${totalQty} صنف.\nتابع الإضافة أو اضغط 🛒 السلة عند الانتهاء.`);
+  if (session.data.catItems) return browseItemAt(phone, rid, customer, session.data.itemIndex || 0);
+  return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'cart', title: '🛒 السلة' }, { id: 'menu', title: '⬅️ القائمة' }] });
 }
 function showCart(phone, rid, customer) {
   const session = getSession(phone);
