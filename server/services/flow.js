@@ -210,7 +210,7 @@ function showCategories(phone, rid, customer) {
   const session = getSession(phone);
   saveSession(phone, 'browse_categories', session.data);
   send(phone, rid, null, 'text', '🍽 اختر القسم ثم حدد الأصناف التي تريدها (يمكنك تحديد أكثر من صنف) ✅');
-  return send(phone, rid, null, 'list', '', { list: sections.length ? sections : [{ title: 'الأقسام', rows: [{ id: 'none', title: 'لا توجد أصناف بعد' }] }] });
+  return send(phone, rid, null, 'list', 'اختر القسم من القائمة 👇', { list: sections.length ? sections : [{ title: 'الأقسام', rows: [{ id: 'none', title: 'لا توجد أصناف بعد' }] }] });
 }
 // بطاقة صنف تفاعلية: صورة + اسم + سعر + أزرار (إضافة العدد والتصفح)
 function sendItemCard(phone, rid, idx, items) {
