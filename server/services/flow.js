@@ -205,13 +205,12 @@ function handleIdle(phone, rid, customer, p, b) {
 // ---------- تصفح الأقسام ----------
 function showCategories(phone, rid, customer) {
   const cats = q.all("SELECT c.*, (SELECT COUNT(*) FROM items i WHERE i.category_id=c.id AND i.is_available=1) AS cnt FROM categories c WHERE c.restaurant_id=? AND c.is_active=1 ORDER BY c.sort_order, c.id", rid);
-  const pop = q.all("SELECT * FROM items WHERE restaurant_id=? AND is_available=1 AND is_popular=1 ORDER BY id LIMIT 5", rid);
   const sections = [];
-  if (pop.length) sections.push({ title: '⭐ الأكثر طلباً', rows: pop.map(i => ({ id: 'item:' + i.id, title: i.name, description: rls(i.price) + ' ر.س' })) });
   if (cats.length) sections.push({ title: '📂 الأقسام', rows: cats.map(c => ({ id: 'cat:' + c.id, title: c.name, description: (c.cnt || 0) + ' صنف' })) });
   const session = getSession(phone);
   saveSession(phone, 'browse_categories', session.data);
-  return send(phone, rid, null, 'list', 'اختر القسم 👇', { list: sections.length ? sections : [{ title: 'الأقسام', rows: [{ id: 'none', title: 'لا توجد أصناف بعد' }] }] });
+  send(phone, rid, null, 'text', '🍽 اختر القسم ثم حدد الأصناف التي تريدها (يمكنك تحديد أكثر من صنف) ✅');
+  return send(phone, rid, null, 'list', '', { list: sections.length ? sections : [{ title: 'الأقسام', rows: [{ id: 'none', title: 'لا توجد أصناف بعد' }] }] });
 }
 // بطاقة صنف تفاعلية: صورة + اسم + سعر + أزرار (إضافة العدد والتصفح)
 function sendItemCard(phone, rid, idx, items) {
