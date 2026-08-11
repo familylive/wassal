@@ -12,6 +12,7 @@ import stats from './stats.js';
 import whatsapp from './whatsapp.js';
 import branches from './branches.js';
 import reports from './reports.js';
+import dbadmin from './dbadmin.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -27,4 +28,5 @@ router.use('/stats', stats);
 router.use('/whatsapp', whatsapp);
 router.use('/branches', branches);
 router.use('/reports', reports);
+router.use('/dbadmin', dbadmin);
 export default router;
