@@ -13,7 +13,7 @@ tx(() => {
   if (!rest) {
     const r = q.run(`INSERT INTO restaurants (name_ar, name_en, phone, whatsapp_number, city, address, lat, lng, delivery_fee, min_order, avg_prep_time_min, logo, cover, instagram, twitter, is_active)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      'حاشي باشا', 'Hashi Basha', '920005157', '+966550124240', 'الرياض', 'سلسلة مطاعم أكل سعودي تقليدي — 150+ فرعاً في المملكة', 24.7136, 46.6753,
+      'حاشي باشا', 'Hashi Basha', '920005157', '+966558458677', 'الرياض', 'سلسلة مطاعم أكل سعودي تقليدي — 150+ فرعاً في المملكة', 24.7136, 46.6753,
       1000, 2000, 30, IMG('hashi-basha.png'), IMG('Hashi-basha0214.jpg'), 'instagram.com/hashibasha', 'x.com/HashiBasha', 1);
     rest = { id: Number(r.lastInsertRowid) };
     if (!q.get("SELECT id FROM restaurant_users WHERE restaurant_id=?", rest.id))
