@@ -255,11 +255,11 @@ function showItemsList(phone, rid, cid) {
   const cat = q.get("SELECT name FROM categories WHERE id=?", cid);
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
-  // قائمة مرقمة نصية — العميل يكتب الأرقام (1,3,5) لاختيار متعدد سريع
-  let num = '🍽 *' + (cat?.name || '') + '* — اكتب أرقام الأصناف التي تريدها (مثال: 1،3،5):\n';
+  // قائمة بعلامات صح (⬜ = غير محدد، ✅ = محدد) — اضغط على الصنف لتوضع عليه العلامة
+  let num = '☑️ *' + (cat?.name || '') + '* — اضغط على كل صنف تريده لتوضع عليه علامة ✅ (تستطيع اختيار أكثر من صنف):\n\n';
   items.forEach((i, idx) => {
     const ex = cart.items.find(x => x.item_id === i.id);
-    num += `${idx + 1}. ${ex ? '✅ ' : ''}${i.name} — ${rls(i.price)} ر.س${ex ? ' (×' + ex.quantity + ')' : ''}\n`;
+    num += `${ex ? '✅' : '⬜'} ${idx + 1}. ${i.name} — ${rls(i.price)} ر.س${ex ? ' (×' + ex.quantity + ')' : ''}\n`;
   });
   send(phone, rid, null, 'text', num);
   const rows = items.map(i => {
@@ -292,7 +292,7 @@ function selectByNumbers(phone, rid, data, b) {
   }
   if (!added) return null;
   saveSession(phone, 'browse_items', { ...session.data, cart });
-  send(phone, rid, null, 'text', `✅ تم تحديد ${added} صنف — حدد المزيد أو اضغط "أرسل الطلب"`);
+  send(phone, rid, null, 'text', `✅ تم تحديد ${added} صنف — تابع وضع العلامات أو اضغط "أرسل الطلب"`);
   return showItemsList(phone, rid, session.data.lastCat);
 }
 // تحديد صنف (إضافة فقط — لا يلغي بالضغط مرة ثانية)
@@ -306,7 +306,7 @@ function toggleItem(phone, rid, itemId) {
   }
   const item = q.get("SELECT * FROM items WHERE id=?", itemId);
   if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
-  send(phone, rid, null, 'text', `✅ تم تحديد *${item?.name}* — حدد الباقي أو اضغط "أرسل الطلب"`);
+  send(phone, rid, null, 'text', `✅ وُضعت علامة على *${item?.name}* — حدد المزيد أو اضغط "أرسل الطلب"`);
   saveSession(phone, 'browse_items', { ...session.data, cart });
   return showItemsList(phone, rid, session.data.lastCat);
 }
