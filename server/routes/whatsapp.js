@@ -16,7 +16,33 @@ function logHit(kind, summary) {
   console.log('WEBHOOK', kind, String(summary).slice(0, 100));
 }
 
-// ---------- Webhook واتساب (Meta Cloud API) ----------
+// تحويل صيغة LetsBot (baileys) إلى رسائل موحدة
+function parseLetsBot(body) {
+  const msgs = [];
+  const collect = (obj) => {
+    const key = obj?.key || {};
+    const msg = obj?.message || {};
+    const phone = String(key.remoteJid || '').split('@')[0].replace(/[^\d]/g, '');
+    if (!phone || key.fromMe) return;
+    if (msg.conversation) msgs.push({ phone, type: 'text', body: msg.conversation });
+    else if (msg.extendedTextMessage?.text) msgs.push({ phone, type: 'text', body: msg.extendedTextMessage.text });
+    else if (msg.locationMessage) msgs.push({ phone, type: 'location', lat: msg.locationMessage.degreesLatitude, lng: msg.locationMessage.degreesLongitude });
+    else if (msg.interactiveMessage?.buttonReplyMessage?.id) msgs.push({ phone, type: 'interactive', payload: msg.interactiveMessage.buttonReplyMessage.id });
+    else if (msg.interactiveMessage?.listResponseMessage?.singleSelectReply?.selectedRowId) msgs.push({ phone, type: 'interactive', payload: msg.interactiveMessage.listResponseMessage.singleSelectReply.selectedRowId });
+    else if (msg.buttonsResponseMessage?.selectedButtonId) msgs.push({ phone, type: 'interactive', payload: msg.buttonsResponseMessage.selectedButtonId });
+    else if (msg.listResponseMessage?.singleSelectReply?.selectedRowId) msgs.push({ phone, type: 'interactive', payload: msg.listResponseMessage.singleSelectReply.selectedRowId });
+  };
+  const walk = (o) => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    if (o.key && (o.message || o.conversation !== undefined)) collect(o);
+    Object.values(o).forEach(walk);
+  };
+  walk(body);
+  return msgs;
+}
+
+// ---------- Webhook واتساب (Meta Cloud API + LetsBot) ----------
 router.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'], token = req.query['hub.verify_token'], challenge = req.query['hub.challenge'];
   if (mode === 'subscribe' && token === config.whatsapp.verifyToken) return res.send(challenge);
@@ -55,6 +81,16 @@ router.post('/webhook', async (req, res) => {
             await handleIncoming({ phone, restaurantId: targetRid, type: 'interactive', payload: id });
           }
         }
+        }
+      }
+    }
+    // صيغة LetsBot (baileys) — إن لم تكن رسائل Meta
+    if (!msgs.length) {
+      for (const m of parseLetsBot(req.body)) {
+        logHit('message', m.phone + ':' + (m.body || m.payload || m.type));
+        if (m.type === 'text') await handleIncoming({ phone: m.phone, body: m.body, type: 'text' });
+        else if (m.type === 'location') await handleIncoming({ phone: m.phone, type: 'location', lat: m.lat, lng: m.lng });
+        else if (m.type === 'interactive') await handleIncoming({ phone: m.phone, type: 'interactive', payload: m.payload });
       }
     }
   } catch (e) { console.error('webhook error', e.message); }
