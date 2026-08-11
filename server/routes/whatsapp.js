@@ -19,10 +19,12 @@ function logHit(kind, summary, raw = '') {
 // تحويل صيغة LetsBot (baileys) إلى رسائل موحدة
 function parseLetsBot(body) {
   const msgs = [];
-  const collect = (obj) => {
+  const collect = (obj, altJid) => {
     const key = obj?.key || {};
     const msg = obj?.message || {};
-    const phone = String(key.remoteJid || '').split('@')[0].replace(/[^\d]/g, '');
+    // الرقم الحقيقي: remoteJidAlt (بسبب نظام LID الجديد) ثم remoteJid ثم معرّف المحادثة
+    const jid = key.remoteJidAlt || key.remoteJid || altJid || '';
+    const phone = String(jid).split('@')[0].replace(/[^\d]/g, '');
     if (!phone || key.fromMe) return;
     if (msg.conversation) msgs.push({ phone, type: 'text', body: msg.conversation });
     else if (msg.extendedTextMessage?.text) msgs.push({ phone, type: 'text', body: msg.extendedTextMessage.text });
@@ -32,11 +34,17 @@ function parseLetsBot(body) {
     else if (msg.buttonsResponseMessage?.selectedButtonId) msgs.push({ phone, type: 'interactive', payload: msg.buttonsResponseMessage.selectedButtonId });
     else if (msg.listResponseMessage?.singleSelectReply?.selectedRowId) msgs.push({ phone, type: 'interactive', payload: msg.listResponseMessage.singleSelectReply.selectedRowId });
   };
-  const walk = (o) => {
+  const walk = (o, altJid) => {
     if (!o || typeof o !== 'object') return;
     if (Array.isArray(o)) { o.forEach(walk); return; }
-    if (o.key && (o.message || o.conversation !== undefined)) collect(o);
-    Object.values(o).forEach(walk);
+    // data.conversations[].id = مرسل الرسالة
+    if (o.id && typeof o.id === 'string' && o.id.endsWith('@s.whatsapp.net') && o.messages && Array.isArray(o.messages)) {
+      for (const m of o.messages) { if (m && m.message) collect(m.message, o.id); }
+      Object.values(o).forEach(v => walk(v, altJid));
+      return;
+    }
+    if (o.key && (o.message || o.conversation !== undefined)) collect(o, altJid);
+    Object.values(o).forEach(v => walk(v, altJid));
   };
   walk(body);
   return msgs;
