@@ -8,6 +8,14 @@ import { validatePhone } from '../utils.js';
 
 const router = Router();
 
+// سجل تشخيصي لطلبات الويب هوك (في الذاكرة)
+const webhookHits = [];
+function logHit(kind, summary) {
+  webhookHits.push({ t: new Date().toISOString(), kind, summary: String(summary).slice(0, 120) });
+  if (webhookHits.length > 100) webhookHits.shift();
+  console.log('WEBHOOK', kind, String(summary).slice(0, 100));
+}
+
 // ---------- Webhook واتساب (Meta Cloud API) ----------
 router.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'], token = req.query['hub.verify_token'], challenge = req.query['hub.challenge'];
@@ -18,6 +26,10 @@ router.get('/webhook', (req, res) => {
 router.post('/webhook', async (req, res) => {
   res.sendStatus(200); // أجب فوراً لتجنب إعادة الإرسال
   try {
+    const entries = req.body?.entry || [];
+    const msgs = entries.flatMap(e => (e.changes || []).flatMap(c => c.value?.messages || []));
+    const statuses = entries.flatMap(e => (e.changes || []).flatMap(c => c.value?.statuses || []));
+    logHit(msgs.length ? 'message' : statuses.length ? 'status' : 'ping', msgs.length ? (msgs[0].from + ':' + (msgs[0].text?.body || msgs[0].type)) : (statuses[0]?.status || 'empty'));
     for (const entry of req.body?.entry || []) {
       for (const change of entry.changes || []) {
         for (const msg of change.value?.messages || []) {
@@ -60,6 +72,9 @@ router.post('/simulate', async (req, res) => {
 });
 
 // رسالة من جوال المندوب لواتساب المطعم — رمز الاستلام يغلق الطلب
+// سجل آخر طلبات الويب هوك (تشخيص)
+router.get('/debug', (req, res) => res.json(webhookHits.slice(-25)));
+
 router.post('/captain-message', async (req, res) => {
   const { captain_phone, body = '' } = req.body || {};
   const m = String(body || '').trim();
