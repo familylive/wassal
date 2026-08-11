@@ -8,11 +8,11 @@ export const config = {
   publicUrl: process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`,
   // WhatsApp Cloud API (Meta) — fill .env to go live
   whatsapp: {
-    provider: process.env.WHATSAPP_PROVIDER || 'simulator', // simulator | cloud | webhook
+    provider: process.env.WHATSAPP_PROVIDER || 'simulator', // simulator | cloud | 360dialog
     token: process.env.WHATSAPP_TOKEN || '',
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'wassal-verify',
-    apiUrl: 'https://graph.facebook.com/v21.0'
+    apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0'
   },
   // Moyasar — https://dashboard.moyasar.com (Apple Pay + Mada)
   moyasar: {
