@@ -4,8 +4,8 @@ import { q } from '../db.js';
 
 // ---------- provider: Meta WhatsApp Cloud API ----------
 async function sendCloud({ phone, type, body, buttons, list, image }) {
-  const { token, phoneNumberId, apiUrl } = config.whatsapp;
-  if (!token || !phoneNumberId) throw new Error('WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID غير معرّفة');
+  const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
+  if (!token) throw new Error('WHATSAPP_TOKEN غير معرّف');
   let msg;
   if (type === 'text') msg = { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body } };
   else if (type === 'buttons') msg = {
@@ -17,7 +17,11 @@ async function sendCloud({ phone, type, body, buttons, list, image }) {
     interactive: { type: 'list', body: { text: body }, action: { button: 'اختر', sections: list } }
   };
   else if (type === 'image') msg = { messaging_product: 'whatsapp', to: phone, type: 'image', image: { link: image, caption: body || '' } };
-  const r = await axios.post(`${apiUrl}/${phoneNumberId}/messages`, msg, { headers: { Authorization: `Bearer ${token}` } });
+  // 360dialog: نفس صيغة Meta لكن عبر بوابة 360dialog
+  const is360 = provider === '360dialog';
+  const url = is360 ? `${apiUrl}/v1/messages` : `${apiUrl}/${phoneNumberId}/messages`;
+  const headers = is360 ? { 'D360-API-KEY': token } : { Authorization: `Bearer ${token}` };
+  const r = await axios.post(url, msg, { headers });
   return r.data;
 }
 
@@ -26,7 +30,7 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
   const payload = JSON.stringify({ buttons, list, image });
   q.run("INSERT INTO conversations (order_id, phone, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?)",
     orderId, phone || null, participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
-  if (config.whatsapp.provider === 'cloud' && channel !== 'simulator-only') {
+  if (['cloud', '360dialog'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try { await sendCloud({ phone, type, body, buttons, list, image }); }
     catch (e) { console.error('WA send failed:', e.message); }
   }
