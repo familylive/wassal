@@ -69,8 +69,13 @@ function cartText(rid, cart, branch = null) {
 // دليل المطاعم: كل المطاعم في النظام — العميل يختار ويفتح محادثة واتسابه
 function showRestaurants(phone) {
   const rests = q.all("SELECT r.*, (SELECT COUNT(*) FROM branches b WHERE b.restaurant_id=r.id AND b.is_active=1) AS branches_count FROM restaurants r WHERE r.is_active=1 ORDER BY r.rating_avg DESC, r.id");
-  saveSession(phone, 'directory', {});
   if (!rests.length) return send(phone, null, null, 'text', 'لا توجد مطاعم متاحة حالياً 🍽️');
+  saveSession(phone, 'directory', { restList: rests.map(r => r.id) });
+  let t = '🏪 *اختر المطعم* (أرسل رقمه أو اسمه):\n';
+  rests.slice(0, 10).forEach((r, i) => {
+    t += `${i + 1}. ${r.name_ar}${r.city ? ' — ' + r.city : ''}${r.rating_avg ? ' ⭐' + r.rating_avg : ''}\n`;
+  });
+  send(phone, null, null, 'text', t);
   const rows = rests.slice(0, 10).map(r => ({
     id: 'rest:' + r.id,
     title: r.name_ar,
@@ -82,6 +87,13 @@ function showRestaurants(phone) {
 }
 function handleDirectory(phone, p, b) {
   if (p.startsWith('rest:')) return selectRestaurant(phone, Number(p.split(':')[1]));
+  // اختيار المطعم برقم
+  if (!p && b && /^\d+$/.test(b)) {
+    const session = getSession(phone);
+    const list = session.data.restList || [];
+    const rid = list[parseInt(b, 10) - 1];
+    if (rid) return selectRestaurant(phone, rid);
+  }
   // دعم كتابة اسم المطعم بدل الضغط
   if (b && b.length > 1) {
     const rests = q.all("SELECT * FROM restaurants WHERE is_active=1");
@@ -105,6 +117,9 @@ function mainMenu(phone, rid) {
   const rest = q.get("SELECT name_ar, logo, cover FROM restaurants WHERE id=?", rid);
   let txt = `أهلاً بك في *${rest.name_ar}* 🍽️\nنوصل طلبك حتى باب بيتك بسرعة!`;
   if (ad) txt += `\n\n📣 *إعلان:* ${ad.title}${ad.rname ? ' — ' + ad.rname : ''}`;
+  // حفظ خيارات القائمة للاختيار بالأرقام
+  const session = getSession(phone);
+  saveSession(phone, 'idle', { ...session.data, mainOptions: ['menu', 'offers', 'cart', 'track', 'loyalty', 'addresses', 'cancel', 'restaurants'] });
   send(phone, rid, null, 'list', txt, { list: [{ title: 'القائمة الرئيسية', rows: [
     { id: 'menu', title: '🍽 قائمة الطعام', description: 'تصفح الأقسام والأصناف' },
     { id: 'offers', title: '🔥 العروض', description: 'أقوى عروض المطعم' },
@@ -158,7 +173,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   switch (state) {
     case 'idle': return handleIdle(phone, rid, customer, p, b);
-    case 'browse_categories': return handleCat(phone, rid, customer, p);
+    case 'browse_categories': return handleCat(phone, rid, customer, p, b);
     case 'browse_items': return handleItems(phone, rid, customer, p, b);
     case 'item_detail': return handleItemDetail(phone, rid, customer, data, p, b);
     case 'item_qty': return handleItemQty(phone, rid, customer, data, b);
@@ -192,6 +207,12 @@ function handleIdle(phone, rid, customer, p, b) {
     offers: 'offers', العروض: 'offers', cart: 'cart', السلة: 'cart', 'سلة الطلب': 'cart',
     track: 'track', 'حالة الطلب': 'track', حالة: 'track', loyalty: 'loyalty', نقاطي: 'loyalty',
     addresses: 'addresses', عناويني: 'addresses' };
+  // اختيار برقم القائمة
+  const n = parseInt(b, 10);
+  if (n >= 1 && n <= 8) {
+    const opts = ['menu', 'offers', 'cart', 'track', 'loyalty', 'addresses', 'cancel', 'restaurants'];
+    p = opts[n - 1]; b = opts[n - 1];
+  }
   const sel = c[p] || c[b.toLowerCase()] || null;
   if (sel === 'menu') return showCategories(phone, rid, customer);
   if (sel === 'offers') return showOffers(phone, rid, customer);
@@ -199,18 +220,21 @@ function handleIdle(phone, rid, customer, p, b) {
   if (sel === 'track') return showTracking(phone, rid, customer);
   if (sel === 'loyalty') return showLoyalty(phone, rid, customer);
   if (sel === 'addresses') return showAddresses(phone, rid, customer);
+  if (sel === 'restaurants') return showRestaurants(phone);
+  if (sel === 'cancel') return handleCancelRequest(phone, rid, customer, getSession(phone).data);
   return mainMenu(phone, rid);
 }
 
 // ---------- تصفح الأقسام ----------
 function showCategories(phone, rid, customer) {
   const cats = q.all("SELECT c.*, (SELECT COUNT(*) FROM items i WHERE i.category_id=c.id AND i.is_available=1) AS cnt FROM categories c WHERE c.restaurant_id=? AND c.is_active=1 ORDER BY c.sort_order, c.id", rid);
-  const sections = [];
-  if (cats.length) sections.push({ title: '📂 الأقسام', rows: cats.map(c => ({ id: 'cat:' + c.id, title: c.name, description: (c.cnt || 0) + ' صنف' })) });
   const session = getSession(phone);
-  saveSession(phone, 'browse_categories', session.data);
-  send(phone, rid, null, 'text', '🍽 اختر القسم ثم حدد الأصناف التي تريدها (يمكنك تحديد أكثر من صنف) ✅');
-  return send(phone, rid, null, 'list', 'اختر القسم من القائمة 👇', { list: sections.length ? sections : [{ title: 'الأقسام', rows: [{ id: 'none', title: 'لا توجد أصناف بعد' }] }] });
+  saveSession(phone, 'browse_categories', { ...session.data, catList: cats.map(c => c.id) });
+  if (!cats.length) return send(phone, rid, null, 'text', 'لا توجد أقسام حالياً');
+  let t = '🍽 اختر القسم (أرسل رقمه):\n';
+  cats.forEach((c, i) => { t += `${i + 1}. ${c.icon || ''} ${c.name} — ${c.cnt || 0} صنف\n`; });
+  send(phone, rid, null, 'text', t);
+  return send(phone, rid, null, 'list', 'اختر القسم من القائمة 👇', { list: [{ title: 'الأقسام', rows: cats.map(c => ({ id: 'cat:' + c.id, title: c.name, description: (c.cnt || 0) + ' صنف' })) }] });
 }
 // بطاقة صنف تفاعلية: صورة + اسم + سعر + أزرار (إضافة العدد والتصفح)
 function sendItemCard(phone, rid, idx, items) {
@@ -310,7 +334,14 @@ function toggleItem(phone, rid, itemId) {
   saveSession(phone, 'browse_items', { ...session.data, cart });
   return showItemsList(phone, rid, session.data.lastCat);
 }
-function handleCat(phone, rid, customer, p) {
+function handleCat(phone, rid, customer, p, b) {
+  // اختيار القسم برقم
+  if (!p && b && /^\d+$/.test(b)) {
+    const session = getSession(phone);
+    const list = session.data.catList || [];
+    const cid = list[parseInt(b, 10) - 1];
+    if (cid) p = 'cat:' + cid;
+  }
   if (p.startsWith('cat:')) {
     const cid = Number(p.split(':')[1]);
     const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, cid);
