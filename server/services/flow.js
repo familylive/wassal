@@ -268,19 +268,18 @@ function showItemsList(phone, rid, cid) {
     { id: 'send_order', title: '✅ أرسل الطلب' }, { id: 'cart', title: '🛒 السلة' }
   ] });
 }
-// تبديل تحديد صنف (تحديد/إلغاء)
+// تحديد صنف (إضافة فقط — لا يلغي بالضغط مرة ثانية)
 function toggleItem(phone, rid, itemId) {
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
   const ex = cart.items.find(i => i.item_id === itemId);
   if (ex) {
-    cart.items = cart.items.filter(i => i.item_id !== itemId);
-    send(phone, rid, null, 'text', `❌ أُلغي تحديد *${ex.name}*`);
-  } else {
-    const item = q.get("SELECT * FROM items WHERE id=?", itemId);
-    if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
-    send(phone, rid, null, 'text', `✅ تم تحديد *${item?.name}* — حدد الباقي أو اضغط "أرسل الطلب"`);
+    send(phone, rid, null, 'text', `✅ *${ex.name}* موجود في السلة (×${ex.quantity}) — تابع تحديد الباقي.`);
+    return showItemsList(phone, rid, session.data.lastCat);
   }
+  const item = q.get("SELECT * FROM items WHERE id=?", itemId);
+  if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
+  send(phone, rid, null, 'text', `✅ تم تحديد *${item?.name}* — حدد الباقي أو اضغط "أرسل الطلب"`);
   saveSession(phone, 'browse_items', { ...session.data, cart });
   return showItemsList(phone, rid, session.data.lastCat);
 }
