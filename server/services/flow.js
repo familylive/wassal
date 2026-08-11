@@ -248,16 +248,48 @@ function browseItemAt(phone, rid, customer, idx) {
   saveSession(phone, 'browse_items', { ...session.data, itemIndex: idx, currentItem: items[idx].id });
   return sendItemCard(phone, rid, idx, items);
 }
+// قائمة الأصناف بعلامات صح: اضغط على الصنف لتحديده (✓) أو إلغاء تحديده، ثم أرسل الطلب
+function showItemsList(phone, rid, cid) {
+  const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, cid);
+  const cat = q.get("SELECT name FROM categories WHERE id=?", cid);
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const rows = items.map(i => {
+    const ex = cart.items.find(x => x.item_id === i.id);
+    return { id: 'item:' + i.id, title: (ex ? '✅ ' : '') + i.name, description: rls(i.price) + ' ر.س' + (ex ? ' — في السلة ×' + ex.quantity : '') };
+  });
+  saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0 });
+  send(phone, rid, null, 'text', `🍽 قسم *${cat?.name}* — ${items.length} صنف\n✅ اضغط على الأصناف التي تريدها (علامة صح = محددة) ثم أرسل الطلب.`);
+  // القوائم التفاعلية حد أقصى 10 صفوف — نقسم إذا زاد
+  for (let i = 0; i < rows.length; i += 10) {
+    send(phone, rid, null, 'list', 'حدد الأصناف:', { list: [{ title: cat?.name || '', rows: rows.slice(i, i + 10) }] });
+  }
+  return send(phone, rid, null, 'buttons', '', { buttons: [
+    { id: 'send_order', title: '✅ أرسل الطلب' }, { id: 'cart', title: '🛒 السلة' }
+  ] });
+}
+// تبديل تحديد صنف (تحديد/إلغاء)
+function toggleItem(phone, rid, itemId) {
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const ex = cart.items.find(i => i.item_id === itemId);
+  if (ex) {
+    cart.items = cart.items.filter(i => i.item_id !== itemId);
+    send(phone, rid, null, 'text', `❌ أُلغي تحديد *${ex.name}*`);
+  } else {
+    const item = q.get("SELECT * FROM items WHERE id=?", itemId);
+    if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
+    send(phone, rid, null, 'text', `✅ تم تحديد *${item?.name}* — حدد الباقي أو اضغط "أرسل الطلب"`);
+  }
+  saveSession(phone, 'browse_items', { ...session.data, cart });
+  return showItemsList(phone, rid, session.data.lastCat);
+}
 function handleCat(phone, rid, customer, p) {
   if (p.startsWith('cat:')) {
     const cid = Number(p.split(':')[1]);
     const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, cid);
-    const cat = q.get("SELECT name FROM categories WHERE id=?", cid);
-    const session = getSession(phone);
     if (!items.length) return send(phone, rid, null, 'text', 'لا توجد أصناف في هذا القسم حالياً.');
-    saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0 });
-    send(phone, rid, null, 'text', `🍽 قسم *${cat?.name}* — ${items.length} صنف\nتصفح كل صنف بصورته وسعره، واضغط ➕ لإضافته 👇`);
-    return browseItemAt(phone, rid, customer, 0);
+    return showItemsList(phone, rid, cid);
   }
   if (p.startsWith('item:')) return itemDetail(phone, rid, customer, p);
   return showCategories(phone, rid, customer);
@@ -265,20 +297,10 @@ function handleCat(phone, rid, customer, p) {
 function handleItems(phone, rid, customer, p) {
   const session = getSession(phone);
   const data = session.data;
-  if (p === 'next') return browseItemAt(phone, rid, customer, (data.itemIndex || 0) + 1);
-  if (p === 'prev') return browseItemAt(phone, rid, customer, (data.itemIndex || 0) - 1);
-  if (p === 'inc1' || p === 'dec1') {
-    const idx = data.itemIndex || 0;
-    const items = (data.catItems || []).map(id => q.get("SELECT * FROM items WHERE id=?", id)).filter(Boolean);
-    const item = items[idx];
-    if (item) {
-      const ex = adjustQty(phone, rid, item.id, p === 'inc1' ? 1 : -1);
-      if (p === 'dec1' && !ex) send(phone, rid, null, 'text', '🗑 تمت إزالة الصنف من السلة');
-      return browseItemAt(phone, rid, customer, idx);
-    }
-  }
-  if (p.startsWith('item:')) return itemDetail(phone, rid, customer, p);
-  if (p === 'add1' || p === 'qty' || p === 'cart') return handleItemDetail(phone, rid, customer, data, p, '');
+  if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
+  if (p === 'send_order') return sendOrderReview(phone, rid, customer);
+  if (p === 'cart') return showCart(phone, rid, customer);
+  if (p === 'add1' || p === 'qty') return handleItemDetail(phone, rid, customer, data, p, '');
   return showCategories(phone, rid, customer);
 }
 
