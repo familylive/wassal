@@ -35,11 +35,11 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
   if (type === 'text') {
     r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body }), { headers });
   } else if (type === 'buttons') {
-    const p = { phone: to, title: 'واتس هم', body, footer: '' };
+    const p = { phone: to, title: 'واتس هم', body, footer: 'واتس هم' };
     (buttons || []).slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
     r = await axios.post(`${apiUrl}/button`, fd(p), { headers });
   } else if (type === 'list') {
-    const p = { phone: to, title: 'القائمة', body, footer: '', buttonText: 'اختر' };
+    const p = { phone: to, title: 'واتس هم', body, footer: 'اختر من القائمة', buttonText: 'اختر' };
     (list || []).forEach((sec, si) => {
       p[`sections[${si}][title]`] = sec.title || '';
       (sec.rows || []).forEach((row, ri) => {
