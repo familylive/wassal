@@ -25,14 +25,45 @@ async function sendCloud({ phone, type, body, buttons, list, image }) {
   return r.data;
 }
 
+// LetsBot: WhatsApp Web API (formdata) — https://letsbot.net/api/v1
+async function sendLetsBot({ phone, type, body, buttons, list, image }) {
+  const { token, apiUrl } = config.whatsapp;
+  const to = String(phone).replace(/[^\d]/g, '');
+  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/x-www-form-urlencoded' };
+  const fd = (obj) => new URLSearchParams(obj).toString();
+  let r;
+  if (type === 'text') {
+    r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body }), { headers });
+  } else if (type === 'buttons') {
+    const p = { phone: to, title: 'واتس هم', body, footer: '' };
+    (buttons || []).slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
+    r = await axios.post(`${apiUrl}/button`, fd(p), { headers });
+  } else if (type === 'list') {
+    const p = { phone: to, title: 'القائمة', body, footer: '', buttonText: 'اختر' };
+    (list || []).forEach((sec, si) => {
+      p[`sections[${si}][title]`] = sec.title || '';
+      (sec.rows || []).forEach((row, ri) => {
+        p[`sections[${si}][rows][${ri}][rowId]`] = row.id;
+        p[`sections[${si}][rows][${ri}][title]`] = row.title;
+        if (row.description) p[`sections[${si}][rows][${ri}][description]`] = row.description;
+      });
+    });
+    r = await axios.post(`${apiUrl}/list/message`, fd(p), { headers });
+  } else if (type === 'image' && image) {
+    r = await axios.post(`${apiUrl}/send/image`, fd({ phone: to, url: image, caption: body || '' }), { headers });
+  }
+  return r?.data;
+}
+
 // ---------- log + deliver ----------
 export async function waSend({ phone, restaurantId, orderId = null, type = 'text', body = null, buttons = null, list = null, image = null, participant = 'customer', channel = null }) {
   const payload = JSON.stringify({ buttons, list, image });
   q.run("INSERT INTO conversations (order_id, phone, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?)",
     orderId, phone || null, participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
-  if (['cloud', '360dialog'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
+  if (['cloud', '360dialog', 'letsbot'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try {
-      await sendCloud({ phone, type, body, buttons, list, image });
+      if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
+      else await sendCloud({ phone, type, body, buttons, list, image });
       console.log('WA_SEND_OK', type, phone);
     } catch (e) {
       console.error('WA_SEND_FAIL', type, phone, e.message);
