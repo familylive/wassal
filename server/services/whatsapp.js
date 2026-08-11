@@ -39,16 +39,20 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
     (buttons || []).slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
     r = await axios.post(`${apiUrl}/button`, fd(p), { headers });
   } else if (type === 'list') {
-    const p = { phone: to, title: 'واتس هم', body, footer: 'اختر من القائمة', buttonText: 'اختر' };
-    (list || []).forEach((sec, si) => {
-      p[`sections[${si}][title]`] = sec.title || '';
-      (sec.rows || []).forEach((row, ri) => {
-        p[`sections[${si}][rows][${ri}][rowId]`] = row.id;
-        p[`sections[${si}][rows][${ri}][title]`] = row.title;
-        if (row.description) p[`sections[${si}][rows][${ri}][description]`] = row.description;
-      });
-    });
-    r = await axios.post(`${apiUrl}/list/message`, fd(p), { headers });
+    // LetsBot لا يدعم القوائم التفاعلية عبر API → نص مرقّم (يعمل مع أي مزود)
+    let t = (body || '') + '\n';
+    let n = 1;
+    (list || []).forEach(sec => (sec.rows || []).forEach(row => {
+      t += `${n}. ${row.title}${row.description ? ' — ' + row.description : ''}\n`;
+      n++;
+    }));
+    t += '\n📲 أرسل رقم الاختيار';
+    r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body: t }), { headers });
+  } else if (type === 'buttons') {
+    let t = (body || '') + '\n';
+    (buttons || []).forEach((b, i) => { t += `${i + 1}. ${b.title}\n`; });
+    t += '\n📲 أرسل رقم الاختيار';
+    r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body: t }), { headers });
   } else if (type === 'image' && image) {
     r = await axios.post(`${apiUrl}/send/image`, fd({ phone: to, url: image, caption: body || '' }), { headers });
   }
