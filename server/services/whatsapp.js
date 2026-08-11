@@ -31,8 +31,12 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
   q.run("INSERT INTO conversations (order_id, phone, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?)",
     orderId, phone || null, participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
   if (['cloud', '360dialog'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
-    try { await sendCloud({ phone, type, body, buttons, list, image }); }
-    catch (e) { console.error('WA send failed:', e.message); }
+    try {
+      await sendCloud({ phone, type, body, buttons, list, image });
+      console.log('WA_SEND_OK', type, phone);
+    } catch (e) {
+      console.error('WA_SEND_FAIL', type, phone, e.message);
+    }
   }
 }
 
