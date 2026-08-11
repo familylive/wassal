@@ -56,7 +56,7 @@ router.post('/webhook', async (req, res) => {
     const msgs = entries.flatMap(e => (e.changes || []).flatMap(c => c.value?.messages || []));
     const statuses = entries.flatMap(e => (e.changes || []).flatMap(c => c.value?.statuses || []));
     logHit(msgs.length ? 'message' : statuses.length ? 'status' : 'ping', msgs.length ? (msgs[0].from + ':' + (msgs[0].text?.body || msgs[0].type)) : (statuses[0]?.status || 'empty'));
-    for (const entry of req.body?.entry || []) {
+    for (const entry of entries) {
       for (const change of entry.changes || []) {
         for (const msg of change.value?.messages || []) {
           const phone = msg.from;
@@ -65,7 +65,6 @@ router.post('/webhook', async (req, res) => {
             await handleCaptainIncoming({ phone, body: msg.text?.body });
             continue;
           }
-          // المطعم صاحب الرقم: نطابق رقم الواتساب الوارد مع المطاعم المسجلة
           const metaNumber = String(change.value.metadata?.display_phone_number || '').replace(/[^\d]/g, '');
           let rest = null;
           if (metaNumber) {
@@ -80,7 +79,6 @@ router.post('/webhook', async (req, res) => {
             const id = i?.button_reply?.id || i?.list_reply?.id || null;
             await handleIncoming({ phone, restaurantId: targetRid, type: 'interactive', payload: id });
           }
-        }
         }
       }
     }
