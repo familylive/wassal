@@ -80,17 +80,24 @@ function showRestaurants(phone) {
     list: [{ title: '🍽 المطاعم المتاحة', rows }]
   });
 }
-function handleDirectory(phone, p) {
-  if (p.startsWith('rest:')) {
-    const rid = Number(p.split(':')[1]);
-    const rest = q.get("SELECT id FROM restaurants WHERE id=? AND is_active=1", rid);
-    if (!rest) return showRestaurants(phone);
-    const session = getSession(phone);
-    saveSession(phone, 'idle', { ...session.data, currentRestaurantId: rid });
-    send(phone, rid, null, 'text', `✅ تم اختيار *${q.get('SELECT name_ar FROM restaurants WHERE id=?', rid).name_ar}* 🍽️`);
-    return mainMenu(phone, rid);
+function handleDirectory(phone, p, b) {
+  if (p.startsWith('rest:')) return selectRestaurant(phone, Number(p.split(':')[1]));
+  // دعم كتابة اسم المطعم بدل الضغط
+  if (b && b.length > 1) {
+    const rests = q.all("SELECT * FROM restaurants WHERE is_active=1");
+    const clean = b.replace(/[\-٠-٩0-9\s\/،,]/g, '');
+    const match = rests.find(r => clean.includes(r.name_ar) || r.name_ar.includes(clean) || (r.name_en && clean.toLowerCase().includes(r.name_en.toLowerCase())));
+    if (match) return selectRestaurant(phone, match.id);
   }
   return showRestaurants(phone);
+}
+function selectRestaurant(phone, rid) {
+  const rest = q.get("SELECT * FROM restaurants WHERE id=? AND is_active=1", rid);
+  if (!rest) return showRestaurants(phone);
+  const session = getSession(phone);
+  saveSession(phone, 'idle', { ...session.data, currentRestaurantId: rid });
+  send(phone, rid, null, 'text', `✅ تم اختيار *${rest.name_ar}* 🍽️`);
+  return mainMenu(phone, rid);
 }
 
 function mainMenu(phone, rid) {
@@ -147,7 +154,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     return mainMenu(phone, rid);
   }
 
-  if (state === 'directory') return handleDirectory(phone, p);
+  if (state === 'directory') return handleDirectory(phone, p, b);
 
   switch (state) {
     case 'idle': return handleIdle(phone, rid, customer, p, b);
