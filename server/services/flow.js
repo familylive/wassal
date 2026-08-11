@@ -85,7 +85,7 @@ function handleDirectory(phone, p, b) {
   // دعم كتابة اسم المطعم بدل الضغط
   if (b && b.length > 1) {
     const rests = q.all("SELECT * FROM restaurants WHERE is_active=1");
-    const clean = b.replace(/[\-٠-٩0-9\s\/،,]/g, '');
+    const clean = b.replace(/[\-٠-٩0-9\/،,]/g, ' ').replace(/\s+/g, ' ').trim();
     const match = rests.find(r => clean.includes(r.name_ar) || r.name_ar.includes(clean) || (r.name_en && clean.toLowerCase().includes(r.name_en.toLowerCase())));
     if (match) return selectRestaurant(phone, match.id);
   }
