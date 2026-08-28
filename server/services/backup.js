@@ -1,7 +1,7 @@
 // ---------- نسخ احتياطي تلقائي لقاعدة البيانات (مستودع GitHub خاص) ----------
 // المشكلة: قاعدة SQLite على Render تُمسح عند كل نشر
 // الحل: رفع نسخة للمستودع الخاص familylive/wassal-db-backup + استعادة عند الإقلاع
-import { readFileSync, existsSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, statSync, rmSync } from 'node:fs';
 import axios from 'axios';
 import config from './../config.js';
 
@@ -22,26 +22,35 @@ async function fetchBackup() {
   return null;
 }
 
-// استعادة عند الإقلاع إذا كانت القاعدة فارغة/جديدة (بعد مسح Render)
+// استعادة عند الإقلاع: النسخة الاحتياطية هي الأحدث دائماً — نستبدل القاعدة المحلية بها
 export async function restoreIfNeeded() {
   const backup = await fetchBackup();
   if (!backup) return false;
-  const local = existsSync(config.dbPath) ? statSync(config.dbPath).size : 0;
-  if (local < 4000) {
-    try {
-      writeFileSync(config.dbPath, backup);
-      console.log('DB_RESTORED_FROM_BACKUP', backup.length);
-      return true;
-    } catch (e) { console.error('DB_RESTORE_FAIL', e.message); }
-  }
+  // تحقق أن الملف قاعدة SQLite صحيحة (ترويسة)
+  const head = backup.slice(0, 16).toString('ascii');
+  if (!head.includes('SQLite format 3')) return false;
+  if (backup.length < 60000) return false; // قاعدة شبه فارغة — نتجاهلها ونبقي المحلية
+  try {
+    // حذف ملفات WAL قديمة قبل الكتابة فوق القاعدة (تجنب فساد)
+    try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
+    try { rmSync(config.dbPath + '-shm', { force: true }); } catch {}
+    writeFileSync(config.dbPath, backup);
+    console.log('DB_RESTORED_FROM_BACKUP', backup.length);
+    return true;
+  } catch (e) { console.error('DB_RESTORE_FAIL', e.message); }
   return false;
 }
 
-// رفع نسخة الآن
+// رفع نسخة الآن — مع تدقيق WAL أولاً حتى تشمل النسخة أحدث البيانات
 export async function backupNow() {
   if (!TOKEN) return false;
   try {
     if (!existsSync(config.dbPath)) return false;
+    // ⚠️ مهم: تدقيق WAL قبل القراءة (وإلا تفوت النسخة أحدث الطلبات)
+    try {
+      const { q } = await import('../db.js');
+      q.run('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (e) { console.error('WAL_CHECKPOINT_FAIL', e.message); }
     const content = readFileSync(config.dbPath).toString('base64');
     let sha = null;
     try {
