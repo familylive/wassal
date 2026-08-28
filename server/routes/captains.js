@@ -4,6 +4,13 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { captainAccept } from '../services/dispatch.js';
 
 const router = Router();
+
+// قائمة عامة للكباتن (للمحاكي/الواجهات العامة)
+router.get('/public', (req, res) => {
+  const rows = q.all("SELECT id, name, phone, status, vehicle_type FROM captains WHERE is_active=1 ORDER BY id");
+  res.json(rows);
+});
+
 router.use(requireAuth);
 
 router.get('/', (req, res) => {

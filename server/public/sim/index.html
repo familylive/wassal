@@ -176,6 +176,12 @@ function resetChat(){if(!confirm('مسح جلسة المحاكاة؟'))return;fe
   const sel=document.getElementById('restSel');
   rests.forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=x.name_ar;sel.appendChild(o)});
   sel.onchange=()=>{RID=Number(sel.value);refresh(true)};
+  // تحميل الكباتن الفعليين من قاعدة البيانات (مطابق للوحة التحكم)
+  try{
+    const rc=await fetch(`${API}/captains/public`);const caps=await rc.json();
+    const ps=document.getElementById('phoneSel');
+    caps.forEach(c=>{const o=document.createElement('option');o.value=c.phone;o.textContent=`🛵 ${c.name} (${c.phone})`;ps.appendChild(o)});
+  }catch(e){console.log('تعذر تحميل الكباتن',e)}
   document.getElementById('phoneSel').onchange=e=>{
     const v=e.target.value;
     if(v==='new'){document.getElementById('phoneNew').style.display='inline-block';PHONE=document.getElementById('phoneNew').value}
@@ -183,7 +189,7 @@ function resetChat(){if(!confirm('مسح جلسة المحاكاة؟'))return;fe
     refresh(true);
   };
   document.getElementById('phoneNew').onchange=e=>{PHONE=e.target.value;refresh(true)};
-  const isCap = (p) => p==='0561111111' || p==='0562222222';
+  const isCap = (p) => p.length === 10 && p.startsWith('05');
   document.getElementById('phoneSel').addEventListener('change', e => {
     const v = e.target.value;
     if (isCap(v)) { document.getElementById('inp').placeholder = 'كابتن: أرسل أمراً مثل: اقبل / استلمت / انطلقت / وصلت / رمز 123456 / حالة'; }
