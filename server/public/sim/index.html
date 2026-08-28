@@ -20,6 +20,8 @@ header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
 .msg.theirs{background:var(--theirs);color:#111;align-self:flex-start;border-top-right-radius:0}
 .msg img{max-width:100%;border-radius:8px;margin-top:4px}
 .msg .time{display:block;font-size:10px;color:#667;text-align:left;margin-top:2px}
+.speaker{cursor:pointer;font-size:13px;margin-inline-start:6px;opacity:.75;user-select:none}
+.speaker:hover{opacity:1}
 .msg .sys{background:#ffe9a8;color:#5c4a00}
 .actions{display:flex;flex-direction:column;gap:6px;align-items:flex-start;background:var(--theirs);color:#111;padding:10px;border-radius:10px;max-width:75%;align-self:flex-start;box-shadow:0 1px 1px rgba(0,0,0,.3)}
 .actions .lbl{font-size:13px;margin-bottom:4px;white-space:pre-wrap}
@@ -83,8 +85,22 @@ function addMsg({direction,body,type,payload_json,created_at,message_type}){
   const m=el(`<div class="msg ${direction==='in'?'mine':'theirs'}"><span class="t"></span></div>`);
   m.querySelector('.t').textContent=body||(message_type==='location'?'📍 [موقع]':'');
   if(message_type==='image'&&pj.image)m.innerHTML+=`<img src="${pj.image}" onerror="this.style.display='none'">`;
+  // 🔊 زر استماع لرد البوت بصوت زريّة (سعودية)
+  if(direction==='in'&&body&&message_type!=='image'){
+    const sp=el(`<span class="speaker" title="استمع بصوت زريّة">🔊</span>`);
+    sp.onclick=()=>playVoice(body);
+    m.appendChild(sp);
+  }
   m.innerHTML+=`<span class="time">${fmt(created_at)}</span>`;
   chat.appendChild(m);chat.scrollTop=chat.scrollHeight;
+}
+// تشغيل صوت زريّة من الخادم
+let currentAudio=null;
+function playVoice(text){
+  if(currentAudio){currentAudio.pause();currentAudio=null;}
+  const a=new Audio(`${API}/whatsapp/voice-test?text=${encodeURIComponent(text.slice(0,250))}`);
+  a.play().catch(e=>alert('تعذر تشغيل الصوت — تأكد من تفعيل Azure'));
+  currentAudio=a;
 }
 async function refresh(clear){
   const r=await fetch(`${API}/whatsapp/simulate/${encodeURIComponent(PHONE)}/conversations`);
