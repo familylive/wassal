@@ -22,14 +22,27 @@ async function fetchBackup() {
   return null;
 }
 
-// استعادة عند الإقلاع: النسخة الاحتياطية هي الأحدث دائماً — نستبدل القاعدة المحلية بها
+// استعادة عند الإقلاع: فقط إذا كانت القاعدة المحلية فارغة (لا بيانات)
+// (البيانات المحلية الحية أحدث من النسخة — لا نستبدلها أبداً في الإقلاع العادي)
+import { DatabaseSync } from 'node:sqlite';
+
+function localHasData() {
+  try {
+    const db = new DatabaseSync(config.dbPath, { readOnly: true });
+    const r = db.prepare("SELECT COUNT(*) AS c FROM restaurants").get();
+    db.close();
+    return Number(r.c) > 0;
+  } catch { return false; }
+}
+
 export async function restoreIfNeeded() {
+  if (localHasData()) return false; // قاعدة حية فيها بيانات — لا نلمسها
   const backup = await fetchBackup();
   if (!backup) return false;
   // تحقق أن الملف قاعدة SQLite صحيحة (ترويسة)
   const head = backup.slice(0, 16).toString('ascii');
   if (!head.includes('SQLite format 3')) return false;
-  if (backup.length < 60000) return false; // قاعدة شبه فارغة — نتجاهلها ونبقي المحلية
+  if (backup.length < 60000) return false; // قاعدة شبه فارغة — نتجاهلها
   try {
     // حذف ملفات WAL قديمة قبل الكتابة فوق القاعدة (تجنب فساد)
     try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
