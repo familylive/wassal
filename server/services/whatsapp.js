@@ -69,6 +69,11 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
       if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
       else await sendCloud({ phone, type, body, buttons, list, image });
       console.log('WA_SEND_OK', type, phone);
+      // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)
+      if (config.whatsapp.provider === 'cloud' && config.voice.replies && type === 'text' && body && body.length <= 250) {
+        const { sendVoiceNote } = await import('./voice.js');
+        sendVoiceNote(phone, body).catch(() => {});
+      }
     } catch (e) {
       console.error('WA_SEND_FAIL', type, phone, e.message);
     }

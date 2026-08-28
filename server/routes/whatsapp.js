@@ -5,6 +5,7 @@ import { handleIncoming, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess
 import { setStatus, closeOrderWithCode } from '../services/orderService.js';
 import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
+import { transcribeVoice } from '../services/voice.js';
 
 const router = Router();
 
@@ -82,6 +83,20 @@ router.post('/webhook', async (req, res) => {
           const targetRid = rest ? rest.id : rid;
           if (msg.type === 'text') await handleIncoming({ phone, restaurantId: targetRid, body: msg.text?.body, type: 'text' });
           else if (msg.type === 'location') await handleIncoming({ phone, restaurantId: targetRid, type: 'location', lat: msg.location?.latitude, lng: msg.location?.longitude });
+          else if (msg.type === 'audio' || msg.type === 'voice') {
+            // 🎙️ طلب صوتي: تحويله نصاً ثم معالجته كنص عادي (يُسجَّل في المحادثات الكتابية)
+            const mediaId = msg.audio?.id || msg.voice?.id;
+            if (mediaId) {
+              try {
+                const text = await transcribeVoice(mediaId);
+                logHit('voice', phone + ':' + (text || 'فشل التحويل'));
+                if (text) await handleIncoming({ phone, restaurantId: targetRid, body: text, type: 'text', voice: true });
+              } catch (e) {
+                console.error('voice transcribe error', e.message);
+                await handleIncoming({ phone, restaurantId: targetRid, body: 'أرسلت صوتية ولم أستطع فهمها، أعد المحاولة نصياً أو صوتياً', type: 'text' });
+              }
+            }
+          }
           else if (msg.type === 'interactive') {
             const i = msg.interactive;
             const id = i?.button_reply?.id || i?.list_reply?.id || null;

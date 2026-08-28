@@ -14,6 +14,13 @@ export const config = {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'wassal-verify',
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0'
   },
+  // صوتيات: استقبال (STT) + رد (TTS)
+  voice: {
+    sttApiKey: process.env.STT_API_KEY || '',   // Groq مجاني: console.groq.com
+    ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI: platform.openai.com
+    ttsVoice: process.env.TTS_VOICE || 'alloy',
+    replies: process.env.VOICE_REPLIES === 'true' // إرسال رد صوتي بعد الرد الكتابي
+  },
   // Moyasar — https://dashboard.moyasar.com (Apple Pay + Mada)
   moyasar: {
     secretKey: process.env.MOYASAR_SECRET_KEY || '',
