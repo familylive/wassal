@@ -30,6 +30,22 @@ export async function transcribeVoice(mediaId) {
   return (r.data?.text || '').trim() || null;
 }
 
+// 2) تحويل النص إلى صوت عبر Azure (صوت امرأة سعودية — زريّة)
+export async function azureTTS(text) {
+  const { azureKey, azureRegion, ttsVoice } = config.voice;
+  if (!azureKey || !azureRegion) return null;
+  const ssml = `<speak version='1.0' xml:lang='ar-SA'><voice name='${ttsVoice || 'ar-SA-ZariyahNeural'}'>${text.slice(0, 400).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</voice></speak>`;
+  const r = await axios.post(`https://${azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, ssml, {
+    headers: {
+      'Ocp-Apim-Subscription-Key': azureKey,
+      'Content-Type': 'application/ssml+xml',
+      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+    },
+    responseType: 'arraybuffer', timeout: 30000,
+  });
+  return r.data;
+}
+
 // 3) نص → صوت (Azure ar-SA زريّة — صوت امرأة سعودية، أو OpenAI كبديل) ثم إرسال صوتية عبر Meta
 export async function sendVoiceNote(phone, text) {
   if (!text) return false;
@@ -37,26 +53,17 @@ export async function sendVoiceNote(phone, text) {
   if (text.length > 250) return false;
   let audio = null;
   try {
-    const { azureKey, azureRegion, ttsApiKey, ttsVoice } = config.voice;
-    if (azureKey && azureRegion) {
-      // Azure Speech: ar-SA-ZariyahNeural (امرأة — لهجة سعودية)
-      const ssml = `<speak version='1.0' xml:lang='ar-SA'><voice name='${ttsVoice || 'ar-SA-ZariyahNeural'}'>${text.slice(0, 400).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</voice></speak>`;
-      const r = await axios.post(`https://${azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, ssml, {
-        headers: {
-          'Ocp-Apim-Subscription-Key': azureKey,
-          'Content-Type': 'application/ssml+xml',
-          'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
-        },
-        responseType: 'arraybuffer', timeout: 30000,
-      });
-      audio = r.data;
-    } else if (ttsApiKey) {
+    audio = await azureTTS(text);
+    if (!audio) {
+      const { ttsApiKey, ttsVoice } = config.voice;
+      if (!ttsApiKey) return false;
       // OpenAI (بديل — فصحى محايدة)
       const r = await axios.post('https://api.openai.com/v1/audio/speech',
         { model: 'gpt-4o-mini-tts', voice: ttsVoice || 'alloy', input: text.slice(0, 400) },
         { headers: { Authorization: `Bearer ${ttsApiKey}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 });
       audio = r.data;
-    } else return false;
+    }
+    if (!audio) return false;
     // رفع الصوت إلى Meta
     const fd = new FormData();
     fd.append('messaging_product', 'whatsapp');

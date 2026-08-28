@@ -129,6 +129,21 @@ router.post('/simulate', async (req, res) => {
   } catch (e) { console.error('simulate error', e); res.status(500).json({ error: e.message }); }
 });
 
+// اختبار صوت زريّة (Azure TTS) — يرد بملف صوتي
+router.get('/voice-test', async (req, res) => {
+  try {
+    const { azureTTS } = await import('../services/voice.js');
+    const text = String(req.query.text || 'مرحبا بك في واتس هم');
+    const audio = await azureTTS(text);
+    if (!audio) return res.status(400).json({ error: 'AZURE_TTS_KEY غير معرّف أو فشل' });
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('X-Audio-Bytes', String(audio.byteLength));
+    res.send(Buffer.from(audio));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // رسالة من جوال المندوب لواتساب المطعم — رمز الاستلام يغلق الطلب
 // سجل آخر طلبات الويب هوك (تشخيص)
 router.get('/debug', (req, res) => res.json(webhookHits.slice(-25)));
