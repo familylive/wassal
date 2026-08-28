@@ -51,6 +51,7 @@ header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
   </select>
   <input id="phoneNew" placeholder="رقم العميل الجديد" style="display:none" value="+96655">
   <button onclick="sendText('مرحبا')">👋 ابدأ</button>
+  <button class="ghost" onclick="sendLoc(18.299948,42.720687)">📍 الخالدية — خميس مشيط</button>
   <button class="ghost" onclick="sendLoc(24.74,46.68)">📍 موقع داخل الزوم</button>
   <button class="ghost" onclick="sendLoc(28.38,36.57)">📍 موقع خارج الزوم</button>
   <button class="ghost" onclick="resetChat()">🔄 تصفير</button>
@@ -119,7 +120,7 @@ async function refresh(clear){
 }
 function sendPayload(payload){
   // أزرار إرسال الموقع ترسل موقعاً فعلياً داخل النطاق (تحاكي مشاركة الموقع من واتساب)
-  if(payload==='send_location'){sendLoc(24.74,46.68);return;}
+  if(payload==='send_location'){sendLoc(18.299948,42.720687);return;}
   const typ=payload.startsWith('loc:')?'location':'interactive';
   fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,restaurant_id:RID,type:typ,payload})})
   .then(()=>{typingOn();setTimeout(()=>{typingOff();refresh()},400)});
