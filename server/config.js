@@ -17,8 +17,10 @@ export const config = {
   // صوتيات: استقبال (STT) + رد (TTS)
   voice: {
     sttApiKey: process.env.STT_API_KEY || '',   // Groq مجاني: console.groq.com
-    ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI: platform.openai.com
-    ttsVoice: process.env.TTS_VOICE || 'alloy',
+    ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI بديل: platform.openai.com
+    azureKey: process.env.AZURE_TTS_KEY || '',  // Azure (الأفضل): صوت امرأة سعودية ar-SA-ZariyahNeural
+    azureRegion: process.env.AZURE_TTS_REGION || 'uae-north',
+    ttsVoice: process.env.TTS_VOICE || 'ar-SA-ZariyahNeural',
     replies: process.env.VOICE_REPLIES === 'true' // إرسال رد صوتي بعد الرد الكتابي
   },
   // Moyasar — https://dashboard.moyasar.com (Apple Pay + Mada)
