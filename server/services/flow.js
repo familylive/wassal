@@ -66,26 +66,59 @@ function cartText(rid, cart, branch = null) {
   s += `التوصيل: ${t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني ✅'}\n━━━━━━━━━━━━\n*الإجمالي: ${rls(t.total)} ر.س*`;
   return s;
 }
-// دليل المطاعم: كل المطاعم في النظام — العميل يختار ويفتح محادثة واتسابه
+// دليل المطاعم: حسب موقع العميل — يعرض فقط المطاعم التي لها فرع ضمن نطاق التوصيل
+function getCustomerLocation(phone) {
+  const c = q.get("SELECT id FROM customers WHERE phone=?", phone);
+  if (!c) return null;
+  return q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", c.id);
+}
 function showRestaurants(phone) {
-  const rests = q.all("SELECT r.*, (SELECT COUNT(*) FROM branches b WHERE b.restaurant_id=r.id AND b.is_active=1) AS branches_count FROM restaurants r WHERE r.is_active=1 ORDER BY r.rating_avg DESC, r.id");
-  if (!rests.length) return send(phone, null, null, 'text', 'لا توجد مطاعم متاحة حالياً 🍽️');
-  saveSession(phone, 'directory', { restList: rests.map(r => r.id) });
-  let t = '🏪 *اختر المطعم* (أرسل رقمه أو اسمه):\n';
-  rests.slice(0, 10).forEach((r, i) => {
-    t += `${i + 1}. ${r.name_ar}${r.city ? ' — ' + r.city : ''}${r.rating_avg ? ' ⭐' + r.rating_avg : ''}\n`;
+  const loc = getCustomerLocation(phone);
+  // لا يوجد موقع محفوظ → اطلب الموقع أولاً بدل عرض كل المطاعم
+  if (!loc || loc.lat == null || loc.lng == null) {
+    saveSession(phone, 'directory', {});
+    send(phone, null, null, 'text', '📍 لتظهر لك *المطاعم القريبة منك* فقط، أرسل موقعك الحالي الآن.\n(في واتساب: زر 📎 ← الموقع)\nأو اضغط الزر 👇');
+    return send(phone, null, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+  }
+  const rests = q.all("SELECT r.* FROM restaurants r WHERE r.is_active=1");
+  const nearby = [];
+  for (const r of rests) {
+    const d = resolveDelivery(r.id, loc.lat, loc.lng);
+    if (d.ok && d.branch && d.distanceKm <= (d.branch.delivery_radius_km || 15)) {
+      nearby.push({ ...r, distKm: Math.round(d.distanceKm * 10) / 10, branchName: d.branch.name, branchCity: d.branch.city || r.city });
+    }
+  }
+  if (!nearby.length) {
+    saveSession(phone, 'directory', {});
+    send(phone, null, null, 'text', '🚫 لا توجد مطاعم ضمن نطاق التوصيل (15 كم) من موقعك حالياً.\nيمكنك إرسال موقع آخر أو التواصل معنا.');
+    return send(phone, null, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال موقع آخر' }] });
+  }
+  nearby.sort((a, b) => a.distKm - b.distKm);
+  saveSession(phone, 'directory', { restList: nearby.map(r => r.id) });
+  let t = `📍 *المطاعم القريبة منك:* (ضمن 15 كم)\n`;
+  nearby.slice(0, 10).forEach((r, i) => {
+    t += `${i + 1}. ${r.name_ar} — ${r.branchName} (${r.distKm} كم)${r.rating_avg ? ' ⭐' + r.rating_avg : ''}\n`;
   });
   send(phone, null, null, 'text', t);
-  const rows = rests.slice(0, 10).map(r => ({
+  const rows = nearby.slice(0, 10).map(r => ({
     id: 'rest:' + r.id,
     title: r.name_ar,
-    description: (r.city || '') + (r.rating_avg ? ' · ⭐ ' + r.rating_avg : '') + (r.branches_count ? ' · ' + r.branches_count + ' فرع' : '')
+    description: `${r.branchName} · ${r.distKm} كم${r.rating_avg ? ' · ⭐ ' + r.rating_avg : ''}`
   }));
-  return send(phone, null, null, 'list', '🏪 *اختر المطعم الذي تريد الطلب منه:*\nاضغط على المطعم وسيفتح لك محادثة واتسابه 👇', {
-    list: [{ title: '🍽 المطاعم المتاحة', rows }]
+  return send(phone, null, null, 'list', '🏪 *اختر المطعم القريب منك:*\nاضغط على المطعم وسيفتح لك محادثة واتسابه 👇', {
+    list: [{ title: '🍽 المطاعم القريبة', rows }]
   });
 }
-function handleDirectory(phone, p, b) {
+function handleDirectory(phone, p, b, type, lat, lng) {
+  // استلام الموقع من العميل (زر إرسال الموقع أو مشاركة موقع)
+  if (p === 'send_location' || type === 'location') {
+    if (type !== 'location') return send(phone, null, null, 'buttons', 'أرسل موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+    const customer = q.get("SELECT * FROM customers WHERE phone=?", phone);
+    if (!customer) return showRestaurants(phone);
+    saveLocation(customer.id, lat, lng, {}, '');
+    send(phone, null, null, 'text', `📍 تم استلام موقعك ✅`);
+    return showRestaurants(phone);
+  }
   if (p.startsWith('rest:')) return selectRestaurant(phone, Number(p.split(':')[1]));
   // اختيار المطعم برقم
   if (!p && b && /^\d+$/.test(b)) {
@@ -96,6 +129,7 @@ function handleDirectory(phone, p, b) {
   }
   // دعم كتابة اسم المطعم بدل الضغط
   if (b && b.length > 1) {
+    const loc = getCustomerLocation(phone);
     const rests = q.all("SELECT * FROM restaurants WHERE is_active=1");
     const clean = b.replace(/[\-٠-٩0-9\/،,]/g, ' ').replace(/\s+/g, ' ').trim();
     const match = rests.find(r => clean.includes(r.name_ar) || r.name_ar.includes(clean) || (r.name_en && clean.toLowerCase().includes(r.name_en.toLowerCase())));
@@ -169,7 +203,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     return mainMenu(phone, rid);
   }
 
-  if (state === 'directory') return handleDirectory(phone, p, b);
+  if (state === 'directory') return handleDirectory(phone, p, b, type, lat, lng);
 
   switch (state) {
     case 'idle': return handleIdle(phone, rid, customer, p, b);
