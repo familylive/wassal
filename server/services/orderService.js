@@ -4,6 +4,7 @@ import { waSend } from './whatsapp.js';
 import { nextOrderNo, now, validatePhone } from '../utils.js';
 import { broadcastToCaptains } from './dispatch.js';
 import { awardPoints } from './loyalty.js';
+import { scheduleBackup } from './backup.js';
 
 export function addEvent(orderId, event, message, actorType = 'system', actorId = null) {
   q.run("INSERT INTO order_events (order_id, event, message, actor_type, actor_id) VALUES (?,?,?,?,?)",
@@ -26,6 +27,7 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
   emitTo(`restaurant:${restaurant.id}`, 'order:new', { orderId: order.id, order });
   emitTo('admin', 'order:new', { orderId: order.id, order });
   broadcastToCaptains(order);
+  scheduleBackup(); // نسخة احتياطية فورية بعد كل طلب
   return order;
 }
 

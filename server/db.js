@@ -2,8 +2,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import config from './config.js';
+// استعادة النسخة الاحتياطية قبل فتح القاعدة (ضد مسح بيانات Render عند النشر)
+import { restoreIfNeeded } from './services/backup.js';
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
+await restoreIfNeeded();
 const db = new DatabaseSync(config.dbPath);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));

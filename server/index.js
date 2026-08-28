@@ -28,3 +28,9 @@ app.get(/^\/(?!api|sim|uploads).*/, (req, res) => {
 });
 
 server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider})`));
+
+// نسخ احتياطي دوري كل 4 دقائق (إضافة للنسخ الفوري بعد الطلبات)
+import('./services/backup.js').then(({ scheduleBackup }) => {
+  setInterval(scheduleBackup, 4 * 60 * 1000);
+  console.log('🔄 النسخ الاحتياطي التلقائي مفعّل');
+});
