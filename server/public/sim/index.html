@@ -6,8 +6,8 @@
 <style>
 :root{--wa:#075E54;--wa2:#128C7E;--chat:#ECE5DD;--mine:#DCF8C6;--theirs:#fff}
 *{box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
-body{margin:0;background:#0b141a;color:#fff;display:flex;flex-direction:column;height:100vh}
-header{background:var(--wa);padding:10px 16px;display:flex;align-items:center;gap:12px}
+body{margin:0;background:#0b141a;color:#fff;display:flex;flex-direction:column;height:100vh;height:100dvh}
+header{background:var(--wa);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;gap:12px}
 header img{width:36px;height:36px;border-radius:50%;background:#fff}
 header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
 .controls{background:#111b21;padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #222}
@@ -28,7 +28,7 @@ header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
 .actions button{border:1px solid #075E54;background:#fff;color:#075E54;border-radius:18px;padding:6px 14px;cursor:pointer;font-size:13px}
 .actions button:hover{background:#e7f6f3}
 .actions .listitem{width:100%;text-align:right;border:none;border-bottom:1px solid #eee;border-radius:0;padding:8px 4px}
-.composer{display:flex;gap:8px;padding:10px 16px;background:#111b21}
+.composer{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:#111b21}
 .composer input{flex:1;padding:11px 14px;border-radius:24px;border:none;background:#2a3942;color:#fff;font-size:14px;outline:none}
 .composer button{background:var(--wa2);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:18px;cursor:pointer}
 .pin{background:#1f2c33;border:1px solid #333;color:#ddd;border-radius:18px;padding:6px 12px;cursor:pointer;font-size:12px}
