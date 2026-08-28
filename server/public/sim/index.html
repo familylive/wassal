@@ -60,6 +60,7 @@ header h1{font-size:16px;margin:0}header small{opacity:.85;display:block}
 <div id="typing">جارٍ الكتابة…</div>
 <div class="composer">
   <input id="inp" placeholder="اكتب رسالة…" onkeydown="if(event.key==='Enter')send()">
+  <button onclick="toggleMic()" id="micbtn" title="🎤 أرسل صوتياً">🎤</button>
   <button onclick="send()">➤</button>
 </div>
 <script>
@@ -130,6 +131,37 @@ function sendText(body){fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:
 function sendLoc(lat,lng){fetch(`${API}/whatsapp/simulate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:PHONE,restaurant_id:RID,type:'location',lat,lng})}).then(()=>{typingOn();setTimeout(()=>{typingOff();refresh()},400)})}
 function typingOn(){document.getElementById('typing').style.display='block'}
 function typingOff(){document.getElementById('typing').style.display='none'}
+// 🎤 تسجيل صوتي من المايك → إرسال للخادم → تحويل → معالجة
+let rec=null, chunks=[];
+async function toggleMic(){
+  const btn=document.getElementById('micbtn');
+  if(rec&&rec.state==='recording'){btn.textContent='🎤';rec.stop();return;}
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({audio:true});
+    rec=new MediaRecorder(st);chunks=[];
+    btn.textContent='⏹ إيقاف';
+    rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    rec.onstop=async()=>{
+      st.getTracks().forEach(t=>t.stop());
+      btn.textContent='🎤';
+      const blob=new Blob(chunks,{type:rec.mimeType||'audio/webm'});
+      if(blob.size<1000){alert('الصوت قصير جداً — أعد المحاولة');return;}
+      const fd=new FormData();
+      fd.append('file',blob,'voice.webm');
+      fd.append('phone',PHONE);
+      fd.append('restaurant_id',RID);
+      typingOn();
+      try{
+        const r=await fetch(`${API}/whatsapp/voice-in`,{method:'POST',body:fd});
+        const d=await r.json();
+        typingOff();
+        if(d.ok&&d.text)sendText(d.text);
+        else if(!d.ok&&d.error)alert('لم يُفعّل التحويل الصوتي بعد: '+(d.error||''));
+      }catch(e){typingOff();alert('فشل الإرسال الصوتي');}
+    };
+    rec.start();
+  }catch(e){alert('المتصفح لا يسمح بالميكروفون — جرّب بكتابة الرسالة');}
+}
 function resetChat(){if(!confirm('مسح جلسة المحاكاة؟'))return;fetch(`${API}/whatsapp/simulate/${encodeURIComponent(PHONE)}/reset`,{method:'POST'}).then(()=>refresh(true))}
 (async()=>{
   const r=await fetch(`${API}/restaurants`);const rests=await r.json();

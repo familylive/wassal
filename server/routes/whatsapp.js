@@ -129,6 +129,25 @@ router.post('/simulate', async (req, res) => {
   } catch (e) { console.error('simulate error', e); res.status(500).json({ error: e.message }); }
 });
 
+// 🎙️ استقبال صوت من المحاكي: تسجيل → تحويل → معالجة (يُسجَّل كتابياً)
+import multer from 'multer';
+const voiceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+router.post('/voice-in', voiceUpload.single('file'), async (req, res) => {
+  try {
+    const { phone, restaurant_id } = req.body || {};
+    if (!req.file) return res.status(400).json({ error: 'لا يوجد ملف صوتي' });
+    const { groqTranscribe } = await import('../services/voice.js');
+    const text = await groqTranscribe(req.file.buffer, req.file.mimetype || 'audio/mpeg');
+    if (!text) return res.json({ ok: false, error: 'STT_API_KEY غير معرّف أو فشل التحويل' });
+    logHit('voice-in', phone + ':' + text.slice(0, 80));
+    await handleIncoming({ phone, restaurantId: Number(restaurant_id || 1), body: text, type: 'text', voice: true });
+    res.json({ ok: true, text });
+  } catch (e) {
+    console.error('voice-in error', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // اختبار صوت زريّة (Azure TTS) — يرد بملف صوتي
 router.get('/voice-test', async (req, res) => {
   try {

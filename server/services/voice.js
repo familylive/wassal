@@ -13,14 +13,12 @@ async function getMediaUrl(mediaId) {
   return r.data?.url || null;
 }
 
-// 2) تحميل الصوت + تحويله نصاً (Groq Whisper)
-export async function transcribeVoice(mediaId) {
-  if (!sttApiKey) return null;
-  const url = await getMediaUrl(mediaId);
-  if (!url) return null;
-  const audio = await axios.get(`${url}?access_token=${token}`, { responseType: 'arraybuffer' });
+// 2) تحويل صوت مباشر (ملف) → نص عبر Groq Whisper
+export async function groqTranscribe(audioBuffer, mimeType = 'audio/mpeg') {
+  if (!sttApiKey || !audioBuffer) return null;
+  const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mpeg';
   const fd = new FormData();
-  fd.append('file', new Blob([audio.data]), 'voice.mpeg');
+  fd.append('file', new Blob([audioBuffer], { type: mimeType }), `voice.${ext}`);
   fd.append('model', 'whisper-large-v3-turbo');
   fd.append('language', 'ar');
   const r = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', fd, {
@@ -28,6 +26,15 @@ export async function transcribeVoice(mediaId) {
     timeout: 60000,
   });
   return (r.data?.text || '').trim() || null;
+}
+
+// 2ب) تحويل صوت قادم من Meta (media_id) → نص
+export async function transcribeVoice(mediaId) {
+  if (!sttApiKey) return null;
+  const url = await getMediaUrl(mediaId);
+  if (!url) return null;
+  const audio = await axios.get(`${url}?access_token=${token}`, { responseType: 'arraybuffer' });
+  return groqTranscribe(audio.data, 'audio/mpeg');
 }
 
 // 2) تحويل النص إلى صوت عبر Azure (صوت امرأة سعودية — زريّة)
