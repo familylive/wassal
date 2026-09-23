@@ -312,6 +312,7 @@ function handleIdle(phone, rid, customer, p, b) {
 function normAr(x) {
   return String(x || '')
     .replace(/[أإآٱ]/g, 'ا').replace(/[ىئ]/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
     .replace(/[\u064B-\u065F\u0670]/g, '')
     .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -321,18 +322,21 @@ function findItemByName(rid, text) {
   let qty = 1;
   const m = t.match(/^(\d+)\s+/);
   if (m) qty = Math.min(9, Math.max(1, parseInt(m[1], 10)));
-  const stripped = t.replace(/^\d+\s+/, '');
+  const stripped = t.replace(/^\d+\s+/, '').trim();
   if (stripped.length < 3) return null;
+  const tWords = stripped.split(' ').filter(w => w.length >= 3);
   const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND is_available=1", rid);
-  let best = null;
+  let best = null, bestScore = 0;
   for (const it of items) {
     const nm = normAr(it.name);
-    if (!nm || nm.length < 3) continue;
-    if (stripped.includes(nm) || nm.includes(stripped)) {
-      if (!best || normAr(best.name).length > nm.length) best = it;
-    }
+    if (!nm) continue;
+    let score = 0;
+    if (stripped.includes(nm)) score += 100;                 // الاسم كامل موجود
+    const iWords = nm.split(' ').filter(w => w.length >= 3);
+    for (const w of iWords) if (tWords.some(tw => tw.includes(w) || w.includes(tw))) score += w.length + 2;
+    if (score > bestScore) { bestScore = score; best = it; }
   }
-  return best ? { item: best, qty } : null;
+  return (best && bestScore >= 5) ? { item: best, qty } : null;
 }
 function wantsSameAsBefore(text) {
   const t = normAr(text);
