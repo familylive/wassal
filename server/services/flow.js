@@ -105,14 +105,14 @@ function showRestaurants(phone) {
     title: r.name_ar,
     description: `${r.branchName} · ${r.distKm} كم${r.rating_avg ? ' · ⭐ ' + r.rating_avg : ''}`
   }));
-  return send(phone, null, null, 'list', '🏪 *اختر المطعم القريب منك:*\nاضغط على المطعم وسيفتح لك محادثة واتسابه 👇', {
+  return send(phone, null, null, 'list', '🏪 *هذي المطاعم القريبة منك:*\nاختر اللي يعجبك وأنا أكمل معك 👇', {
     list: [{ title: '🍽 المطاعم القريبة', rows }]
   });
 }
 function handleDirectory(phone, p, b, type, lat, lng) {
   // استلام الموقع من العميل (زر إرسال الموقع أو مشاركة موقع)
   if (p === 'send_location' || type === 'location') {
-    if (type !== 'location') return send(phone, null, null, 'buttons', 'أرسل موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+    if (type !== 'location') return send(phone, null, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
     const customer = q.get("SELECT * FROM customers WHERE phone=?", phone);
     if (!customer) return showRestaurants(phone);
     saveLocation(customer.id, lat, lng, {}, '');
@@ -164,7 +164,7 @@ function sendGreeting(phone, rid, customer) {
 function mainMenu(phone, rid) {
   const ad = q.get("SELECT a.*, r.name_ar AS rname FROM ads_campaigns a LEFT JOIN restaurants r ON r.id=a.restaurant_id WHERE a.is_active=1 AND a.placement='whatsapp' AND (a.ends_at IS NULL OR a.ends_at>=datetime('now')) ORDER BY a.id DESC LIMIT 1");
   const rest = q.get("SELECT name_ar, logo, cover FROM restaurants WHERE id=?", rid);
-  let txt = `أهلاً بك في *${rest.name_ar}* 🍽️\nنوصل طلبك حتى باب بيتك بسرعة!`;
+  let txt = `هلا بك في *${rest.name_ar}* 🍽️\nأنا واتس هم، أمرني وش تحب تطلب؟ 😋`;
   if (ad) txt += `\n\n📣 *إعلان:* ${ad.title}${ad.rname ? ' — ' + ad.rname : ''}`;
   // حفظ خيارات القائمة للاختيار بالأرقام
   const session = getSession(phone);
@@ -207,7 +207,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
   }
   if (state === 'ask_name') {
-    if (b.length < 2) return send(phone, rid, null, 'text', 'الرجاء كتابة اسمك حتى نكمل طلبك 😊');
+    if (b.length < 2) return send(phone, rid, null, 'text', 'عطني اسمك الكريم 🌸 عشان أكمل طلبك');
     q.run("UPDATE customers SET name=? WHERE id=?", b.slice(0, 40), customer.id);
     send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!\nعساك طيب؟ 🙌\n\n*أمرني* — وش تبي تطلب اليوم؟ 😋`);
     return showRestaurants(phone);
@@ -356,11 +356,11 @@ function showCategories(phone, rid, customer) {
   const cats = q.all("SELECT c.*, (SELECT COUNT(*) FROM items i WHERE i.category_id=c.id AND i.is_available=1) AS cnt FROM categories c WHERE c.restaurant_id=? AND c.is_active=1 ORDER BY c.sort_order, c.id", rid);
   const session = getSession(phone);
   saveSession(phone, 'browse_categories', { ...session.data, catList: cats.map(c => c.id) });
-  if (!cats.length) return send(phone, rid, null, 'text', 'لا توجد أقسام حالياً');
+  if (!cats.length) return send(phone, rid, null, 'text', 'المعذرة، ما فيه أقسام متاحة الحين 🙏');
   let t = '🍽 اختر القسم (أرسل رقمه):\n';
   cats.forEach((c, i) => { t += `${i + 1}. ${c.icon || ''} ${c.name} — ${c.cnt || 0} صنف\n`; });
   send(phone, rid, null, 'text', t);
-  return send(phone, rid, null, 'list', 'اختر القسم من القائمة 👇', { list: [{ title: 'الأقسام', rows: cats.map(c => ({ id: 'cat:' + c.id, title: c.name, description: (c.cnt || 0) + ' صنف' })) }] });
+  return send(phone, rid, null, 'list', 'اختر القسم اللي يعجبك 👇', { list: [{ title: 'الأقسام', rows: cats.map(c => ({ id: 'cat:' + c.id, title: c.name, description: (c.cnt || 0) + ' صنف' })) }] });
 }
 // بطاقة صنف تفاعلية: صورة + اسم + سعر + أزرار (إضافة العدد والتصفح)
 function sendItemCard(phone, rid, idx, items) {
@@ -395,7 +395,7 @@ function adjustQty(phone, rid, itemId, delta) {
 function browseItemAt(phone, rid, customer, idx) {
   const session = getSession(phone);
   const items = (session.data.catItems || []).map(id => q.get("SELECT * FROM items WHERE id=?", id)).filter(Boolean);
-  if (idx < 0 || idx >= items.length) { send(phone, rid, null, 'text', 'وصلت لنهاية القسم ✅'); return showCart(phone, rid, customer); }
+  if (idx < 0 || idx >= items.length) { send(phone, rid, null, 'text', 'هذا آخر شي بالقسم ✅'); return showCart(phone, rid, customer); }
   saveSession(phone, 'browse_items', { ...session.data, itemIndex: idx, currentItem: items[idx].id });
   return sendItemCard(phone, rid, idx, items);
 }
@@ -418,7 +418,7 @@ function showItemsList(phone, rid, cid) {
   });
   saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0 });
   for (let i = 0; i < rows.length; i += 10) {
-    send(phone, rid, null, 'list', 'أو اضغط لتحديد:', { list: [{ title: cat?.name || '', rows: rows.slice(i, i + 10) }] });
+    send(phone, rid, null, 'list', 'أو اضغط عليه عشان تحدده:', { list: [{ title: cat?.name || '', rows: rows.slice(i, i + 10) }] });
   }
   return send(phone, rid, null, 'buttons', '', { buttons: [
     { id: 'send_order', title: '✅ أرسل الطلب' }, { id: 'cart', title: '🛒 السلة' }
@@ -471,7 +471,7 @@ function handleCat(phone, rid, customer, p, b) {
   if (p.startsWith('cat:')) {
     const cid = Number(p.split(':')[1]);
     const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, cid);
-    if (!items.length) return send(phone, rid, null, 'text', 'لا توجد أصناف في هذا القسم حالياً.');
+    if (!items.length) return send(phone, rid, null, 'text', 'المعذرة، ما فيه أصناف بهذا القسم الحين 🙏');
     return showItemsList(phone, rid, cid);
   }
   if (p.startsWith('item:')) return itemDetail(phone, rid, customer, p);
@@ -493,13 +493,13 @@ function handleItems(phone, rid, customer, p, b) {
 function itemDetail(phone, rid, customer, p) {
   const id = Number(p.split(':')[1]);
   const item = q.get("SELECT * FROM items WHERE id=? AND restaurant_id=?", id, rid);
-  if (!item) return send(phone, rid, null, 'text', 'الصنف غير متوفر.');
+  if (!item) return send(phone, rid, null, 'text', 'المعذرة، هذا الصنف خلص 🙏');
   let txt = `*${item.name}*\n${item.description ? item.description + '\n' : ''}💰 ${rls(item.price)} ر.س\n⏱ جاهز خلال ${item.prep_time_min || 15} دقيقة`;
   const session = getSession(phone);
   saveSession(phone, 'item_detail', { ...session.data, currentItem: item.id });
   if (item.image) send(phone, rid, null, 'image', txt, { image: item.image });
   else send(phone, rid, null, 'text', txt);
-  return send(phone, rid, null, 'buttons', 'ماذا تريد أن تفعل؟', { buttons: [
+  return send(phone, rid, null, 'buttons', 'وش تحب أسوي لك؟', { buttons: [
     { id: 'add1', title: '➕ إضافة 1' }, { id: 'qty', title: '🔢 كمية أخرى' }, { id: 'cart', title: '🛒 السلة' }
   ] });
 }
@@ -514,7 +514,7 @@ function handleItemDetail(phone, rid, customer, data, p, b) {
 function handleItemQty(phone, rid, customer, data, b) {
   const item = q.get("SELECT * FROM items WHERE id=?", data.currentItem);
   const n = parseInt(b, 10);
-  if (!n || n < 1 || n > 50) return send(phone, rid, null, 'text', 'الرجاء كتابة رقم صحيح (1-50)');
+  if (!n || n < 1 || n > 50) return send(phone, rid, null, 'text', 'اكتب رقم صحيح من 1 إلى 50 🙏');
   return addToCart(phone, rid, customer, item, n);
 }
 function addToCart(phone, rid, customer, item, qty) {
@@ -534,12 +534,12 @@ function showCart(phone, rid, customer) {
   const session = getSession(phone);
   const cart = session.data.cart;
   if (!cart || !cart.items.length) {
-    send(phone, rid, null, 'text', 'سلتك فارغة حالياً 🛒\nاختر من القائمة لبدء الطلب.');
+    send(phone, rid, null, 'text', 'سلتك فاضية 🛒\nاختر من المنيو وخلنا نبدأ 😋');
     return showCategories(phone, rid, customer);
   }
   saveSession(phone, 'cart', session.data);
   send(phone, rid, null, 'text', cartText(rid, cart));
-  return send(phone, rid, null, 'buttons', 'ماذا تريد؟', { buttons: [
+  return send(phone, rid, null, 'buttons', 'وش تحب؟', { buttons: [
     { id: 'checkout', title: '✅ إتمام الطلب' }, { id: 'manage', title: '🔢 تعديل الكميات' }, { id: 'coupon', title: '🏷 كود خصم' }
   ] });
 }
@@ -591,20 +591,20 @@ function sendOrderReview(phone, rid, customer) {
   s += `التوصيل: ${t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني ✅'}\n━━━━━━━━━━━━\n*الإجمالي: ${rls(t.total)} ر.س*\n\n📌 رسوم التوصيل النهائية حسب أقرب فرع لموقعك.`;
   saveSession(phone, 'order_review', session.data);
   send(phone, rid, null, 'text', s);
-  return send(phone, rid, null, 'buttons', 'تأكيد الطلب والانتقال للدفع؟', { buttons: [
+  return send(phone, rid, null, 'buttons', 'نأكد الطلب وننزل للدفع؟', { buttons: [
     { id: 'confirm', title: '✅ تأكيد والدفع' }, { id: 'coupon', title: '🏷 كود خصم' }, { id: 'menu', title: '⬅️ تعديل السلة' }
   ] });
 }
 function handleOrderReview(phone, rid, customer, data, p, b) {
   if (p === 'confirm') return choosePayment(phone, rid, customer);
-  if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'أرسل كود الخصم 🏷'); }
+  if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
   if (p === 'menu') return showCart(phone, rid, customer);
   return sendOrderReview(phone, rid, customer);
 }
 function handleCart(phone, rid, customer, data, p, b) {
   if (p === 'checkout') return sendOrderReview(phone, rid, customer);
   if (p === 'manage') return showCartManage(phone, rid, customer);
-  if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'أرسل كود الخصم 🏷'); }
+  if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
   if (p === 'menu' || p === 'clear') {
     const d = { ...data }; d.cart = { items: [] }; delete d.cart.offer;
     saveSession(phone, 'idle', d);
@@ -614,7 +614,7 @@ function handleCart(phone, rid, customer, data, p, b) {
 }
 function handleCoupon(phone, rid, customer, data, b) {
   const cp = q.get("SELECT * FROM coupons WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at >= datetime('now'))", b.trim());
-  if (!cp) { send(phone, rid, null, 'text', 'كود الخصم غير صالح ❌'); return showCart(phone, rid, customer); }
+  if (!cp) { send(phone, rid, null, 'text', 'هذا الكود ما يشتغل 🙈 جرّب كود ثاني'); return showCart(phone, rid, customer); }
   const cart = data.cart || { items: [] };
   cart.coupon = cp.code;
   saveSession(phone, 'cart', { ...data, cart });
@@ -627,7 +627,7 @@ function showOffers(phone, rid, customer) {
   const offers = activeOffers(rid);
   const session = getSession(phone);
   saveSession(phone, 'browse_offers', session.data);
-  if (!offers.length) { send(phone, rid, null, 'text', 'لا توجد عروض حالياً 🔥'); return mainMenu(phone, rid); }
+  if (!offers.length) { send(phone, rid, null, 'text', 'ما فيه عروض الحين 🙏'); return mainMenu(phone, rid); }
   const rows = offers.slice(0, 10).map(o => ({
     id: 'offer:' + o.id,
     title: o.title,
@@ -641,13 +641,13 @@ function handleOffers(phone, rid, customer, data, p) {
     if (!o) return showOffers(phone, rid, customer);
     saveSession(phone, 'browse_offers', { ...data, currentOffer: o });
     send(phone, rid, null, 'text', `🔥 *${o.title}*\n${o.description || ''}\n${o.type === 'percent' ? `خصم ${o.value}%` : o.type === 'fixed' ? `خصم ${rls(o.value)} ر.س` : ''}${o.min_order ? `\nالحد الأدنى: ${rls(o.min_order)} ر.س` : ''}`);
-    return send(phone, rid, null, 'buttons', 'تطبيق العرض؟', { buttons: [{ id: 'apply_offer', title: '🔥 أضف العرض' }, { id: 'menu', title: '⬅️ القائمة' }] });
+    return send(phone, rid, null, 'buttons', 'نطبق العرض؟', { buttons: [{ id: 'apply_offer', title: '🔥 أضف العرض' }, { id: 'menu', title: '⬅️ القائمة' }] });
   }
   if (p === 'apply_offer') {
     const o = data.currentOffer;
     const session = getSession(phone);
     const cart = session.data.cart || { items: [] };
-    if (!cart.items.length) { send(phone, rid, null, 'text', 'أضف أصنافاً أولاً ثم طبق العرض 🛒'); return showCategories(phone, rid, customer); }
+    if (!cart.items.length) { send(phone, rid, null, 'text', 'اختر أصنافك أول 🛒 وبعدها نطبق العرض'); return showCategories(phone, rid, customer); }
     cart.offer = { id: o.id, title: o.title, type: o.type, value: o.value, min_order: o.min_order };
     saveSession(phone, 'cart', { ...session.data, cart });
     send(phone, rid, null, 'text', `🔥 تم إضافة العرض *${o.title}* لطلبك!`);
@@ -661,10 +661,10 @@ function handleOffers(phone, rid, customer, data, p) {
 function choosePayment(phone, rid, customer) {
   const session = getSession(phone);
   saveSession(phone, 'payment_method', session.data);
-  send(phone, rid, null, 'buttons', '💰 اختر طريقة الدفع:', { buttons: [
+  send(phone, rid, null, 'buttons', '💰 كيف تحب تدفع؟', { buttons: [
     { id: 'pay:applepay', title: '🍎 Apple Pay' }, { id: 'pay:mada', title: '💳 مدى' }, { id: 'pay:card', title: '💳 بطاقة' }
   ] });
-  return send(phone, rid, null, 'buttons', 'أو ادفع عند الاستلام:', { buttons: [{ id: 'pay:cash', title: '💵 كاش عند الاستلام' }] });
+  return send(phone, rid, null, 'buttons', 'أو تدفع كاش عند الاستلام:', { buttons: [{ id: 'pay:cash', title: '💵 كاش عند الاستلام' }] });
 }
 async function handlePayMethod(phone, rid, customer, data, p) {
   const method = p.replace('pay:', '');
@@ -679,15 +679,15 @@ async function handlePayMethod(phone, rid, customer, data, p) {
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid);
   const pay = await createPayment({ total: totals.total, order_no: 'طلب جديد', restaurant_name: rest.name_ar }, method, { phone, restaurant_id: rid });
   saveSession(phone, 'awaiting_payment', { ...session.data, paymentMethod: method, paymentId: pay.payment_id || null, paymentUrl: pay.payment_url || null });
-  send(phone, rid, null, 'text', `💰 المطلوب: *${rls(totals.total)} ر.س*\nاضغط الرابط لإتمام الدفع بأمان (Apple Pay / مدى):`);
+  send(phone, rid, null, 'text', `💰 المطلوب: *${rls(totals.total)} ر.س*\nاضغط الرابط وادفع بأمان (Apple Pay / مدى):`);
   send(phone, rid, null, 'text', pay.payment_url || 'https://sandbox.moyasar.com/pay (رابط تجريبي)');
-  return send(phone, rid, null, 'buttons', 'بعد إتمام الدفع اضغط هنا 👇', { buttons: [{ id: 'paid', title: '✅ تم الدفع' }, { id: 'cancel', title: '❌ إلغاء' }] });
+  return send(phone, rid, null, 'buttons', 'إذا خلصت الدفع اضغط هنا 👇', { buttons: [{ id: 'paid', title: '✅ تم الدفع' }, { id: 'cancel', title: '❌ إلغاء' }] });
 }
 function handleAwaitPay(phone, rid, customer, data, p) {
   if (p === 'cancel') { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
   if (p === 'paid' || p === 'yes') {
     const row = data.paymentId ? q.get("SELECT * FROM payments WHERE id=?", data.paymentId) : null;
-    if (!row) return send(phone, rid, null, 'text', 'تعذر العثور على عملية الدفع.');
+    if (!row) return send(phone, rid, null, 'text', 'ما لقيت عملية الدفع 🙏 جرّب مرة ثانية');
     if (row.status !== 'paid') {
       if (config.paymentMode === 'mock') {
         const r = markPaid(row.id);
@@ -696,7 +696,7 @@ function handleAwaitPay(phone, rid, customer, data, p) {
         return send(phone, rid, null, 'text', 'لم يتم تأكيد الدفع بعد ⏳ انتظر لحظات ثم اضغط ✅ تم الدفع.');
       }
     }
-    send(phone, rid, null, 'text', '✅ تم تأكيد الدفع بنجاح!');
+    send(phone, rid, null, 'text', '✅ تم الدفع بنجاح، يعطيك العافية 🌸');
     // 🚀 الطلب المبسّط: العنوان محفوظ؟ → ينشئ الطلب فوراً
     if (config.quickOrder && quickPlaceAfterPayment(phone, rid, customer, { ...data, paid: true })) return;
     return askLocation(phone, rid, customer, { ...data, paid: true });
@@ -730,7 +730,7 @@ function askLocation(phone, rid, customer, data = {}) {
     ] });
   }
   saveSession(phone, 'location_request', { ...data, forceNewLocation: false });
-  send(phone, rid, null, 'text', '📍 أرسل *موقعك* الآن ليصلك الطلب.\n(في واتساب: زر 📎 ثم الموقع)\nسيتم حفظه لاستخدامه في طلباتك القادمة.');
+  send(phone, rid, null, 'text', '📍 وصلني موقعك الحين وأوصل طلبك 🛵\n(من واتساب: زر 📎 ثم الموقع)\nوأحفظه لك لطلباتك الجاية 😊');
   return send(phone, rid, null, 'buttons', 'أو اضغط هنا:', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
 }
 
@@ -754,10 +754,10 @@ function handleAddressPick(phone, rid, customer, data, p) {
   return askLocation(phone, rid, customer, data);
 }
 function handleLocation(phone, rid, customer, data, type, lat, lng, p) {
-  if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'أرسل موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+  if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
   if (!delivery.ok || delivery.reason === 'out_of_range') {
-    send(phone, rid, null, 'text', `🚫 نعتذر، موقعك *خارج نطاق التوصيل* لدينا حالياً (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع لك: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nيمكنك المحاولة من موقع آخر أو التواصل معنا.`);
+    send(phone, rid, null, 'text', `🚫 المعذرة يا طويل العمر، موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع لك: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nوصلني موقع ثاني وأبشر 😊`);
     saveSession(phone, 'location_request', { ...data, outOfRange: true });
     return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال موقع آخر' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
   }
@@ -791,14 +791,14 @@ function handleAddressConfirm(phone, rid, customer, data, p) {
   }
   if (p === 'addr_new') {
     saveSession(phone, 'new_location_request', { ...data });
-    send(phone, rid, null, 'text', '📍 أرسل الموقع الجديد الذي تريد التوصيل إليه.');
+    send(phone, rid, null, 'text', '📍 وصلني الموقع الجديد اللي تحب نوصل له.');
     return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   }
-  send(phone, rid, null, 'text', '📍 اختر: نفس العنوان السابق أم مكان آخر؟');
+  send(phone, rid, null, 'text', '📍 نفس العنوان السابق ولا مكان ثاني؟');
   return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'addr_yes', title: '✅ نفس العنوان' }, { id: 'addr_new', title: '🆕 مكان آخر' }] });
 }
 function handleNewLocation(phone, rid, customer, data, type, lat, lng, p) {
-  if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'أرسل الموقع الجديد 📍', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+  if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني الموقع الجديد 📍', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
   if (!delivery.ok || delivery.reason === 'out_of_range') {
     send(phone, rid, null, 'text', `🚫 نعتذر، الموقع الجديد *خارج نطاق التوصيل* (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}`);
@@ -822,7 +822,7 @@ function saveLocation(customerId, lat, lng, data, p, branch = null) {
 }
 
 function askTime(phone, rid) {
-  send(phone, rid, null, 'text', '🕐 حدد الوقت التقريبي لتوصيل طلبك:');
+  send(phone, rid, null, 'text', '🕐 متى تحب يوصل طلبك؟');
   return send(phone, rid, null, 'buttons', '', { buttons: [
     { id: 'time:30', title: '⚡ أسرع وقت (~30 د)' }, { id: 'time:45', title: '🕐 خلال 45 دقيقة' }, { id: 'time:90', title: '🕑 خلال ساعة ونصف' }
   ] });
@@ -846,14 +846,14 @@ function placeOrder(phone, rid, customer, data) {
   q.run("UPDATE conversations SET order_id=? WHERE phone=? AND order_id IS NULL AND created_at >= datetime('now','-3 hours')", order.id, customer.phone);
   const d = { ...session.data, orderId: order.id };
   saveSession(phone, 'tracking', d);
-  send(phone, rid, order.id, 'text', `✅ *تم استلام طلبك ${order.order_no}!*\n\n${cartText(rid, cart, branch)}\n📍 التوصيل إلى: ${data.address.national_address || (data.address.lat + ',' + data.address.lng)}\n🕐 الوصول التقريبي: خلال ${data.estDeliveryMin || 30} دقيقة\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nسلّمه للمندوب عند استلام طلبك — لا تعطه لأي شخص آخر.\n\nسيبقيك واتساب على اطلاع بكل مرحلة حتى وصول طلبك 🛵`);
+  send(phone, rid, order.id, 'text', `✅ *استلمت طلبك ${order.order_no}!*\n\n${cartText(rid, cart, branch)}\n📍 التوصيل إلى: ${data.address.national_address || (data.address.lat + ',' + data.address.lng)}\n🕐 يوصل تقريباً خلال ${data.estDeliveryMin || 30} دقيقة\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه لأحد إلا للمندوب وقت الاستلام 🌸\n\nبخليك على علم بكل مرحلة لين يوصل طلبك 🛵`);
   return send(phone, rid, order.id, 'buttons', '', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
 }
 
 // ---------- التتبع ----------
 function showTracking(phone, rid, customer) {
   const last = q.get("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 3", customer.id);
-  if (!last) { send(phone, rid, null, 'text', 'لا توجد طلبات سابقة بعد.'); return mainMenu(phone, rid); }
+  if (!last) { send(phone, rid, null, 'text', 'ما فيه طلبات سابقة 😊'); return mainMenu(phone, rid); }
   const session = getSession(phone);
   saveSession(phone, 'tracking', { ...session.data, orderId: last.id });
   return sendOrderStatus(phone, rid, last);
@@ -883,7 +883,7 @@ function showLoyalty(phone, rid, customer) {
 }
 function showAddresses(phone, rid, customer) {
   const locs = q.all("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC", customer.id);
-  if (!locs.length) { send(phone, rid, null, 'text', 'لا توجد عناوين محفوظة بعد 📍'); return mainMenu(phone, rid); }
+  if (!locs.length) { send(phone, rid, null, 'text', 'ما عندك عناوين محفوظة للحين 📍'); return mainMenu(phone, rid); }
   let t = '📍 *عناوينك المحفوظة:*\n';
   locs.forEach((l, i) => { t += `${i + 1}. ${l.is_default ? '⭐' : ''} ${l.label}: ${l.national_address || (l.lat + ',' + l.lng)}\n`; });
   send(phone, rid, null, 'text', t);
@@ -896,7 +896,7 @@ export function triggerRating(order) {
   if (!customer) return;
   const session = getSession(customer.phone);
   saveSession(customer.phone, 'rate_restaurant', { ...session.data, orderId: order.id, ratings: {} });
-  send(customer.phone, order.restaurant_id, order.id, 'text', '🎉 تم توصيل طلبك! ساعدنا بتقييم تجربتك ⭐');
+  send(customer.phone, order.restaurant_id, order.id, 'text', '🎉 وصل طلبك! قيّم تجربتك معنا ⭐');
   send(customer.phone, order.restaurant_id, order.id, 'buttons', 'قيّم *المطعم* (1-5):', { buttons: [
     { id: 'rate:1', title: '⭐' }, { id: 'rate:3', title: '⭐⭐⭐' }, { id: 'rate:5', title: '⭐⭐⭐⭐⭐' }
   ] });
@@ -906,7 +906,7 @@ export function triggerRating(order) {
 }
 function handleRate(phone, rid, customer, data, p, b, key) {
   let v = parseInt(p.startsWith('rate:') ? p.split(':')[1] : b, 10);
-  if (!v || v < 1 || v > 5) return send(phone, rid, data.orderId, 'text', 'الرجاء إرسال رقم بين 1 و 5 ⭐');
+  if (!v || v < 1 || v > 5) return send(phone, rid, data.orderId, 'text', 'أرسل رقم من 1 إلى 5 ⭐');
   const ratings = { ...(data.ratings || {}), [key]: v };
   const next = key === 'restaurant' ? 'rate_speed' : key === 'speed' ? 'rate_captain' : null;
   const label = key === 'restaurant' ? 'سرعة التوصيل 🏍' : key === 'speed' ? 'كابتن التوصيل 🛵' : '';
@@ -961,7 +961,7 @@ function finishRating(phone, rid, customer, data, comment = null) {
 export function onPaymentSuccess(phone, rid) {
   const session = getSession(phone);
   if (session.state !== 'awaiting_payment') return;
-  send(phone, rid, null, 'text', '✅ تم تأكيد الدفع بنجاح!');
+  send(phone, rid, null, 'text', '✅ تم الدفع بنجاح، يعطيك العافية 🌸');
   const customer = ensureCustomer(phone);
   // 🚀 الطلب المبسّط: العنوان محفوظ؟ → ينشئ الطلب فوراً بدون خطوات إضافية
   if (config.quickOrder && quickPlaceAfterPayment(phone, rid, customer, session.data)) return;
