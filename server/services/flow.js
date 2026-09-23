@@ -597,13 +597,32 @@ function handleAwaitPay(phone, rid, customer, data, p) {
     const row = data.paymentId ? q.get("SELECT * FROM payments WHERE id=?", data.paymentId) : null;
     if (!row) return send(phone, rid, null, 'text', 'تعذر العثور على عملية الدفع.');
     if (row.status !== 'paid') {
-      if (config.paymentMode === 'mock') { const r = markPaid(row.id); if (r.status !== 'paid') return send(phone, rid, null, 'text', 'لم يتم تأكيد الدفع بعد ⏳'); }
-      else return send(phone, rid, null, 'text', 'لم يتم تأكيد الدفع بعد ⏳ انتظر لحظات ثم اضغط ✅ تم الدفع.');
+      if (config.paymentMode === 'mock') {
+        const r = markPaid(row.id);
+        if (r.status !== 'paid') return send(phone, rid, null, 'text', 'لم يتم تأكيد الدفع بعد ⏳ انتظر لحظات ثم اضغط ✅ تم الدفع.');
+      } else {
+        return send(phone, rid, null, 'text', 'لم يتم تأكيد الدفع بعد ⏳ انتظر لحظات ثم اضغط ✅ تم الدفع.');
+      }
     }
     send(phone, rid, null, 'text', '✅ تم تأكيد الدفع بنجاح!');
+    // 🚀 الطلب المبسّط: العنوان محفوظ؟ → ينشئ الطلب فوراً
+    if (config.quickOrder && quickPlaceAfterPayment(phone, rid, customer, { ...data, paid: true })) return;
     return askLocation(phone, rid, customer, { ...data, paid: true });
   }
   return send(phone, rid, null, 'buttons', 'أرسل ✅ تم الدفع بعد إتمام العملية', { buttons: [{ id: 'paid', title: '✅ تم الدفع' }] });
+}
+
+
+// ---------- طلب مبسّط: إنشاء الطلب فوراً من العنوان المحفوظ (بعد الدفع) ----------
+function quickPlaceAfterPayment(phone, rid, customer, data) {
+  try {
+    const loc = q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", customer.id);
+    if (!loc || loc.lat == null || loc.lng == null) return false;
+    const delivery = resolveDelivery(rid, loc.lat, loc.lng);
+    const address = { label: loc.label || 'المنزل', national_address: loc.national_address || (loc.lat + ',' + loc.lng), lat: loc.lat, lng: loc.lng, branch: delivery.branch || null };
+    placeOrder(phone, rid, customer, { ...data, address, estDeliveryMin: data.estDeliveryMin || 30, paid: true });
+    return true;
+  } catch (e) { console.error('QUICK_ORDER_FAIL', e.message); return false; }
 }
 
 // ---------- الموقع والعنوان ----------
@@ -821,7 +840,10 @@ export function onPaymentSuccess(phone, rid) {
   const session = getSession(phone);
   if (session.state !== 'awaiting_payment') return;
   send(phone, rid, null, 'text', '✅ تم تأكيد الدفع بنجاح!');
-  return askLocation(phone, rid, ensureCustomer(phone));
+  const customer = ensureCustomer(phone);
+  // 🚀 الطلب المبسّط: العنوان محفوظ؟ → ينشئ الطلب فوراً بدون خطوات إضافية
+  if (config.quickOrder && quickPlaceAfterPayment(phone, rid, customer, session.data)) return;
+  return askLocation(phone, rid, customer);
 }
 
 // ================= تدفق الكابتن على نفس واتساب المطعم =================

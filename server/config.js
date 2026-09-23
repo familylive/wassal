@@ -29,6 +29,7 @@ export const config = {
     publishableKey: process.env.MOYASAR_PUBLISHABLE_KEY || '',
     sandbox: process.env.MOYASAR_SANDBOX !== 'false'
   },
-  paymentMode: process.env.PAYMENT_MODE || 'mock' // mock | moyasar
+  paymentMode: process.env.PAYMENT_MODE || 'mock', // mock | moyasar
+  quickOrder: process.env.QUICK_ORDER === 'true' // طلب مبسّط: المنيو ← الاختيار ← رابط الدفع ← الطلب ينتهي
 };
 export default config;
