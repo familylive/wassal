@@ -21,6 +21,9 @@ export const config = {
     azureKey: process.env.AZURE_TTS_KEY || '',  // Azure (الأفضل): صوت امرأة سعودية ar-SA-ZariyahNeural
     azureRegion: process.env.AZURE_TTS_REGION || 'uae-north',
     ttsVoice: process.env.TTS_VOICE || 'ar-SA-ZariyahNeural',
+    elevenKey: process.env.ELEVENLABS_API_KEY || '',
+    elevenVoiceId: process.env.ELEVENLABS_VOICE_ID || '',
+    elevenModel: process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2',
     replies: process.env.VOICE_REPLIES === 'true' // إرسال رد صوتي بعد الرد الكتابي
   },
   // Moyasar — https://dashboard.moyasar.com (Apple Pay + Mada)

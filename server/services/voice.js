@@ -38,6 +38,17 @@ export async function transcribeVoice(mediaId) {
 }
 
 // 2) تحويل النص إلى صوت عبر Azure (صوت امرأة سعودية — زريّة)
+// ElevenLabs — استنساخ صوت مخصص (له الأولوية إن وُجد)
+export async function elevenTTS(text) {
+  const { elevenKey, elevenVoiceId, elevenModel } = config.voice;
+  if (!elevenKey || !elevenVoiceId) return null;
+  const r = await axios.post(`https://api.elevenlabs.io/v1/text-to-speech/${elevenVoiceId}?output_format=mp3_44100_128`,
+    { text: String(text).slice(0, 900), model_id: elevenModel || 'eleven_multilingual_v2',
+      voice_settings: { stability: 0.45, similarity_boost: 0.8, style: 0.35, use_speaker_boost: true } },
+    { headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 45000 });
+  return r.data;
+}
+
 export async function azureTTS(text, voiceOverride = null) {
   const { azureKey, azureRegion, ttsVoice } = config.voice;
   if (!azureKey || !azureRegion) return null;
@@ -86,7 +97,10 @@ function splitForSpeech(t, max = 450) {
 
 // إرسال صوتية واحدة (رفع + إرسال)
 async function sendOneChunk(phone, text) {
-  let audio = await azureTTS(text);
+  // 1) صوت مخصص (ElevenLabs) إن وُجد  2) Azure زريّة
+  let audio = null;
+  try { audio = await elevenTTS(text); } catch (e) { console.error('ELEVEN_FAIL', e.message); }
+  if (!audio) audio = await azureTTS(text);
   if (!audio) {
     const { ttsApiKey, ttsVoice } = config.voice;
     if (!ttsApiKey) return false;
