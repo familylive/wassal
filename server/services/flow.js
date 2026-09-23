@@ -219,6 +219,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'coupon': return handleCoupon(phone, rid, customer, data, b);
     case 'payment_method': return handlePayMethod(phone, rid, customer, data, p);
     case 'awaiting_payment': return handleAwaitPay(phone, rid, customer, data, p);
+    case 'address_pick': return handleAddressPick(phone, rid, customer, data, p);
     case 'location_request': return handleLocation(phone, rid, customer, data, type, lat, lng, p);
     case 'new_location_request': return handleNewLocation(phone, rid, customer, data, type, lat, lng, p);
     case 'address_confirm': return handleAddressConfirm(phone, rid, customer, data, p);
@@ -627,9 +628,39 @@ function quickPlaceAfterPayment(phone, rid, customer, data) {
 
 // ---------- الموقع والعنوان ----------
 function askLocation(phone, rid, customer, data = {}) {
-  saveSession(phone, 'location_request', data);
-  send(phone, rid, null, 'text', '📍 أرسل *موقعك* الآن ليصلك الطلب.\n(في واتساب: زر 📎 ثم الموقع)\nوسيتم حفظه في قاعدة البيانات لاستخدامه في طلباتك القادمة.');
+  // إذا عنده عنوان محفوظ مسبقاً → اسأله: نفس الموقع أم جديد؟
+  const saved = q.get("SELECT * FROM customer_locations WHERE customer_id=? AND lat IS NOT NULL ORDER BY is_default DESC, id DESC LIMIT 1", customer.id);
+  if (saved && !data.forceNewLocation) {
+    saveSession(phone, 'address_pick', { ...data, savedLocId: saved.id });
+    send(phone, rid, null, 'text', `📍 هل نوصّل طلبك على *نفس الموقع السابق*؟\n${saved.label || 'المنزل'}: ${saved.national_address || (saved.lat + ',' + saved.lng)}`);
+    return send(phone, rid, null, 'buttons', 'اختر 👇', { buttons: [
+      { id: 'same_loc', title: '✅ نفس الموقع السابق' },
+      { id: 'new_loc', title: '🆕 موقع جديد' }
+    ] });
+  }
+  saveSession(phone, 'location_request', { ...data, forceNewLocation: false });
+  send(phone, rid, null, 'text', '📍 أرسل *موقعك* الآن ليصلك الطلب.\n(في واتساب: زر 📎 ثم الموقع)\nسيتم حفظه لاستخدامه في طلباتك القادمة.');
   return send(phone, rid, null, 'buttons', 'أو اضغط هنا:', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+}
+
+// اختيار: نفس الموقع السابق أم موقع جديد
+function handleAddressPick(phone, rid, customer, data, p) {
+  if (p === 'new_loc') return askLocation(phone, rid, customer, { ...data, forceNewLocation: true });
+  if (p === 'same_loc' || p === 'send_location' || !p) {
+    const loc = data.savedLocId ? q.get("SELECT * FROM customer_locations WHERE id=?", data.savedLocId)
+                                : q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", customer.id);
+    if (!loc || loc.lat == null) return askLocation(phone, rid, customer, { ...data, forceNewLocation: true });
+    const delivery = resolveDelivery(rid, loc.lat, loc.lng);
+    if (!delivery.ok || delivery.reason === 'out_of_range') {
+      send(phone, rid, null, 'text', `🚫 نعتذر، عنوانك السابق *خارج نطاق التوصيل* حالياً (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}*`);
+      return askLocation(phone, rid, customer, { ...data, forceNewLocation: true });
+    }
+    const address = { label: loc.label || 'المنزل', national_address: loc.national_address || (loc.lat + ',' + loc.lng), lat: loc.lat, lng: loc.lng, branch: delivery.branch || null };
+    saveSession(phone, 'delivery_time', { ...data, address, newLoc: null });
+    send(phone, rid, null, 'text', `📍 تمام — التوصيل على: ${address.label}\n🏪 الفرع: *${delivery.branch?.name || ''}* (${Math.round(delivery.distanceKm)} كم)`);
+    return askTime(phone, rid);
+  }
+  return askLocation(phone, rid, customer, data);
 }
 function handleLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'أرسل موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
