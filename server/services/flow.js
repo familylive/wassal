@@ -146,6 +146,18 @@ function selectRestaurant(phone, rid) {
   return mainMenu(phone, rid);
 }
 
+// ترحيب العميل المعروف باسمه (مرة كل 6 ساعات كحد أقصى)
+function greetKnown(phone, rid, customer) {
+  const s = getSession(phone);
+  const last = Number(s.data.greetedAt || 0);
+  if (Date.now() - last < 6 * 60 * 60 * 1000) return false;
+  saveSession(phone, s.state, { ...s.data, greetedAt: Date.now() });
+  const lastOrder = q.get("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 1", customer.id);
+  const extra = lastOrder ? `\n\n🔁 أو اكتب *نفس طلبي* وأرجّع لك طلبك السابق 😉` : '';
+  send(phone, rid, null, 'text', `هلا *${customer.name}* 🌸 كيف حالك؟ عساك طيب؟\n*أمرني* — وش تبي تطلب اليوم؟ 😋${extra}`);
+  return true;
+}
+
 function mainMenu(phone, rid) {
   const ad = q.get("SELECT a.*, r.name_ar AS rname FROM ads_campaigns a LEFT JOIN restaurants r ON r.id=a.restaurant_id WHERE a.is_active=1 AND a.placement='whatsapp' AND (a.ends_at IS NULL OR a.ends_at>=datetime('now')) ORDER BY a.id DESC LIMIT 1");
   const rest = q.get("SELECT name_ar, logo, cover FROM restaurants WHERE id=?", rid);
@@ -178,15 +190,20 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   waLogIn({ orderId: data.orderId || null, phone, type, body: b || p, payload: { state } });
 
+  // ترحيب طبيعي للعميل المعروف — ثم ننتظر طلبه
+  if (customer.name && ['idle'].includes(state) && (b || p)) {
+    if (greetKnown(phone, rid, customer)) return;
+  }
+
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   if (!customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
-    return send(phone, rid, null, 'text', `أهلاً بك في واتس هم! 🍽️\nما هو *اسمك الكريم*؟ (اكتب اسمك وسيتم حفظه) 📝`);
+    return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
   }
   if (state === 'ask_name') {
     if (b.length < 2) return send(phone, rid, null, 'text', 'الرجاء كتابة اسمك حتى نكمل طلبك 😊');
     q.run("UPDATE customers SET name=? WHERE id=?", b.slice(0, 40), customer.id);
-    send(phone, rid, null, 'text', `تسجيلاً مرحباً *${b.slice(0, 40)}* 🎉 تم حفظ اسمك بنجاح.`);
+    send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!\nعساك طيب؟ 🙌\n\n*أمرني* — وش تبي تطلب اليوم؟ 😋`);
     return showRestaurants(phone);
   }
 
@@ -257,7 +274,70 @@ function handleIdle(phone, rid, customer, p, b) {
   if (sel === 'addresses') return showAddresses(phone, rid, customer);
   if (sel === 'restaurants') return showRestaurants(phone);
   if (sel === 'cancel') return handleCancelRequest(phone, rid, customer, getSession(phone).data);
+
+  // 🍽 طلب مباشر بالاسم (بدون منيو): "أبي 2 كبسة"
+  const direct = findItemByName(rid, b);
+  if (direct && b.length >= 3) {
+    const d2 = addItemToCart(phone, rid, direct.item, direct.qty);
+    saveSession(phone, 'cart', d2);
+    send(phone, rid, null, 'text', `✅ أبشر! أضفت *${direct.item.name}* ×${direct.qty} 🛒`);
+    return showCart(phone, rid, customer);
+  }
+  // 🔁 "نفس طلبي السابق"
+  if (wantsSameAsBefore(b)) {
+    const last = q.get("SELECT * FROM orders WHERE customer_id=? AND status NOT IN ('cancelled') ORDER BY id DESC LIMIT 1", customer.id);
+    if (last) {
+      let items = [];
+      try { items = JSON.parse(last.items_json || '[]'); } catch (e) {}
+      const priced = items.map(i => { const it = q.get("SELECT * FROM items WHERE id=?", i.item_id); return it ? { item_id: it.id, name: it.name, price: it.price, quantity: i.quantity || 1 } : null; }).filter(Boolean);
+      if (priced.length) {
+        const session = getSession(phone);
+        saveSession(phone, 'cart', { ...session.data, cart: { items: priced } });
+        send(phone, rid, null, 'text', `🔁 رجّعت لك نفس طلبك السابق 🛒`);
+        return showCart(phone, rid, customer);
+      }
+    }
+  }
   return mainMenu(phone, rid);
+}
+
+
+// ---------- فهم الطلب المباشر (بدون منيو) ----------
+function normAr(x) {
+  return String(x || '')
+    .replace(/[أإآٱ]/g, 'ا').replace(/[ىئ]/g, 'ي').replace(/ة/g, 'ه')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+function findItemByName(rid, text) {
+  const t = normAr(text);
+  if (t.length < 3) return null;
+  let qty = 1;
+  const m = t.match(/^(\d+)\s+/);
+  if (m) qty = Math.min(9, Math.max(1, parseInt(m[1], 10)));
+  const stripped = t.replace(/^\d+\s+/, '');
+  if (stripped.length < 3) return null;
+  const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND is_available=1", rid);
+  let best = null;
+  for (const it of items) {
+    const nm = normAr(it.name);
+    if (!nm || nm.length < 3) continue;
+    if (stripped.includes(nm) || nm.includes(stripped)) {
+      if (!best || normAr(best.name).length > nm.length) best = it;
+    }
+  }
+  return best ? { item: best, qty } : null;
+}
+function wantsSameAsBefore(text) {
+  const t = normAr(text);
+  return ['نفس الطلب', 'نفس طلبي', 'طلبي السابق', 'نفس اللي قبل', 'المعتاد', 'نفسه', 'نفس الشي', 'كرر الطلب'].some(k => t.includes(normAr(k)));
+}
+function addItemToCart(phone, rid, item, qty = 1) {
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const ex = cart.items.find(i => i.item_id === item.id);
+  if (ex) ex.quantity += qty; else cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: qty });
+  return { ...session.data, cart };
 }
 
 // ---------- تصفح الأقسام ----------
