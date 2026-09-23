@@ -70,7 +70,8 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
       else await sendCloud({ phone, type, body, buttons, list, image });
       console.log('WA_SEND_OK', type, phone);
       // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)
-      if (config.whatsapp.provider === 'cloud' && config.voice.replies && type === 'text' && body && body.length <= 250) {
+      // 🎙️ صوت لكل رسائل البوت (نص + قوائم + أزرار) — ما عدا الصور والمواقع
+      if (config.whatsapp.provider === 'cloud' && config.voice.replies && body && ['text', 'list', 'buttons'].includes(type)) {
         const { sendVoiceNote } = await import('./voice.js');
         sendVoiceNote(phone, body).catch(() => {});
       }

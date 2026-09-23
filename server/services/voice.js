@@ -41,7 +41,7 @@ export async function transcribeVoice(mediaId) {
 export async function azureTTS(text) {
   const { azureKey, azureRegion, ttsVoice } = config.voice;
   if (!azureKey || !azureRegion) return null;
-  const ssml = `<speak version='1.0' xml:lang='ar-SA'><voice name='${ttsVoice || 'ar-SA-ZariyahNeural'}'>${text.slice(0, 400).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</voice></speak>`;
+  const ssml = `<speak version='1.0' xml:lang='ar-SA'><voice name='${ttsVoice || 'ar-SA-ZariyahNeural'}'>${text.slice(0, 900).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</voice></speak>`;
   const r = await axios.post(`https://${azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, ssml, {
     headers: {
       'Ocp-Apim-Subscription-Key': azureKey,
@@ -53,44 +53,70 @@ export async function azureTTS(text) {
   return r.data;
 }
 
+
+// ---------- تجهيز النص للنطق (إزالة الرموز والإيموجي) ----------
+export function cleanForSpeech(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/[*_~`]/g, '')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{1F1E6}-\u{1F1FF}]/gu, ' ')
+    .replace(/[⬜✅❌🔊📍🛒🧾🔥🎉🚫⭐💰⏱👇🍽️🛵📦]/gu, ' ')
+    .replace(/https?:\/\/\S+/g, 'رابط الدفع')
+    .replace(/[━─=_]{2,}/g, '. ')
+    .replace(/\s*\n\s*/g, '. ')
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// تقسيم النص الطويل إلى مقاطع صوتية
+function splitForSpeech(t, max = 450) {
+  const parts = [];
+  let cur = '';
+  for (const seg of t.split(/(?<=[.!؟?،])\s+/)) {
+    if (!seg) continue;
+    if ((cur + ' ' + seg).trim().length > max && cur) { parts.push(cur.trim()); cur = seg; }
+    else cur = (cur ? cur + ' ' : '') + seg;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts.filter(Boolean).slice(0, 3);
+}
+
+// إرسال صوتية واحدة (رفع + إرسال)
+async function sendOneChunk(phone, text) {
+  let audio = await azureTTS(text);
+  if (!audio) {
+    const { ttsApiKey, ttsVoice } = config.voice;
+    if (!ttsApiKey) return false;
+    const r = await axios.post('https://api.openai.com/v1/audio/speech',
+      { model: 'gpt-4o-mini-tts', voice: ttsVoice || 'alloy', input: text },
+      { headers: { Authorization: `Bearer ${ttsApiKey}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 });
+    audio = r.data;
+  }
+  if (!audio) return false;
+  const fd = new FormData();
+  fd.append('messaging_product', 'whatsapp');
+  fd.append('type', 'audio/mpeg');
+  fd.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'voice.mp3');
+  const up = await axios.post(`${apiUrl}/${phoneNumberId}/media`, fd, { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 });
+  const mediaId = up.data?.id;
+  if (!mediaId) return false;
+  await axios.post(`${apiUrl}/${phoneNumberId}/messages`,
+    { messaging_product: 'whatsapp', to: phone, type: 'audio', audio: { id: mediaId } },
+    { headers: { Authorization: `Bearer ${token}` } });
+  return true;
+}
+
 // 3) نص → صوت (Azure ar-SA زريّة — صوت امرأة سعودية، أو OpenAI كبديل) ثم إرسال صوتية عبر Meta
 export async function sendVoiceNote(phone, text) {
-  if (!text) return false;
-  // لا نرسل صوتياً للأطوال الكبيرة (القوائم) — فقط جمل قصيرة
-  if (text.length > 250) return false;
-  let audio = null;
-  try {
-    audio = await azureTTS(text);
-    if (!audio) {
-      const { ttsApiKey, ttsVoice } = config.voice;
-      if (!ttsApiKey) return false;
-      // OpenAI (بديل — فصحى محايدة)
-      const r = await axios.post('https://api.openai.com/v1/audio/speech',
-        { model: 'gpt-4o-mini-tts', voice: ttsVoice || 'alloy', input: text.slice(0, 400) },
-        { headers: { Authorization: `Bearer ${ttsApiKey}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 });
-      audio = r.data;
-    }
-    if (!audio) return false;
-    // رفع الصوت إلى Meta
-    const fd = new FormData();
-    fd.append('messaging_product', 'whatsapp');
-    fd.append('type', 'audio/mpeg');
-    fd.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'voice.mp3');
-    const up = await axios.post(`${apiUrl}/${phoneNumberId}/media`, fd, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 30000,
-    });
-    const mediaId = up.data?.id;
-    if (!mediaId) return false;
-    // إرسال الصوتية
-    await axios.post(`${apiUrl}/${phoneNumberId}/messages`,
-      { messaging_product: 'whatsapp', to: phone, type: 'audio', audio: { id: mediaId } },
-      { headers: { Authorization: `Bearer ${token}` } });
-    return true;
-  } catch (e) {
-    console.error('VOICE_TTS_FAIL', e.response?.status, e.message);
-    return false;
+  const clean = cleanForSpeech(text);
+  if (!clean) return false;
+  const chunks = splitForSpeech(clean);
+  let ok = false;
+  for (const ch of chunks) {
+    try { ok = (await sendOneChunk(phone, ch)) || ok; } catch (e) { console.error('VOICE_TTS_FAIL', e.message); }
   }
+  return ok;
 }
 
 // 4) إرسال رد كتابي + صوتي (اختياري حسب الإعدادات)
