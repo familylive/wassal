@@ -320,9 +320,10 @@ function findItemByName(rid, text) {
   const t = normAr(text);
   if (t.length < 3) return null;
   let qty = 1;
-  const m = t.match(/^(\d+)\s+/);
+  // أول رقم في الجملة = الكمية (يدعم الأرقام العربية بعد التطبيع)
+  const m = t.match(/(?:^|\s)([1-9])(?:\s|$)/);
   if (m) qty = Math.min(9, Math.max(1, parseInt(m[1], 10)));
-  const stripped = t.replace(/^\d+\s+/, '').trim();
+  const stripped = t.replace(/(?:^|\s)[1-9](?:\s|$)/, ' ').trim();
   if (stripped.length < 3) return null;
   const tWords = stripped.split(' ').filter(w => w.length >= 3);
   const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND is_available=1", rid);
