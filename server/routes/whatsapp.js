@@ -12,8 +12,10 @@ const router = Router();
 // سجل تشخيصي لطلبات الويب هوك (في الذاكرة)
 const webhookHits = [];
 function logHit(kind, summary, raw = '') {
-  webhookHits.push({ t: new Date().toISOString(), kind, summary: String(summary).slice(0, 120), raw: String(raw).slice(0, 250) });
+  const sum = String(summary).slice(0, 120), rw = String(raw).slice(0, 250);
+  webhookHits.push({ t: new Date().toISOString(), kind, summary: sum, raw: rw });
   if (webhookHits.length > 100) webhookHits.shift();
+  try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES (?,?,?)", kind, sum, rw); } catch (e) {}
   console.log('WEBHOOK', kind, String(summary).slice(0, 100));
 }
 
@@ -165,7 +167,13 @@ router.get('/voice-test', async (req, res) => {
 
 // رسالة من جوال المندوب لواتساب المطعم — رمز الاستلام يغلق الطلب
 // سجل آخر طلبات الويب هوك (تشخيص)
-router.get('/debug', (req, res) => res.json(webhookHits.slice(-25)));
+router.get('/debug', (req, res) => {
+  try {
+    const rows = q.all("SELECT kind, summary, raw, created_at AS t FROM webhook_log ORDER BY id DESC LIMIT 30");
+    if (rows.length) return res.json(rows);
+  } catch (e) {}
+  res.json(webhookHits.slice(-25));
+});
 
 router.post('/captain-message', async (req, res) => {
   const { captain_phone, body = '' } = req.body || {};

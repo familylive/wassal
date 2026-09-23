@@ -285,3 +285,12 @@ CREATE TABLE IF NOT EXISTS branches (
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- سجل إشعارات الويب هوك (تشخيص دائم — يبقى بعد إعادة التشغيل)
+CREATE TABLE IF NOT EXISTS webhook_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT,
+  summary TEXT,
+  raw TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
