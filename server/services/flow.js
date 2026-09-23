@@ -146,11 +146,14 @@ function selectRestaurant(phone, rid) {
   return mainMenu(phone, rid);
 }
 
-// ترحيب العميل المعروف باسمه (مرة كل 6 ساعات كحد أقصى)
-function greetKnown(phone, rid, customer) {
+// هل يحتاج ترحيب؟ (مرة كل 6 ساعات)
+function needsGreeting(phone) {
   const s = getSession(phone);
-  const last = Number(s.data.greetedAt || 0);
-  if (Date.now() - last < 6 * 60 * 60 * 1000) return false;
+  return Date.now() - Number(s.data.greetedAt || 0) >= 6 * 60 * 60 * 1000;
+}
+// إرسال الترحيب الودّي
+function sendGreeting(phone, rid, customer) {
+  const s = getSession(phone);
   saveSession(phone, s.state, { ...s.data, greetedAt: Date.now() });
   const lastOrder = q.get("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 1", customer.id);
   const extra = lastOrder ? `\n\n🔁 أو اكتب *نفس طلبي* وأرجّع لك طلبك السابق 😉` : '';
@@ -190,9 +193,12 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   waLogIn({ orderId: data.orderId || null, phone, type, body: b || p, payload: { state } });
 
-  // ترحيب طبيعي للعميل المعروف — ثم ننتظر طلبه
-  if (customer.name && ['idle'].includes(state) && (b || p)) {
-    if (greetKnown(phone, rid, customer)) return;
+  // ترحيب طبيعي للعميل المعروف — وإن كانت رسالته فيها طلب واضح نكمل معالجته
+  if (customer.name && state === 'idle' && (b || p) && needsGreeting(phone)) {
+    const isClearRequest = !!findItemByName(rid, b) || wantsSameAsBefore(b) ||
+      ['menu','القائمة','المنيو','قائمة الطعام'].includes(String(b).toLowerCase());
+    sendGreeting(phone, rid, customer);
+    if (!isClearRequest) return;
   }
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
