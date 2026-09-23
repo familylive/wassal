@@ -38,10 +38,12 @@ export async function transcribeVoice(mediaId) {
 }
 
 // 2) تحويل النص إلى صوت عبر Azure (صوت امرأة سعودية — زريّة)
-export async function azureTTS(text) {
+export async function azureTTS(text, voiceOverride = null) {
   const { azureKey, azureRegion, ttsVoice } = config.voice;
   if (!azureKey || !azureRegion) return null;
-  const ssml = `<speak version='1.0' xml:lang='ar-SA'><voice name='${ttsVoice || 'ar-SA-ZariyahNeural'}'>${text.slice(0, 900).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</voice></speak>`;
+  const vname = voiceOverride || ttsVoice || 'ar-SA-ZariyahNeural';
+  const vlang = vname.split('-').slice(0, 2).join('-');
+  const ssml = `<speak version='1.0' xml:lang='${vlang}'><voice name='${vname}'>${text.slice(0, 900).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</voice></speak>`;
   const r = await axios.post(`https://${azureRegion}.tts.speech.microsoft.com/cognitiveservices/v1`, ssml, {
     headers: {
       'Ocp-Apim-Subscription-Key': azureKey,

@@ -155,7 +155,7 @@ router.get('/voice-test', async (req, res) => {
   try {
     const { azureTTS } = await import('../services/voice.js');
     const text = String(req.query.text || 'مرحبا بك في واتس هم');
-    const audio = await azureTTS(text);
+    const audio = await azureTTS(text, req.query.voice ? String(req.query.voice) : null);
     if (!audio) return res.status(400).json({ error: 'AZURE_TTS_KEY غير معرّف أو فشل' });
     res.set('Content-Type', 'audio/mpeg');
     res.set('X-Audio-Bytes', String(audio.byteLength));
