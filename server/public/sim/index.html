@@ -97,12 +97,13 @@ function addMsg({direction,body,type,payload_json,created_at,message_type}){
   m.innerHTML+=`<span class="time">${fmt(created_at)}</span>`;
   chat.appendChild(m);chat.scrollTop=chat.scrollHeight;
 }
-// تشغيل صوت زريّة من الخادم
+// تشغيل صوت زريّة من الخادم (بدون تكرار)
 let currentAudio=null, autoVoice=true;
+const playedIds=new Set();
 function toggleAutoVoice(){autoVoice=!autoVoice;document.getElementById('av').textContent=autoVoice?'🔊 تلقائي: يعمل':'🔇 تلقائي: متوقف';}
 function playVoice(text){
   if(currentAudio){currentAudio.pause();currentAudio=null;}
-  const a=new Audio(`${API}/whatsapp/voice-test?text=${encodeURIComponent(text.slice(0,250))}`);
+  const a=new Audio(`${API}/whatsapp/voice-test?text=${encodeURIComponent(text.slice(0,600))}`);
   a.play().catch(()=>{});
   currentAudio=a;
 }
@@ -118,11 +119,17 @@ async function refresh(clear){
   // إعادة الرسم البسيط: أفرّغ وأعيد العرض (سهل ومضمون)
   document.getElementById('chat').innerHTML='';
   rows.forEach(m=>addMsg(m));
-  // تشغيل صوت آخر رد للبوت تلقائياً
+  // تشغيل صوت آخر رد للبوت تلقائياً (مرة واحدة لكل رسالة)
   if(newBot.length&&autoVoice){
     const last=newBot[newBot.length-1];
-    setTimeout(()=>playVoice(last.body),600);
+    const key='m'+last.id;
+    if(!playedIds.has(key)){
+      playedIds.add(key);
+      setTimeout(()=>playVoice(last.body),400);
+    }
   }
+  // سجّل كل الواردة كمشغّلة (حتى لو التلقائي متوقف) لمنع التكرار لاحقاً
+  newBot.forEach(m=>playedIds.add('m'+m.id));
   // كشف رقم الطلب آخر رسالة
   const match=(rows[rows.length-1]?.body||'').match(/#\d+/);
   if(match)latestOrderId=match[0];
@@ -140,35 +147,46 @@ function sendLoc(lat,lng){fetch(`${API}/whatsapp/simulate`,{method:'POST',header
 function typingOn(){document.getElementById('typing').style.display='block'}
 function typingOff(){document.getElementById('typing').style.display='none'}
 // 🎤 تسجيل صوتي من المايك → إرسال للخادم → تحويل → معالجة
-let rec=null, chunks=[];
+let rec=null, chunks=[], recTimer=null, recStart=0;
 async function toggleMic(){
   const btn=document.getElementById('micbtn');
-  if(rec&&rec.state==='recording'){btn.textContent='🎤';rec.stop();return;}
+  if(rec&&rec.state==='recording'){btn.textContent='🎤';clearInterval(recTimer);rec.stop();return;}
   try{
-    const st=await navigator.mediaDevices.getUserMedia({audio:true});
+    const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
     rec=new MediaRecorder(st);chunks=[];
-    btn.textContent='⏹ إيقاف';
-    rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+    recStart=Date.now();
+    btn.textContent='🔴 يسجّل… (اضغط للإيقاف)';
+    recTimer=setInterval(()=>{
+      const sec=Math.floor((Date.now()-recStart)/1000);
+      document.getElementById('inp').placeholder=`🎙️ يسجّل… ${sec} ثانية (اضغط 🎤 للإيقاف والإرسال)`;
+    },500);
+    rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
     rec.onstop=async()=>{
+      clearInterval(recTimer);
       st.getTracks().forEach(t=>t.stop());
       btn.textContent='🎤';
+      document.getElementById('inp').placeholder='اكتب رسالة…';
+      // انتظر قليلاً حتى تكتمل آخر قطعة صوتية
+      await new Promise(r=>setTimeout(r,300));
       const blob=new Blob(chunks,{type:rec.mimeType||'audio/webm'});
-      if(blob.size<1000){alert('الصوت قصير جداً — أعد المحاولة');return;}
+      if(blob.size<2000){alert('الصوت قصير — اضغط 🎤 وسجّل جملة كاملة');return;}
       const fd=new FormData();
       fd.append('file',blob,'voice.webm');
       fd.append('phone',PHONE);
       fd.append('restaurant_id',RID);
+      document.getElementById('typing').textContent='⏳ أحوّل صوتك لنص…';
       typingOn();
       try{
         const r=await fetch(`${API}/whatsapp/voice-in`,{method:'POST',body:fd});
         const d=await r.json();
         typingOff();
+        document.getElementById('typing').textContent='جارٍ الكتابة…';
         if(d.ok&&d.text)sendText(d.text);
-        else if(!d.ok&&d.error)alert('لم يُفعّل التحويل الصوتي بعد: '+(d.error||''));
-      }catch(e){typingOff();alert('فشل الإرسال الصوتي');}
+        else if(!d.ok)alert('لم أفهم الصوت: '+(d.error||'')+'\nجرّب تكتب الرسالة');
+      }catch(e){typingOff();alert('فشل إرسال الصوت — جرّب مرة ثانية');}
     };
-    rec.start();
-  }catch(e){alert('المتصفح لا يسمح بالميكروفون — جرّب بكتابة الرسالة');}
+    rec.start(500); // قطع كل نصف ثانية (أفضل للجوال)
+  }catch(e){alert('المتصفح ما سمح بالميكروفون — استخدم الكتابة');}
 }
 function resetChat(){if(!confirm('مسح جلسة المحاكاة؟'))return;fetch(`${API}/whatsapp/simulate/${encodeURIComponent(PHONE)}/reset`,{method:'POST'}).then(()=>refresh(true))}
 (async()=>{
