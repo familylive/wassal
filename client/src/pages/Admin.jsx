@@ -401,7 +401,7 @@ function RegistrationsTab() {
         <div onClick={() => setOpen(open === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
           <b>{r.kind === 'captain' ? '🛵 كابتن' : '🏬 نشاط'} — {r.business_name || '-'}</b>
           <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
-            {r.city || '-'} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
+            {r.city || '-'}{r.district ? ` — ${r.district}` : ''} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>
@@ -416,7 +416,7 @@ function RegistrationsTab() {
               <div>الأصناف:</div>
               {(r.items || []).map((it, i) => <div key={i}>• {it.name} {it.price ? `— ${sar(it.price)} ر.س` : '— بلا سعر'}{it.category ? ` (${it.category})` : ''}</div>)}
             </>
-          ) : (<div>المركبة: {r.vehicle_type || '-'} · المدينة: {r.city || '-'}</div>)}
+          ) : (<div>المركبة: {r.vehicle_type || '-'} · المدينة: {r.city || '-'}{r.district ? ` · الحي: ${r.district}` : ''}</div>)}
           <div style={{ marginTop: 4 }}>{r.created_at}</div>
         </div>
       )}

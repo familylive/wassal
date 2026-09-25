@@ -24,11 +24,11 @@ export async function notifySupervisor(reg) {
   const typeRow = reg.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", reg.business_type_id) : null;
   let txt = isCap ? '🛵 *طلب تسجيل كابتن توصيل*\n\n' : '🆕 *طلب تسجيل نشاط جديد*\n\n';
   if (isCap) {
-    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🏙 المدينة: ${reg.city || '-'}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n📱 الجوال: ${reg.phone}\n`;
+    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n📱 الجوال: ${reg.phone}\n`;
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
-    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n🏙 المدينة: ${reg.city || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
+    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n📱 جوال المسؤول: ${reg.phone}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -54,13 +54,13 @@ export async function approveRegistration(id) {
     let cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", reg.phone, phone);
     const pass = String(reg.phone || '').slice(-6) || '123456';
     if (!cap) {
-      const r = q.run("INSERT INTO captains (name, phone, city, vehicle_type, password_hash, status) VALUES (?,?,?,?,?,?)",
-        reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.vehicle_type || 'دراجة',
+      const r = q.run("INSERT INTO captains (name, phone, city, district, vehicle_type, password_hash, status) VALUES (?,?,?,?,?,?,?)",
+        reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.vehicle_type || 'دراجة',
         bcrypt.hashSync(pass, 10), 'offline');
       cap = { id: Number(r.lastInsertRowid) };
     }
     q.run("UPDATE business_registrations SET status='approved', captain_id=?, updated_at=datetime('now') WHERE id=?", cap.id, id);
-    await notifyApplicant(reg, `🎉 *تم اعتمادك كابتن توصيل!*\n\n👤 ${reg.business_name || ''}\n🛵 ${reg.vehicle_type || ''}\n\nبيجيك الطلبات هنا على واتساب — جهّز نفسك 🚀\n\nللدخول للوحة الكابتن:\n🔗 ${(config.publicUrl || '')}/captain\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}`);
+    await notifyApplicant(reg, `🎉 *تم اعتمادك كابتن توصيل!*\n\n👤 ${reg.business_name || ''}\n📍 ${reg.city || ''}${reg.district ? ' — ' + reg.district : ''}\n🛵 ${reg.vehicle_type || ''}\n\nبيجيك الطلبات هنا على واتساب — جهّز نفسك 🚀\n\nللدخول للوحة الكابتن:\n🔗 ${(config.publicUrl || '')}/captain\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}`);
     return { ok: true, kind: 'captain', captain_id: cap.id, name: reg.business_name };
   }
   // نشاط تجاري: مطعم / سوبر ماركت / صيدلية / أسرة منتجة
@@ -68,9 +68,10 @@ export async function approveRegistration(id) {
   const phone = validatePhone(reg.phone) || reg.phone;
   const pass = String(reg.phone || '').slice(-6) || '123456';
   const newId = tx(() => {
+    const addr = [reg.city, reg.district].filter(Boolean).join(' — ') || null;
     const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id)
       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      reg.business_name || 'نشاط جديد', phone, reg.city || null, reg.city || null, null,
+      reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
       1000, 2000, 25, 1, reg.business_type_id || null);
     const rid = Number(r.lastInsertRowid);
     let catId;
@@ -89,7 +90,7 @@ export async function approveRegistration(id) {
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;
   });
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n🏙 ${reg.city || ''}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n🏙 ${reg.city || ''}${reg.district ? ' — ' + reg.district : ''}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
   return { ok: true, kind: 'business', restaurant_id: newId, name: reg.business_name };
 }
 
