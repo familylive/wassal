@@ -5,7 +5,7 @@ export const config = {
   port: Number(process.env.PORT || 4000),
   jwtSecret: process.env.JWT_SECRET || 'wassal-dev-secret-change-me',
   dbPath: process.env.DB_PATH || new URL('./data/wassal.db', import.meta.url).pathname,
-  publicUrl: process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`,
+  publicUrl: process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 4000}`,
   // WhatsApp Cloud API (Meta) — fill .env to go live
   whatsapp: {
     provider: process.env.WHATSAPP_PROVIDER || 'simulator', // simulator | cloud | 360dialog
