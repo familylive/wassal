@@ -63,6 +63,10 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
   if (status === 'arrived') q.run("UPDATE orders SET arrived_at=datetime('now') WHERE id=?", orderId);
   // تقييم العميل عند التسليم/الاستلام (كل المسارات)
   if (status === 'delivered') { try { import('./flow.js').then(({ triggerRating }) => triggerRating(q.get("SELECT * FROM orders WHERE id=?", orderId))); } catch (e) {} }
+  // 💵 تحصيل الكاش من العميل على الكابتن (وإيقافه لو وصل سقف التأمين)
+  if (status === 'delivered' && order.payment_method === 'cash' && order.captain_id) {
+    try { import('./captainAccount.js').then(({ addCollectedCash }) => addCollectedCash(order.captain_id, order)).catch(() => {}); } catch (e) {}
+  }
   if (status === 'delivered') {
     q.run("UPDATE orders SET delivered_at=datetime('now'), payment_status = CASE WHEN payment_method='cash' THEN 'paid' ELSE payment_status END WHERE id=?", orderId);
     if (order.captain_id) q.run("UPDATE captains SET status='available', deliveries_count=deliveries_count+1 WHERE id=?", order.captain_id);

@@ -73,6 +73,12 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
 server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
 
 // نسخ احتياطي دوري كل دقيقتين (إضافة للنسخ الفوري بعد الطلبات)
+// ⏱ غرامات التأخير للكباتن — فحص كل ٣ دقائق
+import('./services/captainAccount.js').then(({ checkLateDeliveries }) => {
+  setInterval(() => checkLateDeliveries().then(n => { if (n) console.log('LATE_PENALTIES_APPLIED', n); }).catch(e => console.error('LATE_CHECK_FAIL', e.message)), 3 * 60 * 1000);
+  setTimeout(() => checkLateDeliveries().catch(() => {}), 45000);
+});
+
 // 📊 تقرير المبيعات اليومي — فحص كل ٥ دقائق (مع تعويض لو كان السيرفر نائماً)
 import('./services/reporting.js').then(({ runDueReports }) => {
   setInterval(() => runDueReports().catch(e => console.error('REPORT_LOOP_FAIL', e.message)), 5 * 60 * 1000);

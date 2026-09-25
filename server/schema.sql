@@ -136,6 +136,13 @@ CREATE TABLE IF NOT EXISTS captains (
   lat REAL,
   lng REAL,
   status TEXT DEFAULT 'offline',
+  deposit_amount INTEGER DEFAULT 50000,
+  deposit_paid INTEGER DEFAULT 0,
+  deposit_paid_at TEXT,
+  wallet_cash INTEGER DEFAULT 0,
+  penalty_total INTEGER DEFAULT 0,
+  blocked INTEGER DEFAULT 0,
+  blocked_reason TEXT,
   rating_avg REAL DEFAULT 0,
   rating_count INTEGER DEFAULT 0,
   deliveries_count INTEGER DEFAULT 0,
@@ -168,6 +175,9 @@ CREATE TABLE IF NOT EXISTS orders (
   order_type TEXT DEFAULT 'delivery',
   bid_until TEXT,
   chosen_captain_id INTEGER,
+  promised_at TEXT,
+  penalty_quarters INTEGER DEFAULT 0,
+  penalty_total INTEGER DEFAULT 0,
   delivery_photo TEXT,
   delivery_photo_at TEXT,
   cancel_reason TEXT,
@@ -347,6 +357,7 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   postal_code TEXT,
   owner_name TEXT,
   owner_id TEXT,
+  deposit_paid INTEGER DEFAULT 0,
   vehicle_type TEXT,
   items_json TEXT,
   status TEXT DEFAULT 'draft',
@@ -355,6 +366,17 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- حركات حساب الكابتن (تأمين · تحصيل كاش · غرامة · تسوية)
+CREATE TABLE IF NOT EXISTS captain_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  captain_id INTEGER NOT NULL,
+  order_id INTEGER,
+  type TEXT,
+  amount INTEGER DEFAULT 0,
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- تقارير الإدارة المجمعة اليومية (لمنع التكرار)

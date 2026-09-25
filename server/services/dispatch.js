@@ -8,7 +8,7 @@ import { resolveDelivery } from './branches.js';
 // إرسال الطلب لكل الكباتن المتاحين (بدون طلبات نشطة)
 export function broadcastToCaptains(order) {
   if (['cancelled', 'delivered'].includes(order.status)) return;
-  const captains = q.all("SELECT * FROM captains WHERE status='available' AND is_active=1");
+  const captains = q.all("SELECT * FROM captains WHERE status='available' AND is_active=1 AND COALESCE(blocked,0)=0");
   const restaurant = q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id);
   for (const c of captains) {
     const r = q.run("INSERT INTO captain_offers (order_id, captain_id, status) VALUES (?,?,?)", order.id, c.id, 'offered');
@@ -29,7 +29,7 @@ export function broadcastToCaptains(order) {
 // يُعرض الطلب على الكباتن المتاحين مع المسافة، وكل كابتن يرسل سعره
 export function broadcastBidding(order, minutes = 2) {
   const restaurant = q.get("SELECT name_ar, city FROM restaurants WHERE id=?", order.restaurant_id);
-  const captains = q.all("SELECT * FROM captains WHERE status='available' AND is_active=1");
+  const captains = q.all("SELECT * FROM captains WHERE status='available' AND is_active=1 AND COALESCE(blocked,0)=0");
   const dist = (order.lat && order.lng) ? kmTo(order, order.restaurant_id) : null;
   let n = 0;
   for (const c of captains) {
@@ -80,10 +80,17 @@ export function restaurantTransfer(orderId, captainId) {
   return tx(() => {
     const order = q.get("SELECT * FROM orders WHERE id=?", orderId);
     if (!order) return { error: 'طلب غير موجود' };
+    const capRow = q.get("SELECT * FROM captains WHERE id=?", captainId);
+    if (capRow && Number(capRow.blocked)) return { error: 'هذا الكابتن موقوف مؤقتاً (بلوغ سقف التأمين) — اختر كابتن آخر' };
     q.run("UPDATE captain_offers SET status='expired', responded_at=datetime('now') WHERE order_id=? AND captain_id != ? AND status IN ('offered','accepted')", orderId, captainId);
     q.run("UPDATE captain_offers SET status='transferred', transferred_at=datetime('now') WHERE order_id=? AND captain_id=?", orderId, captainId);
     q.run("UPDATE orders SET captain_id=?, status='transferred', updated_at=datetime('now') WHERE id=?", captainId, orderId);
     q.run("UPDATE captains SET status='busy' WHERE id=?", captainId);
+    // ⏱ الوقت المتوقع للتسليم (يبدأ من لحظة التحويل) — أساس غرامة التأخير
+    try {
+      const mins = Number(order.est_delivery_min || 30);
+      q.run("UPDATE orders SET promised_at=datetime('now', '+' || ? || ' minutes'), penalty_quarters=0, penalty_total=0 WHERE id=?", mins, orderId);
+    } catch (e) { console.error('PROMISED_TIME_FAIL', e.message); }
     const captain = q.get("SELECT * FROM captains WHERE id=?", captainId);
     addEvent(orderId, 'transferred', `تم تحويل الطلب إلى الكابتن ${captain.name} عبر لوحة المطعم`);
     const updated = q.get("SELECT * FROM orders WHERE id=?", orderId);

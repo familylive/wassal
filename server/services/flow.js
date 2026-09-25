@@ -245,7 +245,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'rep_name', 'rep_id', 'rep_phone'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -299,6 +299,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_city': return handleCapCity(phone, rid, session, b);
     case 'cap_district': return handleCapDistrict(phone, rid, session, b);
     case 'cap_vehicle': return handleCapVehicle(phone, rid, session, b, p);
+    case 'cap_deposit': return handleCapDeposit(phone, rid, session, b, p);
+    case 'cap_deposit_wait': return handleCapDeposit(phone, rid, session, b, p);
     case 'rep_name': return handleRepName(phone, rid, session, b);
     case 'rep_id': return handleRepId(phone, rid, session, b);
     case 'rep_phone': return handleRepPhone(phone, rid, session, b);
@@ -1603,9 +1605,32 @@ function handleCapDistrict(phone, rid, session, b) {
 async function handleCapVehicle(phone, rid, session, b, p) {
   const v = p && p.startsWith('veh:') ? p.slice(4) : String(b || '').trim();
   if (!v || v.length < 2) return send(phone, rid, null, 'text', 'اختر وسيلة النقل من الأزرار 👆');
+  saveSession(phone, 'cap_deposit', { ...session.data, reg: { ...(session.data.reg || {}), vehicle: v.slice(0, 30) } });
+  send(phone, rid, null, 'text', `💰 *تأمين الحساب: ٥٠٠ ر.س*\n\nمبلغ تأمين يُدفع مرة واحدة، ويُحفظ لك رصيد — وكل ما وصلت مبالغك المحصّلة للحدّ نوقف الاستقبال مؤقتاً حتى التسوية ✅`);
+  return send(phone, rid, null, 'buttons', 'كيف تحب تكمل؟', { buttons: [
+    { id: 'dep_pay', title: '💳 ادفع التأمين' },
+    { id: 'dep_later', title: '⏳ أدفعه لاحقاً' }
+  ] });
+}
+
+// خطوة التأمين ثم إرسال الطلب
+async function handleCapDeposit(phone, rid, session, b, p) {
   const reg = session.data.reg || {};
-  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, vehicle_type, status)
-    VALUES ('captain', ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, v.slice(0, 30));
+  if (p === 'dep_later') return submitCaptainReg(phone, rid, session, { depositPaid: false });
+  if (p === 'dep_paid') return submitCaptainReg(phone, rid, session, { depositPaid: false, claimed: true });
+  if (p === 'dep_pay') {
+    saveSession(phone, 'cap_deposit_wait', { ...session.data, reg });
+    send(phone, rid, null, 'text', `💳 *تأمين الحساب ٥٠٠.٠٠ ر.س*\n\nحوّل المبلغ على حساب المنصة، وبعد التحويل اضغط *✅ تم التحويل* وأرفق الإيصال للإدارة.`);
+    if (config.adminPhone) send(phone, rid, null, 'text', `📱 للتحويل أو الاستفسار: الإدارة على الرقم ${config.adminPhone}`);
+    return send(phone, rid, null, 'buttons', 'بعد التحويل اضغط هنا 👇', { buttons: [{ id: 'dep_paid', title: '✅ تم التحويل' }, { id: 'dep_later', title: '⏳ لاحقاً' }] });
+  }
+  return send(phone, rid, null, 'buttons', 'اختر 👇', { buttons: [{ id: 'dep_pay', title: '💳 ادفع التأمين' }, { id: 'dep_later', title: '⏳ أدفعه لاحقاً' }] });
+}
+async function submitCaptainReg(phone, rid, session, { depositPaid = false, claimed = false } = {}) {
+  const reg = session.data.reg || {};
+  const v = reg.vehicle || 'دراجة';
+  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, vehicle_type, deposit_paid, note, status)
+    VALUES ('captain', ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, v.slice(0, 30), depositPaid ? 1 : 0, claimed ? 'يقول إنه حوّل التأمين' : null);
   const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
   saveSession(phone, 'idle', { ...session.data, reg: null });
   const ok = await notifySupervisor(row);
@@ -1779,6 +1804,18 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
     return send(captain.phone, null, activeQ.id, 'text', '📍 تم إبلاغ العميل بوصولك!\n\n📷 *الخطوة ١:* صوّر الطلب عند باب العميل وأرسل *الصورة* هنا (إلزامية لإغلاق الطلب).\n🔐 *الخطوة ٢:* خذ رمز الاستلام من العميل وأرسله هنا، وأنا أغلق الطلب.');
   }
+  // 💰 رصيدي / التسوية
+  if (['رصيدي', 'حسابي', 'المبالغ', 'settle_info', 'كيف أسدّد؟'].includes(b) || p === 'settle_info') {
+    const c = q.get("SELECT * FROM captains WHERE id=?", captain.id);
+    const cap = Number(c.deposit_amount || 50000);
+    const wallet = Number(c.wallet_cash || 0);
+    const pen = Number(c.penalty_total || 0);
+    let t = `💰 *حسابك*\n\n🏦 التأمين: ${Number(c.deposit_paid) ? '✅ مدفوع' : '⏳ غير مدفوع'} (${rls(cap)} ر.س)\n📦 المبالغ المحصّلة بحوزتك: *${rls(wallet)} ر.س*\n⚠️ غرامات التأخير: ${rls(pen)} ر.س\n`;
+    t += `\nالسقف: ${rls(cap)} ر.س — لو وصلت له يتم إيقاف الاستقبال حتى التسوية.`;
+    if (Number(c.blocked)) t += `\n\n⛔ *حسابك موقوف حالياً* — ${c.blocked_reason || ''}\nتسوية المبالغ مع الإدارة لإعادة التفعيل.`;
+    return send(captain.phone, null, null, 'text', t);
+  }
+
   // 5) الحالة: طلباتي النشطة
   if (['حالة', 'status', 'طلباتي'].includes(b)) {
     const active = q.all("SELECT * FROM orders WHERE captain_id=? AND status NOT IN ('delivered','cancelled') ORDER BY id DESC", captain.id);

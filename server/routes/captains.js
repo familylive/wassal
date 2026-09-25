@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { captainAccept } from '../services/dispatch.js';
+import { captainAccount, markDepositPaid, settleCaptain } from '../services/captainAccount.js';
 
 const router = Router();
 
@@ -44,6 +45,26 @@ router.post('/:id/status', (req, res) => {
   q.run("UPDATE captains SET status=? WHERE id=?", status, req.params.id);
   res.json({ ok: true });
 });
+// 💰 حساب الكابتن (التأمين · المبالغ المحصّلة · الغرامات)
+router.get('/:id/account', (req, res) => {
+  const acc = captainAccount(Number(req.params.id));
+  if (!acc) return res.status(404).json({ error: 'غير موجود' });
+  res.json(acc);
+});
+// ✅ استلام تأمين الحساب (٥٠٠ ر.س)
+router.post('/:id/deposit', requireRole('admin'), (req, res) => {
+  const r = markDepositPaid(Number(req.params.id), req.body?.amount || null, req.body?.note || 'استلام تأمين الحساب');
+  if (r.error) return res.status(400).json(r);
+  q.run("UPDATE captains SET status='available' WHERE id=? AND COALESCE(blocked,0)=0", Number(req.params.id));
+  res.json(r);
+});
+// 💵 تسوية المبالغ المحصّلة وإعادة التفعيل
+router.post('/:id/settle', requireRole('admin'), (req, res) => {
+  const r = settleCaptain(Number(req.params.id), req.body?.amount ?? null, req.body?.note || 'تسوية المبالغ');
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
 // طلبات الكابتن
 router.get('/:id/orders', (req, res) => {
   const rows = q.all("SELECT * FROM orders WHERE captain_id=? ORDER BY id DESC LIMIT 100", req.params.id);

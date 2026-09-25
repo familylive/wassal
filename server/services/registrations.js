@@ -24,7 +24,7 @@ export async function notifySupervisor(reg) {
   const typeRow = reg.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", reg.business_type_id) : null;
   let txt = isCap ? '🛵 *طلب تسجيل كابتن توصيل*\n\n' : '🆕 *طلب تسجيل نشاط جديد*\n\n';
   if (isCap) {
-    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n📱 الجوال: ${reg.phone}\n`;
+    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n💰 التأمين (٥٠٠ ر.س): ${Number(reg.deposit_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}${reg.note ? ` (${reg.note})` : ''}\n📱 الجوال: ${reg.phone}\n`;
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
@@ -54,9 +54,10 @@ export async function approveRegistration(id) {
     let cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", reg.phone, phone);
     const pass = String(reg.phone || '').slice(-6) || '123456';
     if (!cap) {
-      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, password_hash, status) VALUES (?,?,?,?,?,?,?,?)",
+      const paidDeposit = Number(reg.deposit_paid || 0) ? 1 : 0;
+      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, password_hash, status, deposit_paid, blocked, blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.owner_id || reg.national_id || null, reg.vehicle_type || 'دراجة',
-        bcrypt.hashSync(pass, 10), 'offline');
+        bcrypt.hashSync(pass, 10), 'offline', paidDeposit, paidDeposit ? 0 : 1, paidDeposit ? null : 'بانتظار تأمين الحساب (٥٠٠ ر.س)');
       cap = { id: Number(r.lastInsertRowid) };
     }
     q.run("UPDATE business_registrations SET status='approved', captain_id=?, updated_at=datetime('now') WHERE id=?", cap.id, id);

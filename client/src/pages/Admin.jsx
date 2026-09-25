@@ -255,10 +255,21 @@ function CaptainsTab({ data, onChange }) {
     try { await api(`/captains/${c.id}/status`, { method: 'POST', body: { status } }); notify('✅ تم تحديث حالة الكابتن'); onChange(); }
     catch (e) { notify(e.message); }
   };
+  const act = async (c, kind) => {
+    const msg = kind === 'deposit'
+      ? `تأكيد استلام تأمين الحساب (٥٠٠ ر.س) من ${c.name}؟`
+      : `تسوية مبالغ ${c.name}؟\nالمبالغ: ${sar(c.wallet_cash || 0)} ر.س · الغرامات: ${sar(c.penalty_total || 0)} ر.س\n(تُصفَّر المبالغ وتُعاد تفعيله)`;
+    if (!window.confirm(msg)) return;
+    try {
+      await api(`/captains/${c.id}/${kind}`, { method: 'POST', body: {} });
+      notify(kind === 'deposit' ? '✅ تم تسجيل التأمين' : '✅ تمت التسوية وإعادة التفعيل');
+      onChange();
+    } catch (e) { notify(e.message); }
+  };
   return (
     <Card title={`الكباتن (${data.length})`} action={<button className="btn sm" onClick={() => setModal(true)}>➕ كابتن جديد</button>}>
       <table>
-        <thead><tr><th>الكابتن</th><th>الجوال</th><th>الهوية</th><th>المركبة</th><th>الحالة</th><th>التقييم</th><th>التوصيلات</th><th>تغيير الحالة</th></tr></thead>
+        <thead><tr><th>الكابتن</th><th>الجوال</th><th>الهوية</th><th>المركبة</th><th>الحالة</th><th>التقييم</th><th>التوصيلات</th><th>الحساب</th><th>تحكم</th></tr></thead>
         <tbody>
           {data.map(c => (
             <tr key={c.id}>
@@ -266,10 +277,22 @@ function CaptainsTab({ data, onChange }) {
               <td>{c.status === 'available' ? <span className="badge b-green">متاح</span> : c.status === 'busy' ? <span className="badge b-amber">مشغول</span> : <span className="badge b-gray">غير متصل</span>}</td>
               <td>{c.rating_count ? `⭐ ${c.rating_avg}/5 (${c.rating_count})` : <span className="badge b-gray">🆕 جديد</span>}</td><td>{c.deliveries_count}</td>
               <td>
+                {c.blocked
+                  ? <span className="badge b-red" title={c.blocked_reason || ''}>⛔ موقوف</span>
+                  : (c.deposit_paid ? <span className="badge b-green">✅ تأمين مدفوع</span> : <span className="badge b-amber">⏳ بلا تأمين</span>)}
+                <div style={{ fontSize: 12, color: 'var(--mut)', marginTop: 2 }}>
+                  💰 {sar(c.wallet_cash || 0)} ر.س{c.penalty_total ? ` · ⚠️ غرامات ${sar(c.penalty_total)}` : ''}
+                </div>
+              </td>
+              <td>
                 <div className="row" style={{ gap: 4 }}>
                   <button className="btn ghost sm" disabled={c.status === 'available'} onClick={() => setStatus(c, 'available')}>✅ متاح</button>
                   <button className="btn ghost sm" disabled={c.status === 'busy'} onClick={() => setStatus(c, 'busy')}>⏳ مشغول</button>
                   <button className="btn ghost sm" disabled={c.status === 'offline'} onClick={() => setStatus(c, 'offline')}>⛔ إيقاف</button>
+                </div>
+                <div className="row" style={{ gap: 4, marginTop: 4 }}>
+                  {!c.deposit_paid && <button className="btn ghost sm" onClick={() => act(c, 'deposit')} title="استلمت تأمين الحساب ٥٠٠ ر.س">💳 تأمين</button>}
+                  {(c.wallet_cash || c.penalty_total) ? <button className="btn ghost sm" onClick={() => act(c, 'settle')} title="تسوية المبالغ المحصّلة وإعادة التفعيل">💵 تسوية</button> : null}
                 </div>
               </td>
             </tr>

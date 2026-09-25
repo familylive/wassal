@@ -36,6 +36,7 @@ try { db.exec("ALTER TABLE business_registrations ADD COLUMN district TEXT"); } 
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN postal_code TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN owner_name TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN owner_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN deposit_paid INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurant_users ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE report_recipients ADD COLUMN national_id TEXT"); } catch {}
@@ -44,6 +45,16 @@ try { db.exec("ALTER TABLE orders ADD COLUMN bid_until TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN chosen_captain_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE captain_offers ADD COLUMN bid_amount INTEGER"); } catch {}
 try { db.exec("ALTER TABLE captain_offers ADD COLUMN bid_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN deposit_amount INTEGER DEFAULT 50000"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN deposit_paid INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN deposit_paid_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN wallet_cash INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN penalty_total INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN blocked INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE captains ADD COLUMN blocked_reason TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN promised_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN penalty_quarters INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN penalty_total INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN district TEXT"); } catch {}
