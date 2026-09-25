@@ -31,6 +31,8 @@ export function ensureCustomer(phone) {
 
 // ---------- send helpers ----------
 const send = (phone, rid, orderId, type, body, extra = {}) => waSend({ phone, restaurantId: rid, orderId, type, body, ...extra });
+// مفتاح الجلسة دائماً بصيغة الوارد من واتساب (أرقام بلا +) حتى لا تتفرّع الجلسات
+const sessPhone = (p) => String(p || '').replace(/^\+/, '');
 const rls = (h) => (h / 100).toFixed(2);
 // نص خطوة الأصناف (بعد اكتمال بيانات المسؤول)
 const ITEMS_PROMPT = (pre = '') => `${pre}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n📷 أو *ارفع صورة واضحة للأصناف* وأنا أقرأها لك وأسجّلها تلقائياً.\n🎙 أو أرسلها *رسالة صوتية* وأنا أفرّغها لك.`;
@@ -311,6 +313,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'order_review': return handleOrderReview(phone, rid, customer, data, p, b);
     case 'coupon': return handleCoupon(phone, rid, customer, data, b);
     case 'order_type': return handleOrderType(phone, rid, customer, data, p, b);
+    case 'choose_captain': return (p && p.startsWith('bid:')) ? handleBidPick(phone, rid, customer, data, p) : null;
+    case 'bidding': return send(phone, rid, data.orderId || null, 'text', '⏳ نجمع لك عروض الكباتن — ثواني وتوصلك العروض لتختار 👌');
     case 'payment_method': return handlePayMethod(phone, rid, customer, data, p);
     case 'awaiting_payment': return handleAwaitPay(phone, rid, customer, data, p);
     case 'address_pick': return handleAddressPick(phone, rid, customer, data, p);
@@ -876,11 +880,15 @@ function handleOrderType(phone, rid, customer, data, p, b) {
   cart.pickup = kind === 'pickup';
   const next = { ...session.data, cart, orderType: kind };
   saveSession(phone, 'payment_method', next);
+  const rName = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid)?.name_ar || 'النشاط';
   if (kind === 'pickup') {
-    const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid);
-    send(phone, rid, null, 'text', `🏪 تمام — *استلام من ${r?.name_ar || 'النشاط'}*\nبلا رسوم توصيل ✅`);
+    send(phone, rid, null, 'text', `🏪 تمام — *استلام من ${rName}*\nبلا رسوم توصيل ✅`);
+    return choosePayment(phone, rid, customer);
   }
-  return choosePayment(phone, rid, customer);
+  // 🛵 توصيل: نأخذ العنوان أولاً ثم نعرض الطلب على الكباتن لتحديد سعر التوصيل
+  send(phone, rid, null, 'text', `🛵 تمام — *توصيل*\nالحين نحدد موقع التوصيل، وبعدها نعرض طلبك على الكباتن ليحددوا سعر التوصيل وتختار الأنسب 👌`);
+  saveSession(phone, 'payment_method', next);
+  return askLocation(phone, rid, customer, next);
 }
 function choosePayment(phone, rid, customer) {
   const session = getSession(phone);
@@ -893,6 +901,7 @@ function choosePayment(phone, rid, customer) {
 async function handlePayMethod(phone, rid, customer, data, p) {
   const method = p.replace('pay:', '');
   if (!['applepay', 'mada', 'card', 'cash'].includes(method)) return choosePayment(phone, rid, customer);
+  if (data.payForOrderId) return payForExistingOrder(phone, rid, customer, data, method);
   const session = getSession(phone);
   const cart = session.data.cart;
   if (!cart || !cart.items.length) return showCart(phone, rid, customer);
@@ -909,7 +918,29 @@ async function handlePayMethod(phone, rid, customer, data, p) {
   send(phone, rid, null, 'text', pay.payment_url || 'https://sandbox.moyasar.com/pay (رابط تجريبي)');
   return send(phone, rid, null, 'buttons', 'إذا خلصت الدفع اضغط هنا 👇', { buttons: [{ id: 'paid', title: '✅ تم الدفع' }, { id: 'cancel', title: '❌ إلغاء' }] });
 }
-function handleAwaitPay(phone, rid, customer, data, p) {
+// دفع طلب مبني مسبقاً (بعد اختيار كابتن المزاد) ثم تحويله للكابتن
+async function payForExistingOrder(phone, rid, customer, data, method) {
+  const order = q.get("SELECT * FROM orders WHERE id=?", data.payForOrderId);
+  if (!order) return send(phone, rid, null, 'text', 'ما لقيت الطلب 🙏');
+  const cap = q.get("SELECT * FROM captains WHERE id=?", data.captainId || order.chosen_captain_id);
+  const { restaurantTransfer } = await import('./dispatch.js');
+  if (method === 'cash') {
+    q.run("UPDATE orders SET payment_method='cash', payment_status='pending', updated_at=datetime('now') WHERE id=?", order.id);
+    saveSession(phone, 'tracking', { ...data, orderId: order.id });
+    restaurantTransfer(order.id, cap.id);
+    send(phone, rid, order.id, 'text', `💵 تمام — *كاش ${rls(order.total)} ر.س* عند التسليم للكابتن.`);
+    return send(phone, rid, order.id, 'buttons', 'بخليك على علم بكل مرحلة 👇', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
+  }
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id);
+  const pay = await createPayment({ total: order.total, order_no: order.order_no, restaurant_name: rest?.name_ar || '' }, method, { phone, restaurant_id: order.restaurant_id });
+  q.run("UPDATE orders SET payment_method=?, updated_at=datetime('now') WHERE id=?", method, order.id);
+  saveSession(phone, 'awaiting_payment', { ...data, paymentId: pay.payment_id || null, paymentUrl: pay.payment_url || null });
+  send(phone, rid, order.id, 'text', `💰 *المطلوب: ${rls(order.total)} ر.س*\n(منها ${rls(order.delivery_fee)} ر.س توصيل — الكابتن ${cap?.name || ''})\n\nاضغط الرابط وادفع بأمان (Apple Pay / مدى):`);
+  send(phone, rid, order.id, 'text', pay.payment_url || 'https://sandbox.moyasar.com/pay (رابط تجريبي)');
+  return send(phone, rid, order.id, 'buttons', 'أول ما تخلص الدفع اضغط هنا 👇', { buttons: [{ id: 'paid', title: '✅ تم الدفع' }, { id: 'cancel', title: '❌ إلغاء' }] });
+}
+
+async function handleAwaitPay(phone, rid, customer, data, p) {
   if (p === 'cancel') { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
   if (p === 'paid' || p === 'yes') {
     const row = data.paymentId ? q.get("SELECT * FROM payments WHERE id=?", data.paymentId) : null;
@@ -923,6 +954,19 @@ function handleAwaitPay(phone, rid, customer, data, p) {
       }
     }
     send(phone, rid, null, 'text', '✅ تم الدفع بنجاح، يعطيك العافية 🌸');
+    // 🚕 دفع طلب المزاد → تحويل الطلب للكابتن المختار
+    if (data.payForOrderId) {
+      const ord = q.get("SELECT * FROM orders WHERE id=?", data.payForOrderId);
+      if (ord) {
+        q.run("UPDATE orders SET payment_status='paid', updated_at=datetime('now') WHERE id=?", ord.id);
+        try {
+          const { restaurantTransfer } = await import('./dispatch.js');
+          restaurantTransfer(ord.id, data.captainId || ord.chosen_captain_id);
+        } catch (e) { console.error('BID_TRANSFER_FAIL', e.message); }
+        saveSession(phone, 'tracking', { ...data, orderId: ord.id });
+        return send(phone, rid, ord.id, 'buttons', '🛵 حوّلنا طلبك للكابتن — بخليك على علم بكل مرحلة 👇', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
+      }
+    }
     // 🏪 استلام من النشاط: ما نحتاج عنوان
     const cartNow = getSession(phone).data.cart || {};
     if (cartNow.pickup) return placeOrder(phone, rid, customer, { ...data, orderType: 'pickup', address: pickupAddress(rid), paid: true, estDeliveryMin: 20 });
@@ -1073,7 +1117,97 @@ function askTime(phone, rid) {
 }
 function handleDeliveryTime(phone, rid, customer, data, p) {
   const est = p.startsWith('time:') ? Number(p.split(':')[1]) : 30;
-  return placeOrder(phone, rid, customer, { ...data, estDeliveryMin: est });
+  const session = getSession(phone);
+  const cart = session.data.cart || {};
+  if (cart.pickup) return placeOrder(phone, rid, customer, { ...data, estDeliveryMin: est, orderType: 'pickup', address: data.address || pickupAddress(rid) });
+  return startDeliveryBidding(phone, rid, customer, { ...data, estDeliveryMin: est });
+}
+
+// ---------- 🚕 مزاد سعر التوصيل ----------
+const BID_WINDOW_SECONDS = Number(process.env.BID_WINDOW_SECONDS || 90);
+const vehicleAr = (v) => v === 'سيارة' ? '🚗 سيارة' : v === 'شاحنة صغيرة' ? '🚚 شاحنة' : '🏍 دراجة';
+
+// العميل أكمل بياناته → ننشئ الطلب ونعرضه على الكباتن لتحديد السعر
+async function startDeliveryBidding(phone, rid, customer, data) {
+  const session = getSession(phone);
+  const cart = session.data.cart;
+  if (!cart || !cart.items.length) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
+  const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
+  const branch = data.address?.branch || null;
+  const totals = cartTotals(rid, cart, branch);
+  const order = createOrder({ restaurant: rest, customer, cart, totals, paymentMethod: 'cash', address: data.address, estDeliveryMin: data.estDeliveryMin || 30, branch, orderType: 'delivery', bidding: true });
+  q.run("UPDATE conversations SET order_id=? WHERE phone=? AND order_id IS NULL AND created_at >= datetime('now','-3 hours')", order.id, customer.phone);
+  saveSession(phone, 'bidding', { ...session.data, orderId: order.id, bidOrderId: order.id, deliveryFeePaid: false });
+  send(phone, rid, order.id, 'text', `✅ *وصلنا طلبك ${order.order_no}!*\n\n🛵 نعرض طلبك الحين على *كباتن التوصيل* وكل واحد يحدد سعره حسب المسافة.\n⏳ انتظر لحظات وبنجيب لك العروض وتختار اللي يناسبك 👌`);
+  const { broadcastBidding } = await import('./dispatch.js');
+  let n = 0;
+  try { n = broadcastBidding(order); } catch (e) { console.error('BID_BROADCAST_FAIL', e.message); }
+  if (!n) send(phone, rid, order.id, 'text', '⏳ ما فيه كابتن متاح حالياً — بنعيد المحاولة في أقرب وقت.');
+  setTimeout(() => { closeBidding(order.id).catch(e => console.error('CLOSE_BIDDING_FAIL', e.message)); }, BID_WINDOW_SECONDS * 1000);
+  return;
+}
+
+// انتهت نافذة التسعير → نعرض العروض على العميل
+export async function closeBidding(orderId) {
+  const order = q.get("SELECT * FROM orders WHERE id=?", orderId);
+  if (!order || order.chosen_captain_id) return;
+  const cust = q.get("SELECT * FROM customers WHERE id=?", order.customer_id);
+  if (!cust) return;
+  const offers = q.all(`SELECT o.*, c.name, c.rating_avg, c.rating_count, c.vehicle_type
+      FROM captain_offers o JOIN captains c ON c.id=o.captain_id
+      WHERE o.order_id=? AND o.bid_amount IS NOT NULL AND o.status='offered'
+      ORDER BY o.bid_amount ASC LIMIT 10`, orderId);
+  if (!offers.length) {
+    // نعيد العرض بحد أقصى ٤ محاولات، ثم نبلغ المشرف
+    const tries = Number(q.get("SELECT COUNT(*) c FROM order_events WHERE order_id=? AND event='bidding'", order.id).c) || 0;
+    if (tries < 4) {
+      send(sessPhone(cust.phone), order.restaurant_id, order.id, 'text', `⏳ ما وصلتنا عروض توصيل لطلبك ${order.order_no} إلى الآن.\nبنعرض طلبك مرة ثانية وأول ما يوصل عرض بنبلغك 🙏`);
+      try { const { broadcastBidding } = await import('./dispatch.js'); broadcastBidding(order); } catch (e) {}
+      setTimeout(() => { closeBidding(orderId).catch(() => {}); }, BID_WINDOW_SECONDS * 1000);
+    } else {
+      send(sessPhone(cust.phone), order.restaurant_id, order.id, 'text', `🙏 نعتذر — ما توفر كابتن لطلبك ${order.order_no} حالياً.\nالإدارة على علم بالطلب وبيتواصلون معك.`);
+      try {
+        const cfg = (await import('../config.js')).default;
+        if (cfg.adminPhone) {
+          const { waSend } = await import('./whatsapp.js');
+          await waSend({ phone: cfg.adminPhone, type: 'text', body: `⚠️ *ما توفر كابتن لطلب* ${order.order_no} — ${order.national_address || ''}\nالمبلغ: ${rls(order.total)} ر.س` });
+        }
+      } catch (e) { console.error('BID_NO_CAPTAIN_NOTIFY_FAIL', e.message); }
+    }
+    return;
+  }
+  const { customerScoreLine } = { customerScoreLine: null };
+  const rows = offers.map(o => ({
+    id: `bid:${o.id}`,
+    title: `${o.name.slice(0, 12)} — ${(o.bid_amount / 100).toFixed(2)} ر.س`.slice(0, 24),
+    description: `${o.rating_count ? '⭐ ' + o.rating_avg + '/5' : '🆕 كابتن جديد'} · ${vehicleAr(o.vehicle_type)}`.slice(0, 72)
+  }));
+  const cp = sessPhone(cust.phone);
+  const sess = getSession(cp);
+  saveSession(cp, 'choose_captain', { ...sess.data, orderId: order.id, bidOrderId: order.id });
+  send(cp, order.restaurant_id, order.id, 'text', `🛵 *وصلتك ${offers.length} عروض توصيل لطلبك ${order.order_no}*\n\nكل عرض يوضح اسم الكابتن وتقييمه وسعر التوصيل.\nاختر الأنسب لك 👇`);
+  return send(cp, order.restaurant_id, order.id, 'list', 'عروض التوصيل:', { list: [{ title: 'الكباتن', rows }] });
+}
+
+// العميل اختار عرض كابتن → نحدّث رسوم التوصيل ثم نطلب الدفع
+async function handleBidPick(phone, rid, customer, data, p) {
+  const offerId = Number(String(p).split(':')[1]);
+  const offer = q.get("SELECT * FROM captain_offers WHERE id=?", offerId);
+  if (!offer) return send(phone, rid, null, 'text', 'ما لقيت هذا العرض 🙏 اطلب العروض من جديد.');
+  const order = q.get("SELECT * FROM orders WHERE id=?", offer.order_id);
+  if (!order || Number(order.customer_id) !== Number(customer.id)) return send(phone, rid, null, 'text', 'هذا العرض ما يخص طلبك 🙏');
+  const cap = q.get("SELECT * FROM captains WHERE id=?", offer.captain_id);
+  const fee = Number(offer.bid_amount) || 0;
+  const newTotal = Math.max(0, Number(order.subtotal) - Number(order.discount) + fee);
+  q.run("UPDATE orders SET delivery_fee=?, total=?, chosen_captain_id=?, updated_at=datetime('now') WHERE id=?", fee, newTotal, cap.id, order.id);
+  try { const { addEvent } = await import('./orderService.js'); addEvent(order.id, 'bid_chosen', `العميل اختار الكابتن ${cap.name} بسعر توصيل ${(fee / 100).toFixed(2)} ر.س`); } catch (e) {}
+  send(phone, rid, order.id, 'text', `✅ اخترت *${cap.name}*${cap.rating_count ? ` (⭐ ${cap.rating_avg}/5)` : ' (🆕 جديد)'}\n🛵 سعر التوصيل: *${rls(fee)} ر.س*\n💰 الإجمالي الجديد: *${rls(newTotal)} ر.س*\n\nباقي خطوة الدفع — وبعدها نحوّل طلبك للكابتن مباشرة ✅`);
+  const next = { ...data, orderId: order.id, payForOrderId: order.id, captainId: cap.id };
+  saveSession(phone, 'payment_method', next);
+  send(phone, rid, order.id, 'buttons', '💰 كيف تحب تدفع؟', { buttons: [
+    { id: 'pay:applepay', title: '🍎 Apple Pay' }, { id: 'pay:mada', title: '💳 مدى' }, { id: 'pay:card', title: '💳 بطاقة' }
+  ] });
+  return send(phone, rid, order.id, 'buttons', 'أو كاش للكابتن عند التسليم:', { buttons: [{ id: 'pay:cash', title: '💵 كاش عند التسليم' }] });
 }
 
 // ---------- إنشاء الطلب ----------
@@ -1158,13 +1292,14 @@ function showAddresses(phone, rid, customer) {
 export function triggerRating(order) {
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (!customer) return;
-  const session = getSession(customer.phone);
-  saveSession(customer.phone, 'rate_restaurant', { ...session.data, orderId: order.id, ratings: {} });
-  send(customer.phone, order.restaurant_id, order.id, 'text', '🎉 وصل طلبك! قيّم تجربتك معنا ⭐');
-  send(customer.phone, order.restaurant_id, order.id, 'buttons', 'قيّم *المطعم* (1-5):', { buttons: [
+  const cp = sessPhone(customer.phone);
+  const session = getSession(cp);
+  saveSession(cp, 'rate_restaurant', { ...session.data, orderId: order.id, ratings: {} });
+  send(cp, order.restaurant_id, order.id, 'text', '🎉 وصل طلبك! قيّم تجربتك معنا ⭐');
+  send(cp, order.restaurant_id, order.id, 'buttons', 'قيّم *المطعم* (1-5):', { buttons: [
     { id: 'rate:1', title: '⭐' }, { id: 'rate:3', title: '⭐⭐⭐' }, { id: 'rate:5', title: '⭐⭐⭐⭐⭐' }
   ] });
-  return send(customer.phone, order.restaurant_id, order.id, 'buttons', 'أو أدخل رقم 1-5:', { buttons: [
+  return send(cp, order.restaurant_id, order.id, 'buttons', 'أو أدخل رقم 1-5:', { buttons: [
     { id: 'rate:2', title: '⭐⭐' }, { id: 'rate:4', title: '⭐⭐⭐⭐' }
   ] });
 }
@@ -1586,6 +1721,18 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     const act = activeOrderForCaptain(captain.id);
     if (!act) return send(captain.phone, null, null, 'text', 'لا يوجد طلب نشط لك حالياً 📭');
     return send(captain.phone, null, act.id, 'text', '📷 أرسل *صورة التسليم* هنا (صوّر الطلب عند باب العميل)، وبعدها أرسل رمز الاستلام.');
+  }
+
+  // 💰 تسعير التوصيل (مزاد): رقم 1-3 خانات
+  const bidM = b.match(/^(?:سعري|السعر|سعر|bid)\s*[:：]?\s*(\d{1,3})$/i) || b.match(/^(\d{1,3})$/);
+  if (bidM) {
+    const amount = Number(bidM[1]) * 100;
+    if (amount >= 300 && amount <= 30000) {
+      const { bidOnOrder } = await import('./dispatch.js');
+      const r = bidOnOrder(captain.id, amount);
+      if (r.ok) return send(captain.phone, r.order.restaurant_id, r.order.id, 'text', `✅ سجّلت سعرك: *${(amount / 100).toFixed(2)} ر.س* للتوصيل\n⏳ بنعرضه على العميل — بنبلغك لو اختارك 🙏`);
+      return send(captain.phone, null, null, 'text', '⚠️ ' + r.error);
+    }
   }
 
   // 1) رمز الاستلام: يغلق الطلب

@@ -166,6 +166,8 @@ CREATE TABLE IF NOT EXISTS orders (
   branch_name TEXT,
   delivery_code TEXT,
   order_type TEXT DEFAULT 'delivery',
+  bid_until TEXT,
+  chosen_captain_id INTEGER,
   delivery_photo TEXT,
   delivery_photo_at TEXT,
   cancel_reason TEXT,
@@ -213,7 +215,9 @@ CREATE TABLE IF NOT EXISTS captain_offers (
   status TEXT DEFAULT 'offered',
   offered_at TEXT DEFAULT (datetime('now')),
   responded_at TEXT,
-  transferred_at TEXT
+  transferred_at TEXT,
+  bid_amount INTEGER,
+  bid_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS payments (

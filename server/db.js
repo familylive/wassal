@@ -40,6 +40,10 @@ try { db.exec("ALTER TABLE captains ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurant_users ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE report_recipients ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN order_type TEXT DEFAULT 'delivery'"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN bid_until TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN chosen_captain_id INTEGER"); } catch {}
+try { db.exec("ALTER TABLE captain_offers ADD COLUMN bid_amount INTEGER"); } catch {}
+try { db.exec("ALTER TABLE captain_offers ADD COLUMN bid_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN district TEXT"); } catch {}

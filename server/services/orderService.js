@@ -11,7 +11,7 @@ export function addEvent(orderId, event, message, actorType = 'system', actorId 
     orderId, event, message, actorType, actorId);
 }
 
-export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null, orderType = 'delivery' }) {
+export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null, orderType = 'delivery', bidding = false }) {
   const isPickup = orderType === 'pickup';
   const orderNo = nextOrderNo();
   const deliveryCode = String(Math.floor(100000 + Math.random() * 900000));
@@ -27,7 +27,13 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
   addEvent(order.id, 'payment', `طريقة الدفع: ${paymentMethod}`);
   emitTo(`restaurant:${restaurant.id}`, 'order:new', { orderId: order.id, order });
   emitTo('admin', 'order:new', { orderId: order.id, order });
-  if (!isPickup) broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
+  if (bidding) {
+    // 🚕 مزاد سعر التوصيل: نفتح نافذة التسعير (البث يتولاه startDeliveryBidding)
+    q.run("UPDATE orders SET bid_until=datetime('now','+90 seconds') WHERE id=?", order.id);
+    order.bid_until = q.get("SELECT bid_until FROM orders WHERE id=?", order.id)?.bid_until || null;
+  } else if (!isPickup) {
+    broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
+  }
   scheduleBackup(); // نسخة احتياطية فورية بعد كل طلب
   return order;
 }
