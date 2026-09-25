@@ -11,7 +11,7 @@ const SECRET_KEYS = new Set([
 const ALLOWED = new Set([
   'WHATSAPP_PROVIDER', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_API_URL',
   'STT_API_KEY', 'TTS_API_KEY', 'AZURE_TTS_KEY', 'AZURE_TTS_REGION', 'TTS_VOICE',
-  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'VOICE_REPLIES', 'QUICK_ORDER'
+  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'VOICE_REPLIES', 'QUICK_ORDER', 'ADMIN_PHONE'
 ]);
 
 function storedRows() {
@@ -43,6 +43,7 @@ export function applySettings() {
   if (map.ELEVENLABS_VOICE_ID) config.voice.elevenVoiceId = map.ELEVENLABS_VOICE_ID;
   if (map.VOICE_REPLIES !== undefined) config.voice.replies = map.VOICE_REPLIES === 'true';
   if (map.QUICK_ORDER !== undefined) config.quickOrder = map.QUICK_ORDER === 'true';
+  if (map.ADMIN_PHONE !== undefined) config.adminPhone = map.ADMIN_PHONE;
   return map;
 }
 
@@ -82,6 +83,7 @@ export function publicSettings() {
     ttsSet: Boolean(config.voice.ttsApiKey || config.voice.azureKey || config.voice.elevenKey),
     voiceReplies: Boolean(config.voice.replies),
     quickOrder: Boolean(config.quickOrder),
+    adminPhone: config.adminPhone || '',
     env: {
       provider: process.env.WHATSAPP_PROVIDER || null,
       token: Boolean(process.env.WHATSAPP_TOKEN),

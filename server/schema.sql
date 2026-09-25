@@ -308,3 +308,46 @@ CREATE TABLE IF NOT EXISTS wa_phone_restaurant (
   restaurant_id INTEGER,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+-- أنواع الأنشطة (تُدار من لوحة التحكم — قابلة للإضافة والتعديل والإيقاف)
+CREATE TABLE IF NOT EXISTS business_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name_ar TEXT NOT NULL,
+  icon TEXT DEFAULT '🏬',
+  sort_order INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO business_types (id, name_ar, icon, sort_order, is_active) VALUES
+  (1, 'مطاعم', '🍽', 1, 1),
+  (2, 'سوبر ماركت', '🏪', 2, 1),
+  (3, 'صيدلية', '💊', 3, 1),
+  (4, 'أسر منتجة', '🏠', 4, 1);
+
+-- تسجيلات الأنشطة والكباتن الذاتية (مسودة عبر واتساب حتى اعتماد الإدارة)
+CREATE TABLE IF NOT EXISTS business_registrations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT DEFAULT 'business',
+  phone TEXT NOT NULL,
+  owner_name TEXT,
+  business_name TEXT,
+  business_type_id INTEGER,
+  city TEXT,
+  vehicle_type TEXT,
+  items_json TEXT,
+  status TEXT DEFAULT 'draft',
+  restaurant_id INTEGER,
+  captain_id INTEGER,
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- كباتن كل نشاط (اللي يحددهم صاحب النشاط)
+CREATE TABLE IF NOT EXISTS restaurant_captains (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  restaurant_id INTEGER NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+  captain_id INTEGER NOT NULL REFERENCES captains(id) ON DELETE CASCADE,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(restaurant_id, captain_id)
+);

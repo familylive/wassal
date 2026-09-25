@@ -27,6 +27,13 @@ try {
 } catch (e) {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN instagram TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN twitter TEXT"); } catch {}
+// نوع النشاط (مطاعم / سوبر ماركت / صيدلية / أسر منتجة ...) — يُدار من لوحة التحكم
+try { db.exec("ALTER TABLE restaurants ADD COLUMN business_type_id INTEGER"); } catch {}
+// ترحيلات جدول التسجيلات (لو كان الجدول موجوداً بنسخة أقدم)
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN kind TEXT DEFAULT 'business'"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN city TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN vehicle_type TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN captain_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN branch_name TEXT"); } catch {}
 try { db.exec("ALTER TABLE conversations ADD COLUMN phone TEXT"); } catch {}
 try { db.exec("ALTER TABLE conversations ADD COLUMN restaurant_id INTEGER"); } catch {}

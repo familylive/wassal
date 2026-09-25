@@ -4,6 +4,7 @@ import { createOrder } from './orderService.js';
 import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
+import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import config from '../config.js';
 
 // ---------- session ----------
@@ -199,6 +200,24 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   waLogIn({ orderId: data.orderId || null, phone, type, body: b || p, payload: { state } });
 
+  // ===== المشرف: اعتماد/رفض طلبات التسجيل من أزرار الإشعار =====
+  try {
+    const isSupervisor = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone));
+    if (isSupervisor && p) {
+      const m = p.match(/^(biz|cap)_(ok|no):(\d+)$/);
+      if (m) {
+        const act = m[2], id = Number(m[3]);
+        const r = act === 'ok' ? await approveRegistration(id) : await rejectRegistration(id);
+        const who = r?.name ? `: ${r.name}` : '';
+        return send(phone, rid, null, 'text', r?.error ? `⚠️ ${r.error}` : (act === 'ok' ? `✅ تم الاعتماد${who}` : `❌ تم الرفض${who}`));
+      }
+    }
+  } catch (e) { console.error('SUPERVISOR_ACTION_FAIL', e.message); }
+
+  // ===== بدء التسجيل الذاتي (نشاط / كابتن) =====
+  if (/^تسجيل\s*(كابتن|مندوب)$/.test(b)) return startCaptainReg(phone, rid, session);
+  if (/^تسجيل(\s+(نشاط|مطعم|بقالة|سوبر\s?ماركت|صيدلية|أسرة منتجة|اسر منتجة))?$/.test(b)) return startBusinessReg(phone, rid, session);
+
   // ترحيب طبيعي للعميل المعروف — وإن كانت رسالته فيها طلب واضح نكمل معالجته
   if (customer.name && state === 'idle' && (b || p) && needsGreeting(phone)) {
     const isClearRequest = !!findItemByName(rid, b) || wantsSameAsBefore(b) ||
@@ -208,11 +227,13 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   }
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
-  if (!customer.name && state !== 'ask_name') {
+  // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_city', 'cap_vehicle'].includes(state);
+  if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
   }
-  if (state === 'ask_name') {
+  if (!IN_REG_FLOW && state === 'ask_name') {
     if (b.length < 2) return send(phone, rid, null, 'text', 'عطني اسمك الكريم 🌸 عشان أكمل طلبك');
     q.run("UPDATE customers SET name=? WHERE id=?", b.slice(0, 40), customer.id);
     send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!\nعساك طيب؟ 🙌\n\n*أمرني* — وش تبي تطلب اليوم؟ 😋`);
@@ -221,7 +242,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // الأوامر العامة في أي وقت
   const bLower = b.toLowerCase();
-  if (['إلغاء', 'الغاء', 'ألغي', 'الغاء الطلب', 'إلغاء الطلب', 'cancel'].includes(bLower) || p === 'cancel') {
+  if (!IN_REG_FLOW && (['إلغاء', 'الغاء', 'ألغي', 'الغاء الطلب', 'إلغاء الطلب', 'cancel'].includes(bLower) || p === 'cancel')) {
     return handleCancelRequest(phone, rid, customer, data);
   }
   if (['المطاعم', 'restaurants', 'الدليل'].includes(bLower) || p === 'restaurants') {
@@ -236,6 +257,15 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   switch (state) {
     case 'idle': return handleIdle(phone, rid, customer, p, b);
+    case 'reg_type': return handleRegType(phone, rid, session, b, p);
+    case 'reg_name': return handleRegName(phone, rid, session, b);
+    case 'reg_city': return handleRegCity(phone, rid, session, b);
+    case 'reg_items': return handleRegItems(phone, rid, session, b);
+    case 'reg_prices': return handleRegPrices(phone, rid, session, b);
+    case 'reg_review': return handleRegReview(phone, rid, session, b, p);
+    case 'cap_name': return handleCapName(phone, rid, session, b);
+    case 'cap_city': return handleCapCity(phone, rid, session, b);
+    case 'cap_vehicle': return handleCapVehicle(phone, rid, session, b, p);
     case 'browse_categories': return handleCat(phone, rid, customer, p, b);
     case 'browse_items': return handleItems(phone, rid, customer, p, b);
     case 'item_detail': return handleItemDetail(phone, rid, customer, data, p, b);
@@ -1014,6 +1044,191 @@ export function onPaymentSuccess(phone, rid) {
 
 // ================= تدفق الكابتن على نفس واتساب المطعم =================
 // الكابتن يرسل لنفس رقم المطعم — البوت يميّزه من رقمه المسجل ويعامله ككابتن
+// ================= تسجيل الأنشطة والكباتن عبر واتساب =================
+const REG_CANCEL = /^(الغاء|إلغاء|الغاء التسجيل|إلغاء التسجيل|توقف|كنسل)$/;
+
+function cancelReg(phone, rid, session) {
+  saveSession(phone, 'idle', { ...session.data, reg: null });
+  return send(phone, rid, null, 'text', 'تم إلغاء التسجيل 👍\nاكتب *تسجيل* متى ما تحب تبدّي من جديد.');
+}
+
+// ---- تسجيل نشاط ----
+function startBusinessReg(phone, rid, session) {
+  const types = q.all("SELECT * FROM business_types WHERE is_active=1 ORDER BY sort_order, id");
+  saveSession(phone, 'reg_type', { ...session.data, reg: { phone } });
+  if (!types.length) return send(phone, rid, null, 'text', 'خدمة التسجيل غير متاحة حالياً 🙏');
+  let t = '📝 *تسجيل نشاط جديد*\n\nوش نوع نشاطك؟ أرسل الرقم:\n';
+  types.forEach((x, i) => { t += `${i + 1}. ${x.icon} ${x.name_ar}\n`; });
+  t += '\n_(لإلغاء التسجيل في أي وقت اكتب: إلغاء)_';
+  send(phone, rid, null, 'text', t);
+  return send(phone, rid, null, 'list', 'اختر نوع النشاط 👇', { list: [{ title: 'أنواع الأنشطة', rows: types.map(x => ({ id: 'btype:' + x.id, title: String(x.name_ar).slice(0, 24), description: '' })) }] });
+}
+
+function handleRegType(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const types = q.all("SELECT * FROM business_types WHERE is_active=1 ORDER BY sort_order, id");
+  let t = null;
+  if (p && p.startsWith('btype:')) t = types.find(x => x.id === Number(p.split(':')[1]));
+  else { const n = parseInt(String(b).trim(), 10); if (n >= 1 && n <= types.length) t = types[n - 1]; }
+  if (!t) return startBusinessReg(phone, rid, session);
+  saveSession(phone, 'reg_name', { ...session.data, reg: { ...(session.data.reg || { phone }), type_id: t.id, type_name: t.name_ar, icon: t.icon } });
+  return send(phone, rid, null, 'text', `${t.icon} تمام — *${t.name_ar}*\n\nوش *اسم النشاط*؟`);
+}
+
+function handleRegName(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const name = String(b).trim();
+  if (name.length < 2) return send(phone, rid, null, 'text', 'اكتب اسم النشاط 🌸');
+  saveSession(phone, 'reg_city', { ...session.data, reg: { ...session.data.reg, name: name.slice(0, 60) } });
+  return send(phone, rid, null, 'text', `ما شاء الله 🌟 *${name}*\n\nوش *المدينة*؟`);
+}
+
+function handleRegCity(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const city = String(b).trim();
+  if (city.length < 2) return send(phone, rid, null, 'text', 'اكتب المدينة 🌸');
+  saveSession(phone, 'reg_items', { ...session.data, reg: { ...session.data.reg, city: city.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `📍 ${city}\n\nالحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n🎙 تقدر ترسلها *رسالة صوتية* وأنا أفرّغها لك.`);
+}
+
+// تحليل نص الأصناف: اسم + سعر (اختياري) + قسم (اختياري)
+function parseItemLine(line, cat) {
+  let name = String(line || '').trim(), price = 0;
+  const m = name.match(/^(.*?)[\s\-–—=]+(\d+(?:[.,]\d{1,2})?)\s*(?:ر\.?س|ريال)?$/);
+  if (m) { name = m[1].trim(); price = Math.round(parseFloat(m[2].replace(',', '.')) * 100); }
+  name = name.replace(/^[-*•\d.)\s]+/, '').trim();
+  if (!name || name.length < 2) return null;
+  return { name: name.slice(0, 80), price: Number.isFinite(price) ? price : 0, category: cat || null };
+}
+function parseItems(text) {
+  const items = [];
+  let cat = null;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const cm = line.match(/^(.{2,30}?)\s*[:：]\s*(.*)$/);
+    if (cm) {
+      const rest = cm[2].trim();
+      if (!rest) { cat = cm[1].trim(); continue; }
+      for (const part of rest.split(/[،,؛;]+/)) { const it = parseItemLine(part, cat); if (it) items.push(it); }
+      continue;
+    }
+    const it = parseItemLine(line, cat);
+    if (it) items.push(it);
+  }
+  return items;
+}
+
+function handleRegItems(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const items = parseItems(b);
+  if (!items.length) return send(phone, rid, null, 'text', 'ما وصلني أصناف واضحة 🌸\n\nأرسل كل صنف في سطر، مثلاً:\nنفر حاشي كبسة 60\nبيبسي 5');
+  const withPrice = items.filter(i => i.price > 0).length;
+  const next = { ...session.data, reg: { ...session.data.reg, items } };
+  let t = `✅ وصلني *${items.length}* صنف${withPrice < items.length ? ` — و${items.length - withPrice} بلا سعر` : ''}:\n\n`;
+  t += items.slice(0, 18).map((i, idx) => `${idx + 1}. ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — ❓'}${i.category ? ` (${i.category})` : ''}`).join('\n');
+  if (items.length > 18) t += `\n… و${items.length - 18} غيرها`;
+  send(phone, rid, null, 'text', t);
+  if (withPrice === items.length) return sendRegReview(phone, rid, next);
+  saveSession(phone, 'reg_prices', next);
+  return send(phone, rid, null, 'text', 'الآن أرسل *الأسعار* — سطر لكل صنف:\n\nنفر حاشي كبسة 60\nبيبسي 5\n\n_(أو اكتب *تخطى* ونكمل)_');
+}
+
+function handleRegPrices(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = session.data.reg || {};
+  let items = reg.items || [];
+  if (!/^(تخطى|تخطي|مو الحين|لاحقاً|لاحقا|بعدين)$/.test(String(b).trim())) {
+    const prices = parseItems(b);
+    if (prices.length) {
+      for (const pr of prices) {
+        const target = items.find(i => i.name.includes(pr.name) || pr.name.includes(i.name));
+        if (target && pr.price > 0) target.price = pr.price;
+      }
+      // إذا جاءت أسعار بترتيب الأصناف (أرقام فقط)
+      const nums = String(b).trim().split(/[\s،,]+/).map(x => parseFloat(x.replace(',', '.')));
+      if (nums.length === items.length && nums.every(n => Number.isFinite(n))) {
+        items = items.map((i, idx) => ({ ...i, price: Math.round(nums[idx] * 100) }));
+      }
+    }
+  }
+  const next = { ...session.data, reg: { ...reg, items } };
+  return sendRegReview(phone, rid, next);
+}
+
+function sendRegReview(phone, rid, data) {
+  const reg = data.reg || {};
+  const items = reg.items || [];
+  let t = '📋 *مراجعة التسجيل*\n\n';
+  t += `🏷 النوع: ${reg.icon || ''} ${reg.type_name || ''}\n🍽 الاسم: *${reg.name || ''}*\n📍 المدينة: ${reg.city || ''}\n📱 الجوال: ${reg.phone}\n\n`;
+  t += `*الأصناف (${items.length}):*\n`;
+  t += items.slice(0, 12).map((i, idx) => `${idx + 1}. ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — ❓ بلا سعر'}`).join('\n');
+  if (items.length > 12) t += `\n… و${items.length - 12} غيرها`;
+  t += '\n\nصحيحة كلها؟ اضغط *اعتماد وإرسال* وبيوصل طلبك للإدارة.';
+  saveSession(phone, 'reg_review', data);
+  return send(phone, rid, null, 'buttons', t.slice(0, 1000), { buttons: [
+    { id: 'reg_submit', title: '✅ اعتماد وإرسال' },
+    { id: 'reg_fix', title: '✏️ تعديل الأصناف' },
+    { id: 'reg_cancel', title: '❌ إلغاء' }
+  ] });
+}
+
+async function handleRegReview(phone, rid, session, b, p) {
+  if (p === 'reg_cancel' || REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️'); }
+  if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
+    const reg = session.data.reg || {};
+    const items = reg.items || [];
+    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, items_json, status)
+      VALUES ('business', ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, JSON.stringify(items));
+    const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
+    saveSession(phone, 'idle', { ...session.data, reg: null });
+    const ok = await notifySupervisor(row);
+    return send(phone, rid, null, 'text', ok
+      ? `🎉 *تم إرسال طلبك للإدارة!*\n\n🍽 ${reg.name}\n🍽 الأصناف: ${items.length}\n📍 ${reg.city || ''}\n\nبنراجعه ونبلغك بالاعتماد قريباً 🙏`
+      : '✅ تم حفظ طلبك.\n\n⚠️ رقم المشرف غير مضبوط — كلّم الإدارة للاعتماد.');
+  }
+  return sendRegReview(phone, rid, session.data);
+}
+
+// ---- تسجيل كابتن ----
+function startCaptainReg(phone, rid, session) {
+  if (isCaptainPhone(phone)) return send(phone, rid, null, 'text', 'أنت مسجّل عندنا كابتن توصيل ✅ — بيجيك الطلبات هنا.');
+  saveSession(phone, 'cap_name', { ...session.data, reg: { phone, kind: 'captain' } });
+  return send(phone, rid, null, 'text', '🛵 *تسجيل كابتن توصيل*\n\nوش *اسمك*؟');
+}
+function handleCapName(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const name = String(b).trim();
+  if (name.length < 2) return send(phone, rid, null, 'text', 'اكتب اسمك 🌸');
+  saveSession(phone, 'cap_city', { ...session.data, reg: { ...session.data.reg, name: name.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `هلا *${name}* 🌸\n\nوش *مدينتك*؟`);
+}
+function handleCapCity(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const city = String(b).trim();
+  if (city.length < 2) return send(phone, rid, null, 'text', 'اكتب المدينة 🌸');
+  saveSession(phone, 'cap_vehicle', { ...session.data, reg: { ...session.data.reg, city: city.slice(0, 40) } });
+  return send(phone, rid, null, 'buttons', 'وش *وسيلة نقلك*؟', { buttons: [
+    { id: 'veh:دراجة', title: '🏍 دراجة' },
+    { id: 'veh:سيارة', title: '🚗 سيارة' },
+    { id: 'veh:شاحنة صغيرة', title: '🚚 شاحنة' }
+  ] });
+}
+async function handleCapVehicle(phone, rid, session, b, p) {
+  const v = p && p.startsWith('veh:') ? p.slice(4) : String(b || '').trim();
+  if (!v || v.length < 2) return send(phone, rid, null, 'text', 'اختر وسيلة النقل من الأزرار 👆');
+  const reg = session.data.reg || {};
+  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, vehicle_type, status)
+    VALUES ('captain', ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.city || null, v.slice(0, 30));
+  const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
+  saveSession(phone, 'idle', { ...session.data, reg: null });
+  const ok = await notifySupervisor(row);
+  return send(phone, rid, null, 'text', ok
+    ? `✅ *تم إرسال طلبك للإدارة*\n\n👤 ${reg.name}\n📍 ${reg.city}\n🛵 ${v}\n\nبنبلغك بالاعتماد قريباً 🙏`
+    : '✅ تم حفظ طلبك — بس رقم المشرف غير مضبوط.');
+}
+
 export function isCaptainPhone(phone) {
   return !!q.get("SELECT id FROM captains WHERE phone=? OR phone=?", phone, validatePhone(phone));
 }

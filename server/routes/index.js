@@ -14,6 +14,8 @@ import branches from './branches.js';
 import reports from './reports.js';
 import dbadmin from './dbadmin.js';
 import settings from './settings.js';
+import businessTypes from './businessTypes.js';
+import registrations from './registrations.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -31,4 +33,6 @@ router.use('/branches', branches);
 router.use('/reports', reports);
 router.use('/dbadmin', dbadmin);
 router.use('/settings', settings);
+router.use('/business-types', businessTypes);
+router.use('/registrations', registrations);
 export default router;

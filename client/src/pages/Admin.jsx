@@ -3,8 +3,8 @@ import { api, sar, statusAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
 import { Card, Stat, Modal, Fld, Badge, Money, Pay } from '../components/ui.jsx';
 
-const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'settings'];
-const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', settings: '⚙️ إعدادات واتساب' };
+const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'regs', 'types', 'settings'];
+const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
 
 export default function Admin() {
   const { user, socket, logout, notify } = useApp();
@@ -59,6 +59,8 @@ export default function Admin() {
         {tab === 'ads' && <AdsTab data={ads} onChange={load} />}
         {tab === 'loyalty' && <LoyaltyTab />}
         {tab === 'chats' && <ChatsTab restaurants={restaurants} />}
+        {tab === 'regs' && <RegistrationsTab />}
+        {tab === 'types' && <TypesTab />}
         {tab === 'settings' && <SettingsTab />}
         {sel && <OrderModal o={sel} onClose={() => setSel(null)} refresh={load} />}
       </div>
@@ -129,6 +131,8 @@ function RestTab({ data, onChange }) {
 
 function RestForm({ r, onClose, onSaved }) {
   const [f, setF] = useState(r || { name_ar: '', city: 'الرياض', delivery_fee: 1000, min_order: 3000, avg_prep_time_min: 25 });
+  const [types, setTypes] = useState([]);
+  useEffect(() => { api('/business-types').then(d => setTypes(Array.isArray(d) ? d.filter(t => t.is_active || String(t.id) === String(f.business_type_id)) : [])).catch(() => {}); }, []);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     if (!f.name_ar) return notify('اسم المطعم مطلوب');
@@ -143,6 +147,12 @@ function RestForm({ r, onClose, onSaved }) {
     <Modal title={r ? 'تعديل مطعم' : 'مطعم جديد'} onClose={onClose}>
       <div className="form-grid">
         <Fld label="اسم المطعم"><input value={f.name_ar} onChange={set('name_ar')} /></Fld>
+        <Fld label="نوع النشاط">
+          <select value={f.business_type_id || ''} onChange={e => setF({ ...f, business_type_id: e.target.value ? Number(e.target.value) : null })}>
+            <option value="">— اختر النوع —</option>
+            {types.map(t => <option key={t.id} value={t.id}>{t.icon} {t.name_ar}</option>)}
+          </select>
+        </Fld>
         <Fld label="المدينة"><input value={f.city} onChange={set('city')} /></Fld>
         <Fld label="الجوال"><input value={f.phone || ''} onChange={set('phone')} /></Fld>
         <Fld label="واتساب (رقم الطلبات)"><input value={f.whatsapp_number || ''} onChange={set('whatsapp_number')} /></Fld>
@@ -370,10 +380,127 @@ function ChatsTab({ restaurants }) {
   );
 }
 
+function RegistrationsTab() {
+  const { notify } = useApp();
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(null);
+  const load = () => api('/registrations').then(setRows).catch(e => notify(e.message));
+  useEffect(() => { load(); }, []);
+  const act = async (r, action) => {
+    setBusy(true);
+    try { await api(`/registrations/${r.id}/${action}`, { method: 'POST', body: {} }); notify(action === 'approve' ? '✅ تم الاعتماد' : '❌ تم الرفض'); await load(); }
+    catch (e) { notify(e.message); } finally { setBusy(false); }
+  };
+  const pending = rows.filter(r => r.status === 'pending_review' || r.status === 'draft');
+  const others = rows.filter(r => r.status !== 'pending_review' && r.status !== 'draft');
+  const label = s => s === 'approved' ? '✅ معتمد' : s === 'rejected' ? '❌ مرفوض' : '⏳ بانتظار الاعتماد';
+  const Row = r => (
+    <div key={r.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--line)' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div onClick={() => setOpen(open === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
+          <b>{r.kind === 'captain' ? '🛵 كابتن' : '🏬 نشاط'} — {r.business_name || '-'}</b>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+            {r.city || '-'} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          {r.status !== 'approved' && <button className="btn sm" disabled={busy} onClick={() => act(r, 'approve')}>✅ اعتماد</button>}
+          {r.status !== 'rejected' && <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'reject')}>❌ رفض</button>}
+        </div>
+      </div>
+      {open === r.id && (
+        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--mut)', lineHeight: 1.9 }}>
+          {r.kind === 'business' ? (
+            <>
+              <div>الأصناف:</div>
+              {(r.items || []).map((it, i) => <div key={i}>• {it.name} {it.price ? `— ${sar(it.price)} ر.س` : '— بلا سعر'}{it.category ? ` (${it.category})` : ''}</div>)}
+            </>
+          ) : (<div>المركبة: {r.vehicle_type || '-'} · المدينة: {r.city || '-'}</div>)}
+          <div style={{ marginTop: 4 }}>{r.created_at}</div>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <Card title={`📝 طلبات التسجيل${pending.length ? ` (${pending.length} بانتظار)` : ''}`}>
+      {pending.length > 0 && <div style={{ marginBottom: 10, fontWeight: 700, color: '#ef6c00' }}>⏳ بانتظار الاعتماد ({pending.length})</div>}
+      {pending.map(Row)}
+      {!pending.length && <div className="empty">لا توجد طلبات بانتظار الاعتماد ✅</div>}
+      {others.length > 0 && (
+        <>
+          <div style={{ margin: '16px 0 6px', fontWeight: 700 }}>المعتمدة والمرفوضة</div>
+          {others.slice(0, 30).map(Row)}
+        </>
+      )}
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginTop: 12 }}>
+        💡 الاعتماد من هنا أو من إشعار واتساب على رقم المشرف (اضبطه في ⚙️ إعدادات واتساب).
+      </div>
+    </Card>
+  );
+}
+
+function TypesTab() {
+  const { notify } = useApp();
+  const [rows, setRows] = useState([]);
+  const [f, setF] = useState({ name_ar: '', icon: '🏬' });
+  const [edit, setEdit] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/business-types').then(setRows).catch(e => notify(e.message));
+  useEffect(() => { load(); }, []);
+  const run = async (fn) => { setBusy(true); try { await fn(); await load(); } catch (e) { notify(e.message); } finally { setBusy(false); } };
+  const add = () => {
+    if (String(f.name_ar || '').trim().length < 2) return notify('اكتب اسم النوع');
+    run(async () => { await api('/business-types', { method: 'POST', body: f }); notify('✅ تمت إضافة النوع'); setF({ name_ar: '', icon: '🏬' }); });
+  };
+  const saveEdit = () => run(async () => { await api('/business-types/' + edit.id, { method: 'PUT', body: { name_ar: edit.name_ar, icon: edit.icon } }); setEdit(null); notify('✅ تم التعديل'); });
+  const toggle = t => run(async () => { await api('/business-types/' + t.id, { method: 'PUT', body: { is_active: t.is_active ? 0 : 1 } }); notify(t.is_active ? '⏸ تم الإيقاف' : '▶️ تم التشغيل'); });
+  const del = t => run(async () => { await api('/business-types/' + t.id, { method: 'DELETE' }); notify('🗑 تم الحذف'); });
+  return (
+    <Card title="🏷 أنواع الأنشطة">
+      <div className="grid g2">
+        <Fld label="نوع جديد"><input value={f.name_ar} onChange={e => setF({ ...f, name_ar: e.target.value })} placeholder="مثال: مقهى" /></Fld>
+        <Fld label="الأيقونة"><input value={f.icon} onChange={e => setF({ ...f, icon: e.target.value })} style={{ width: 90 }} /></Fld>
+      </div>
+      <button className="btn" disabled={busy} onClick={add}>➕ إضافة نوع</button>
+      <div style={{ marginTop: 16 }}>
+        {rows.map(t => (
+          <div key={t.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--line)' }}>
+            {edit && edit.id === t.id ? (
+              <div className="row" style={{ gap: 8 }}>
+                <input value={edit.icon} onChange={e => setEdit({ ...edit, icon: e.target.value })} style={{ width: 70 }} />
+                <input value={edit.name_ar} onChange={e => setEdit({ ...edit, name_ar: e.target.value })} style={{ flex: 1 }} />
+                <button className="btn sm" disabled={busy} onClick={saveEdit}>حفظ</button>
+                <button className="btn ghost sm" onClick={() => setEdit(null)}>إلغاء</button>
+              </div>
+            ) : (
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ fontSize: 18 }}>{t.icon}</span> <b>{t.name_ar}</b>
+                  <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>{t.restaurants_count} نشاط · {t.is_active ? '✅ مفعّل' : '⏸ موقوف'}</div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn ghost sm" onClick={() => setEdit({ id: t.id, name_ar: t.name_ar, icon: t.icon })}>✏️ تعديل</button>
+                  <button className="btn ghost sm" disabled={busy} onClick={() => toggle(t)}>{t.is_active ? '⏸' : '▶️'}</button>
+                  <button className="btn ghost sm" disabled={busy} onClick={() => del(t)}>🗑</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {!rows.length && <div className="empty">لا توجد أنواع — أضف واحداً</div>}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginTop: 12 }}>
+        💡 هذي الأنواع تظهر للنشاط لما يسجّل عبر واتساب. تقدر تضيف وتوقف أي نوع وقت ما تبي — بدون أي تعديل برمجي.
+      </div>
+    </Card>
+  );
+}
+
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -386,7 +513,8 @@ function SettingsTab() {
       WHATSAPP_PROVIDER: d.provider || 'simulator',
       WHATSAPP_PHONE_NUMBER_ID: d.phoneNumberId || '',
       WHATSAPP_VERIFY_TOKEN: d.verifyToken || '',
-      VOICE_REPLIES: d.voiceReplies ? 'true' : 'false'
+      VOICE_REPLIES: d.voiceReplies ? 'true' : 'false',
+      ADMIN_PHONE: d.adminPhone || ''
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -440,6 +568,9 @@ function SettingsTab() {
             <option value="false">لا — كتابي فقط</option>
             <option value="true">نعم — كتابي + صوتي</option>
           </select>
+        </Fld>
+        <Fld label="رقم المشرف (إشعارات اعتماد التسجيل)">
+          <input value={f.ADMIN_PHONE || ''} onChange={set('ADMIN_PHONE')} placeholder="9665xxxxxxxx" style={{ direction: 'ltr' }} />
         </Fld>
       </div>
       <Fld label="توكن واتساب (Access Token) — الصقه كاملاً">

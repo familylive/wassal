@@ -14,7 +14,6 @@ export const config = {
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'wassal-verify',
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0'
   },
-  // صوتيات: استقبال (STT) + رد (TTS)
   voice: {
     sttApiKey: process.env.STT_API_KEY || '',   // Groq مجاني: console.groq.com
     ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI بديل: platform.openai.com
@@ -33,6 +32,8 @@ export const config = {
     sandbox: process.env.MOYASAR_SANDBOX !== 'false'
   },
   paymentMode: process.env.PAYMENT_MODE || 'mock', // mock | moyasar
-  quickOrder: process.env.QUICK_ORDER === 'true' // طلب مبسّط: المنيو ← الاختيار ← رابط الدفع ← الطلب ينتهي
+  quickOrder: process.env.QUICK_ORDER === 'true', // طلب مبسّط: المنيو ← الاختيار ← رابط الدفع ← الطلب ينتهي
+  // رقم المشرف: تجيه إشعارات طلبات التسجيل للاعتماد
+  adminPhone: process.env.ADMIN_PHONE || ''
 };
 export default config;
