@@ -204,7 +204,7 @@ function mainMenu(phone, rid) {
 }
 
 // ---------- main dispatcher ----------
-export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null }) {
+export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null, mediaRef = null }) {
   const customer = ensureCustomer(phone);
   const session = getSession(phone);
   const { state, data } = session;
@@ -306,7 +306,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -353,9 +353,27 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'reg_owner': return handleRegOwner(phone, rid, session, b);
     case 'reg_owner_id': return handleRegOwnerId(phone, rid, session, b);
     case 'reg_items': return handleRegItems(phone, rid, session, b);
+    case 'reg_shift': return handleRegShift(phone, rid, session, b, p);
+    case 'reg_s1f': return handleRegShiftTime(phone, rid, session, b, 's1_from', 'reg_s1t', '✅ من {t} — ومتى *يقفل* النشاط؟');
+    case 'reg_s1t': {
+      const two = session.data.reg?.shifts === 2;
+      return handleRegShiftTime(phone, rid, session, b, two ? 's1_to' : 'close_hour', two ? 'reg_s2f' : 'reg_lic',
+        two ? '✅ الفترة الأولى تنتهي {t}\n\n🕐 *الفترة الثانية* — متى تبدأ؟' : '✅ يقفل {t}\n\n🏛 *رخصة البلدية* — أرسل صورة/PDF _(أو تخطى)_');
+    }
+    case 'reg_s2f': return handleRegShiftTime(phone, rid, session, b, 's2_from', 'reg_s2t', '✅ تبدأ {t} — ومتى *تنتهي الفترة الثانية*؟');
+    case 'reg_s2t': return handleRegShiftTime(phone, rid, session, b, 's2_to', 'reg_lic', '✅ تنتهي {t}\n\n🏛 *رخصة البلدية* — أرسل صورة/PDF _(أو تخطى)_');
+    case 'reg_lic': return handleRegMunicipal(phone, rid, session, b, mediaRef);
+    case 'reg_cr': return handleRegCR(phone, rid, session, b, mediaRef);
+    case 'reg_health': return handleRegHealth(phone, rid, session, b);
+    case 'reg_hdoc': return handleRegHealthDoc(phone, rid, session, b, mediaRef);
     case 'reg_prices': return handleRegPrices(phone, rid, session, b);
     case 'reg_review': return handleRegReview(phone, rid, session, b, p);
     case 'reg_subscribe': return handleRegSubscribe(phone, rid, session, b, p);
+    case 'cap_reqs': return handleCapReqs(phone, rid, session, b, p);
+    case 'cap_color': return handleCapColor(phone, rid, session, b);
+    case 'cap_plate': return handleCapPlate(phone, rid, session, b);
+    case 'cap_license': return handleCapLicense(phone, rid, session, b, mediaRef);
+    case 'cap_criminal': return handleCapCriminal(phone, rid, session, b, mediaRef);
     case 'cap_name': return handleCapName(phone, rid, session, b);
     case 'cap_id': return handleCapId(phone, rid, session, b);
     case 'cap_city': return handleCapCity(phone, rid, session, b);
@@ -365,6 +383,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_deposit_wait': return handleCapDeposit(phone, rid, session, b, p);
     case 'cash_name': return handleCashName(phone, rid, session, b);
     case 'cash_phone': return handleCashPhone(phone, rid, session, b);
+    case 'cash_hour': return handleCashHour(phone, rid, session, b, p);
     case 'mgr_name': return handleMgrName(phone, rid, session, b);
     case 'mgr_id': return handleMgrId(phone, rid, session, b);
     case 'mgr_biz': return handleMgrBiz(phone, rid, session, b, p);
@@ -1492,6 +1511,12 @@ function startBusinessReg(phone, rid, session) {
   return send(phone, rid, null, 'list', 'اختر نوع النشاط 👇', { list: [{ title: 'أنواع الأنشطة', rows: types.map(x => ({ id: 'btype:' + x.id, title: String(x.name_ar).slice(0, 24), description: '' })) }] });
 }
 
+const fmtH = (h) => { if (!h) return '-'; const [a, b] = String(h).split(':'); let x = Number(a); const ap = x >= 12 ? 'م' : 'ص'; if (x === 0) x = 12; else if (x > 12) x -= 12; return `${x}:${b} ${ap}`; };
+const isRestaurantType = (typeId) => {
+  const t = q.get("SELECT name_ar FROM business_types WHERE id=?", Number(typeId));
+  return /مطعم|مطاعم|كافي|مقهى/.test(String(t?.name_ar || ''));
+};
+
 function handleRegType(phone, rid, session, b, p) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const types = q.all("SELECT * FROM business_types WHERE is_active=1 ORDER BY sort_order, id");
@@ -1600,7 +1625,7 @@ function handleRegItems(phone, rid, session, b) {
   t += items.slice(0, 18).map((i, idx) => `${idx + 1}. ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — ❓'}${i.category ? ` (${i.category})` : ''}`).join('\n');
   if (items.length > 18) t += `\n… و${items.length - 18} غيرها`;
   send(phone, rid, null, 'text', t);
-  if (withPrice === items.length) return sendRegReview(phone, rid, next);
+  if (withPrice === items.length) return askShifts(phone, rid, next);
   saveSession(phone, 'reg_prices', next);
   return send(phone, rid, null, 'text', 'الآن أرسل *الأسعار* — سطر لكل صنف:\n\nنفر حاشي كبسة 60\nبيبسي 5\n\n_(أو اكتب *تخطى* ونكمل)_');
 }
@@ -1624,7 +1649,69 @@ function handleRegPrices(phone, rid, session, b) {
     }
   }
   const next = { ...session.data, reg: { ...reg, items } };
-  return sendRegReview(phone, rid, next);
+  return askShifts(phone, rid, next);
+}
+
+// ================= 🕐 دوام النشاط والفترات + المستندات =================
+function askShifts(phone, rid, data) {
+  saveSession(phone, 'reg_shift', data);
+  return send(phone, rid, null, 'buttons', '🕐 *دوام النشاط*\n\nالعمل *فترة واحدة* أو *فترتان* في اليوم؟', { buttons: [
+    { id: 'shift:1', title: '1️⃣ فترة واحدة' },
+    { id: 'shift:2', title: '2️⃣ فترتان' }
+  ] });
+}
+function handleRegShift(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const raw = (p && String(p).startsWith('shift:')) ? String(p).slice(6) : String(b).replace(/[^\d١٢]/g, '');
+  const n = raw === '2' || raw === '٢' ? 2 : (raw === '1' || raw === '١' ? 1 : null);
+  if (!n) return send(phone, rid, null, 'text', 'اختر *١* فترة واحدة أو *٢* فترتان 🙏');
+  const reg = { ...(session.data.reg || {}), shifts: n };
+  saveSession(phone, 'reg_s1f', { ...session.data, reg });
+  return send(phone, rid, null, 'text', n === 1
+    ? '🕐 متى *يفتح* النشاط؟ (مثال: 8 صباحاً · 9:00 · 16:00)'
+    : '🕐 *الفترة الأولى* — متى تبدأ؟ (مثال: 8 صباحاً)');
+}
+function handleRegShiftTime(phone, rid, session, b, key, nextState, question) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const h = parseReportHour(b, { morning: true });
+  if (!h) return send(phone, rid, null, 'text', 'اكتب الوقت بصيغة مثل: 8 صباحاً · 9:00 · 16:30 🙏');
+  const reg = { ...(session.data.reg || {}), [key]: h };
+  saveSession(phone, nextState, { ...session.data, reg });
+  return send(phone, rid, null, 'text', question.replace('{t}', fmtH(h)));
+}
+const DOC_SKIP = /^(تخطى|تخطي|بدون|لا يوجد|ما عندي|لاحقاً|لاحقا|بعدين|موجود)$/;
+async function handleRegMunicipal(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.municipal_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF لرخصة البلدية، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'reg_cr', { ...session.data, reg });
+  return send(phone, rid, null, 'text', '📄 *السجل التجاري*\n\n📎 أرسل صورة أو PDF\n_(أو *تخطى*)_');
+}
+async function handleRegCR(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.cr_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF للسجل التجاري، أو اكتب *تخطى* 🙏');
+  if (isRestaurantType(reg.type_id)) {
+    saveSession(phone, 'reg_health', { ...session.data, reg });
+    return send(phone, rid, null, 'text', '👨‍🍳 *الشهادات الصحية للعمال*\n\nكم *عدد العمال* عندك؟ (اكتب رقم)');
+  }
+  return sendRegReview(phone, rid, { ...session.data, reg });
+}
+async function handleRegHealth(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const n = Number(String(b).replace(/[^\d]/g, ''));
+  if (!n || n < 1 || n > 200) return send(phone, rid, null, 'text', 'اكتب *عدد العمال* برقم (مثال: 4)');
+  saveSession(phone, 'reg_hdoc', { ...session.data, reg: { ...session.data.reg, health_count: n } });
+  return send(phone, rid, null, 'text', `👨‍🍳 عدد العمال: *${n}*\n\n📎 أرسل *صورة/PDF للشهادات الصحية*\n_(أو *تخطى*)_`);
+}
+async function handleRegHealthDoc(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.health_docs = mediaRef;
+  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF للشهادات الصحية، أو اكتب *تخطى* 🙏');
+  return sendRegReview(phone, rid, { ...session.data, reg });
 }
 
 function sendRegReview(phone, rid, data) {
@@ -1635,6 +1722,14 @@ function sendRegReview(phone, rid, data) {
   t += `*الأصناف (${items.length}):*\n`;
   t += items.slice(0, 12).map((i, idx) => `${idx + 1}. ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — ❓ بلا سعر'}`).join('\n');
   if (items.length > 12) t += `\n… و${items.length - 12} غيرها`;
+  if (reg.shifts) {
+    const sh = reg.shifts === 2
+      ? `فترتان: ${fmtH(reg.s1_from)} – ${fmtH(reg.s1_to)} · ${fmtH(reg.s2_from)} – ${fmtH(reg.s2_to)}`
+      : `فترة واحدة: ${fmtH(reg.s1_from)} – ${fmtH(reg.close_hour)}`;
+    t += `\n\n🕐 الدوام: ${sh}`;
+  }
+  t += `\n🏛 رخصة البلدية: ${reg.municipal_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'} · 📄 السجل التجاري: ${reg.cr_doc ? '✅ مرفق' : '⚠️ غير مرفق'}`;
+  if (reg.health_count) t += `\n👨‍🍳 الشهادات الصحية: ${reg.health_count} عامل ${reg.health_docs ? '— ✅ مرفقة' : '— ⚠️ غير مرفقة'}`;
   t += '\n\nصحيحة كلها؟ اضغط *اعتماد وإرسال* وبيوصل طلبك للإدارة.';
   saveSession(phone, 'reg_review', data);
   return send(phone, rid, null, 'buttons', t.slice(0, 1000), { buttons: [
@@ -1685,8 +1780,13 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
   {
     const reg = session.data.reg || {};
     const items = reg.items || [];
-    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status)
-      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null);
+    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status,
+        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, health_count, health_docs)
+      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?,?,?,?,?,?,?,?,?,?,?)`,
+      phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null,
+      reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1,
+      reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null,
+      reg.municipal_doc || null, reg.cr_doc || null, reg.health_count || null, reg.health_docs || null);
     const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
     saveSession(phone, 'idle', { ...session.data, reg: null });
     const ok = await notifySupervisor(row);
@@ -1697,10 +1797,26 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
 }
 
 // ---- تسجيل كابتن ----
+const CAP_REQS = `🛵 *انضمام كابتن توصيل — واتس هم*\n\n📋 *جهّز هذي الطلبات قبل ما تبدأ:*\n1️⃣ *اسمك* و*رقم هويتك* (١٠ أرقام)\n2️⃣ *مدينتك* والحي اللي تشتغل فيه\n3️⃣ *وسيلة النقل* ولون المركبة و*رقم اللوحة*\n4️⃣ صورة *رخصة القيادة* 🪪\n5️⃣ *شهادة خلو سوابق* — تُسحب من *أبشر* (صورة أو PDF)\n6️⃣ *تأمين الحساب* ٥٠٠ ر.س (يُحفظ رصيداً لك)\n\n⚠️ الطلب الناقص ما يُعتمد.\n\nجاهز؟ نبدأ خطوة خطوة 👇`;
+
 function startCaptainReg(phone, rid, session) {
   if (isCaptainPhone(phone)) return send(phone, rid, null, 'text', 'أنت مسجّل عندنا كابتن توصيل ✅ — بيجيك الطلبات هنا.');
-  saveSession(phone, 'cap_name', { ...session.data, reg: { phone, kind: 'captain' } });
-  return send(phone, rid, null, 'text', '🛵 *انضمام كابتن توصيل*\n\nوش *اسمك*؟');
+  saveSession(phone, 'cap_reqs', { ...session.data, reg: { phone, kind: 'captain' } });
+  send(phone, rid, null, 'text', CAP_REQS);
+  return send(phone, rid, null, 'buttons', 'جاهز نبدأ؟', { buttons: [
+    { id: 'cap_go', title: '✅ جاهز — نبدأ' },
+    { id: 'cap_cancel', title: '❌ لاحقاً' }
+  ] });
+}
+function handleCapReqs(phone, rid, session, b, p) {
+  if (p === 'cap_cancel' || REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  if (p === 'cap_go' || /^(جاهز|نبدأ|ابدأ|يلا|متابعة|ok|اوكي)$/i.test(String(b || '').trim())) {
+    saveSession(phone, 'cap_name', { ...session.data, reg: { ...(session.data.reg || {}), phone, kind: 'captain' } });
+    return send(phone, rid, null, 'text', '🛵 *انضمام كابتن توصيل*\n\nوش *اسمك*؟');
+  }
+  return send(phone, rid, null, 'buttons', 'اضغط ✅ «جاهز — نبدأ» 👇', { buttons: [
+    { id: 'cap_go', title: '✅ جاهز — نبدأ' }, { id: 'cap_cancel', title: '❌ لاحقاً' }
+  ] });
 }
 function handleCapName(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -1740,7 +1856,39 @@ function handleCapDistrict(phone, rid, session, b) {
 async function handleCapVehicle(phone, rid, session, b, p) {
   const v = p && p.startsWith('veh:') ? p.slice(4) : String(b || '').trim();
   if (!v || v.length < 2) return send(phone, rid, null, 'text', 'اختر وسيلة النقل من الأزرار 👆');
-  saveSession(phone, 'cap_deposit', { ...session.data, reg: { ...(session.data.reg || {}), vehicle: v.slice(0, 30) } });
+  saveSession(phone, 'cap_color', { ...session.data, reg: { ...(session.data.reg || {}), vehicle: v.slice(0, 30) } });
+  return send(phone, rid, null, 'text', `🚗 وسيلة النقل: *${v}*\n\n🎨 وش *لون المركبة*؟`);
+}
+
+// 🎨 لون المركبة → 🪪 رقم اللوحة → 🪪 رخصة القيادة → 🧾 خلو السوابق → التأمين
+function handleCapColor(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const c = String(b || '').trim();
+  if (c.length < 2) return send(phone, rid, null, 'text', 'اكتب لون المركبة 🎨 (مثال: أبيض)');
+  saveSession(phone, 'cap_plate', { ...session.data, reg: { ...session.data.reg, vehicle_color: c.slice(0, 30) } });
+  return send(phone, rid, null, 'text', '🔢 و*رقم اللوحة*؟ (مثال: أ ب ج 1234)');
+}
+function handleCapPlate(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const pl = String(b || '').trim();
+  if (pl.length < 3) return send(phone, rid, null, 'text', 'اكتب رقم اللوحة 🔢 (مثال: أ ب ج 1234)');
+  saveSession(phone, 'cap_license', { ...session.data, reg: { ...session.data.reg, vehicle_plate: pl.slice(0, 30) } });
+  return send(phone, rid, null, 'text', '🪪 *رخصة القيادة*\n\n📎 أرسل *صورة* الرخصه\n_(أو اكتب *تخطى*)_');
+}
+async function handleCapLicense(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.license_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة رخصة القيادة، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'cap_criminal', { ...session.data, reg });
+  return send(phone, rid, null, 'text', '🧾 *شهادة خلو السوابق*\n\nتسحبها من *أبشر* ثم 📎 أرسلها هنا (صورة أو PDF)\n\n_طريقة السحب: أبشر → خدماتي → الأمن العام → شهادة خلو سوابق → تحميل PDF_\n_(أو اكتب *تخطى*)_');
+}
+async function handleCapCriminal(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.criminal_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل شهادة خلو السوابق من أبشر، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'cap_deposit', { ...session.data, reg });
   send(phone, rid, null, 'text', `💰 *تأمين الحساب: ٥٠٠ ر.س*\n\nمبلغ تأمين يُدفع مرة واحدة، ويُحفظ لك رصيد — وكل ما وصلت مبالغك المحصّلة للحدّ نوقف الاستقبال مؤقتاً حتى التسوية ✅`);
   return send(phone, rid, null, 'buttons', 'كيف تحب تكمل؟', { buttons: [
     { id: 'dep_pay', title: '💳 ادفع التأمين' },
@@ -1769,8 +1917,11 @@ async function handleCapDeposit(phone, rid, session, b, p) {
 async function submitCaptainReg(phone, rid, session, { depositPaid = false, claimed = false } = {}) {
   const reg = session.data.reg || {};
   const v = reg.vehicle || 'دراجة';
-  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, vehicle_type, deposit_paid, note, status)
-    VALUES ('captain', ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, v.slice(0, 30), depositPaid ? 1 : 0, claimed ? 'يقول إنه حوّل التأمين' : null);
+  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, deposit_paid, note, status)
+    VALUES ('captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`,
+    phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, v.slice(0, 30),
+    reg.vehicle_plate || null, reg.vehicle_color || null, reg.license_doc || null, reg.criminal_doc || null,
+    depositPaid ? 1 : 0, claimed ? 'يقول إنه حوّل التأمين' : null);
   const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
   saveSession(phone, 'idle', { ...session.data, reg: null });
   const ok = await notifySupervisor(row);
@@ -2000,6 +2151,31 @@ function startAddCashier(phone, rid, session) {
   saveSession(phone, 'cash_name', { ...session.data, cash: { restaurant_id: rrid }, });
   return send(phone, rid, null, 'text', `🧾 *إضافة كاشير*\n\nالكاشير هو اللي *توصله الطلبات* على واتساب ويتابعها ✅\n_(ويقدر يدخل لوحة النشاط — لكن *ما يقدر* يسجّل نشاط أو يضيف مدير)_\n\nوش *اسمه*؟`);
 }
+// ⏰ وقت تقرير الكاشير → ثم إنشاء الحساب + إضافته كمستلم تقرير
+async function handleCashHour(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const hour = (p && String(p).startsWith('rhour:')) ? String(p).slice(6) : parseReportHour(b);
+  if (!hour) return send(phone, rid, null, 'text', '⏰ اكتب الوقت: 10:30 أو 9 مساءً أو 12 منتصف الليل');
+  const cash = { ...(session.data.cash || {}), hour };
+  saveSession(phone, 'idle', { ...session.data, cash: null });
+  const norm = cash.phone;
+  const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", cash.restaurant_id);
+  // 📊 يضاف كمستلم تقرير المبيعات (لتسليم المبالغ نهاية اليوم)
+  let recOk = false;
+  try {
+    const rec = addRecipient(cash.restaurant_id, `🧾 الكاشير — ${cash.name || ''}`.slice(0, 40), norm, hour, null);
+    q.run("UPDATE report_recipients SET status='approved', updated_at=datetime('now') WHERE id=?", rec.id);
+    recOk = true;
+  } catch (e) { console.error('CASHIER_REPORT_FAIL', e.message); }
+  try {
+    await waSend({ phone: norm, restaurantId: cash.restaurant_id, type: 'text', body:
+      `🧾 *مرحباً ${cash.name}*\n\nأنت مسجّل كـ *الكاشير* في *${rest?.name_ar || ''}* ✅\n\n📦 *الطلبات بتوصلك هنا على واتساب* — اضغط «✅ استلمت» و«📦 جاهز» لمتابعتها.\n📊 *وتقرير المبيعات اليومي* بيوصلك الساعة *${prettyHour(hour)}* لتسليم المبالغ نهاية اليوم 💵\n\n🔑 لوحة النشاط:${(config.publicUrl || '')}/restaurant\n👤 دخولك: ${norm}\n🔑 كلمة المرور: ${created ? password : '(نفس كلمتك السابقة)'}` });
+  } catch (e) { console.error('CASHIER_WELCOME_FAIL', e.message); }
+  await notifyOwnerTeamInfo(cash.restaurant_id, `🧾 *الكاشير* — ${cash.name} · ${norm}\n📦 الطلبات صارت توصله ويتابعها ✅\n📊 تقرير المبيعات الساعة ${prettyHour(hour)}`);
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🧾 أضاف *${rest?.name_ar || ''}* (#${cash.restaurant_id}) كاشيراً جديداً:\n👤 ${cash.name}\n📱 ${norm}\n⏰ تقريره: ${prettyHour(hour)}` }).catch(() => {});
+  return send(phone, rid, null, 'text', `✅ *تم إضافة الكاشير ${cash.name}*\n📱 ${norm}\n🔑 كلمة مروره: *${created ? password : '(نفس كلمته السابقة)'}*\n📊 تقرير المبيعات يوصله الساعة *${prettyHour(hour)}*${recOk ? '' : ' ⚠️ (تعذّر ربطه بتقرير المبيعات)'}\n\n📦 من الآن *الطلبات توصله على واتساب* ويتابعها ✅\n_(تبيّن لي: اكتب *مستخدمين*)_`);
+}
 function handleCashName(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const name = String(b || '').trim();
@@ -2013,7 +2189,8 @@ async function handleCashPhone(phone, rid, session, b) {
   if (digits.length < 9) return send(phone, rid, null, 'text', 'اكتب رقم جوال صحيح 🌸 مثال: 0551234567');
   const cash = { ...(session.data.cash || {}) };
   const norm = validatePhone(digits);
-  saveSession(phone, 'idle', { ...session.data, cash: null });
+  saveSession(phone, 'cash_hour', { ...session.data, cash: { ...cash, phone: norm } });
+  return askReportHour(phone, rid, `🧾 *${cash.name || 'الكاشير'}* · 📱 ${norm}\n_(تقرير *المبالغ* لتسليم نهاية اليوم)_`);
   const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", cash.restaurant_id);
   // ترحيب الكاشير على واتسابه
@@ -2035,8 +2212,10 @@ function sendTeam(phone, rid) {
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid);
   let t = `👥 *فريق نشاطك* — ${rest?.name_ar || ''} (#${rrid})\n━━━━━━━━━━━━━━\n`;
   for (const u of users) t += `• ${roleAr(u.role)} — ${u.name || ''} · ${u.phone || ''}\n`;
-  if (recs.length) t += `\n📊 *مديرو التقارير:*\n` + recs.map(r => `• ${r.name || ''} · ${r.phone} · ⏰ ${r.report_hour || '23:30'}`).join('\n') + '\n';
-  t += `\n🧾 الكاشير: ${cashierPhone(rrid) ? '✅ ' + cashierPhone(rrid) : '❌ ما فيه كاشير بعد — اكتب *كاشير*'}\n`;
+  const mgrRecs = recs.filter(r => !/الكاشير/.test(String(r.name || '')));
+  if (mgrRecs.length) t += `\n📊 *مستلمو التقارير:*\n` + mgrRecs.map(r => `• ${r.name || ''} · ${r.phone} · ⏰ ${fmtH(r.report_hour)}`).join('\n') + '\n';
+  const cashRec = recs.find(r => /الكاشير/.test(String(r.name || '')));
+  t += `\n🧾 الكاشير: ${cashierPhone(rrid) ? '✅ ' + cashierPhone(rrid) : '❌ ما فيه كاشير بعد — اكتب *كاشير*'}${cashRec ? ` · ⏰ تقريره ${fmtH(cashRec.report_hour)}` : ''}\n`;
   t += `📦 مستلم الطلبات الآن: ${ordersPhoneLabel(rrid)}`;
   return send(phone, rid, null, 'text', t);
 }

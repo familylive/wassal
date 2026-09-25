@@ -319,7 +319,7 @@ export async function sendPlatformReport(dateStr, { force = false } = {}) {
 
 // ⏰ تحويل نص المستخدم إلى وقت HH:MM (يقبل 23:30 · 10:30 · «10 مساءً» · «7 صباحاً» · «9»)
 const AR_DIGITS = { '٠':0,'١':1,'٢':2,'٣':3,'٤':4,'٥':5,'٦':6,'٧':7,'٨':8,'٩':9 };
-export function parseReportHour(input) {
+export function parseReportHour(input, opts = {}) {
   let t = String(input || '').trim()
     .replace(/[٠-٩]/g, (d) => String(AR_DIGITS[d]))
     .replace(/[\u064B-\u0652\u0670\u0640]/g, '')   // تشكيل وتطويل فقط (نُبقي الهمزة)
@@ -333,14 +333,14 @@ export function parseReportHour(input) {
     else if (/مساء|ليلا|^م$/.test(part)) { if (h < 12) h += 12; }
     return (h <= 23 && mi <= 59) ? `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}` : null;
   }
-  m = t.match(/^(?:الساعة\s*)?(\d{1,2})\s*(?:الساعة|ساعة)?\s*(مساء|ليل|ليلا|الليل|عصر|ظهر|صباح|صباحا|صبح|فجر|م|ص)?$/);
+  m = t.match(/^(?:الساعة\s*)?(\d{1,2})\s*(?:الساعة|ساعة)?\s*(مساء|مساءا|مسائ|ليلا|ليل|الليل|عصرا|عصر|ظهرا|ظهر|الصباح|صباحا|صباح|صبح|فجرا|فجر|م|ص)?$/);
   if (!m) return null;
   let h = +m[1];
   const part = m[2] || '';
   if (/صباح|صبح|فجر/.test(part)) { if (h === 12) h = 0; }
   else if (/عصر|ظهر/.test(part)) { if (h < 12) h += 12; }
   else if (/مساء|ليل|^م$/.test(part)) { if (h < 12) h += 12; }
-  else { if (h >= 1 && h <= 11) h += 12; }   // بلا تحديد → نفترض المساء
+  else { if (h >= 1 && h <= 11 && !opts.morning) h += 12; }   // بلا تحديد → نفترض المساء (أو الصباح لمواعيد الدوام)
   return (h >= 0 && h <= 23) ? `${String(h).padStart(2,'0')}:00` : null;
 }
 export function setRecipientHour(id, hour) {

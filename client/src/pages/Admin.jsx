@@ -584,6 +584,8 @@ function ChatsTab({ restaurants }) {
   );
 }
 
+const hh = (h) => { if (!h) return '-'; const [a, b] = String(h).split(':'); let x = Number(a); const ap = x >= 12 ? 'م' : 'ص'; if (x === 0) x = 12; else if (x > 12) x -= 12; return `${x}:${b} ${ap}`; };
+
 function RegistrationsTab() {
   const { notify } = useApp();
   const [rows, setRows] = useState([]);
@@ -610,6 +612,21 @@ function RegistrationsTab() {
           <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
             👤 {r.owner_name || '-'} · 🔢 {r.owner_id || 'بلا هوية'}
           </div>
+          {r.kind === 'business' && (
+            <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+              🕐 {r.shifts === 2 ? `فترتان: ${hh(r.s1_from)}–${hh(r.s1_to)} · ${hh(r.s2_from)}–${hh(r.s2_to)}` : (r.s1_from || r.close_hour ? `فترة: ${hh(r.s1_from)}–${hh(r.close_hour)}` : 'دوام غير محدد')}
+              {' · '}🏛 {r.municipal_doc ? <a href={r.municipal_doc} target="_blank" rel="noreferrer">الرخصة ✅</a> : 'رخصة ⚠️'}
+              {' · '}📄 {r.cr_doc ? <a href={r.cr_doc} target="_blank" rel="noreferrer">السجل ✅</a> : 'سجل ⚠️'}
+              {r.health_count ? ` · 👨‍🍳 ${r.health_count} عامل ${r.health_docs ? <a href={r.health_docs} target="_blank" rel="noreferrer">✅</a> : '⚠️'}` : ''}
+            </div>
+          )}
+          {r.kind === 'captain' && (
+            <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+              🚗 {r.vehicle_type || '-'}{r.vehicle_color ? ` · 🎨 ${r.vehicle_color}` : ''}{r.vehicle_plate ? ` · 🔢 ${r.vehicle_plate}` : ''}
+              {' · '}🪪 {r.license_doc ? <a href={r.license_doc} target="_blank" rel="noreferrer">رخصة القيادة ✅</a> : 'رخصة قيادة ⚠️'}
+              {' · '}🧾 {r.criminal_doc ? <a href={r.criminal_doc} target="_blank" rel="noreferrer">خلو سوابق ✅</a> : 'خلو سوابق ⚠️'}
+            </div>
+          )}
         </div>
         <div className="row" style={{ gap: 6 }}>
           {r.status !== 'approved' && <button className="btn sm" disabled={busy} onClick={() => act(r, 'approve')}>✅ اعتماد</button>}

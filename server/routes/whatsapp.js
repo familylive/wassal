@@ -3,6 +3,7 @@ import config from '../config.js';
 import { q } from '../db.js';
 import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating, getSessionState } from '../services/flow.js';
 import { saveAdImage } from '../services/ads.js';
+import { saveRegDoc } from '../services/docs.js';
 import { setStatus, closeOrderWithCode } from '../services/orderService.js';
 import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
@@ -24,6 +25,12 @@ function logHit(kind, summary, raw = '') {
 }
 
 // تحويل صيغة LetsBot (baileys) إلى رسائل موحدة
+// حالات استقبال مستندات التسجيل داخل الواتساب
+const REG_DOC_STATES = {
+  reg_lic: 'municipal', reg_cr: 'cr', reg_hdoc: 'health',
+  cap_license: 'license', cap_criminal: 'criminal'
+};
+
 function parseLetsBot(body) {
   const msgs = [];
   const collect = (obj, altJid) => {
@@ -118,6 +125,12 @@ router.post('/webhook', async (req, res) => {
               } else {
                 await waSend({ phone, type: 'text', body: '📷 ' + (r.error || 'تعذر استلام الصورة') });
               }
+            } else if (REG_DOC_STATES[getSessionState(phone)]) {
+              // 📎 مستند تسجيل (رخصة بلدية · سجل تجاري · شهادات صحية · رخصة قيادة · خلو سوابق)
+              const st = getSessionState(phone);
+              const saved = mediaId ? await saveRegDoc(mediaId, REG_DOC_STATES[st]) : null;
+              logHit('reg-doc', phone + ':' + (saved?.url || 'فشل'));
+              await handleIncoming({ phone, restaurantId: targetRid, type: 'text', body: '', mediaRef: saved?.url || null });
             } else if (getSessionState(phone) === 'pad_content') {
               // 📣 صورة إعلان من جوال الإدارة
               const url = mediaId ? await saveAdImage(mediaId) : null;

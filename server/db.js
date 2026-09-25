@@ -57,6 +57,17 @@ try { db.exec("ALTER TABLE orders ADD COLUMN penalty_quarters INTEGER DEFAULT 0"
 try { db.exec("ALTER TABLE orders ADD COLUMN penalty_total INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN commission_business INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE customer_locations ADD COLUMN city TEXT"); } catch {}
+// 🏪 دوام النشاط والفترات + المستندات الرسمية · 🛵 مستندات الكابتن
+for (const [t, c, ty] of [
+  ['restaurants', 'open_hour', 'TEXT'], ['restaurants', 'close_hour', 'TEXT'], ['restaurants', 'shifts', 'INTEGER'],
+  ['restaurants', 's1_from', 'TEXT'], ['restaurants', 's1_to', 'TEXT'], ['restaurants', 's2_from', 'TEXT'], ['restaurants', 's2_to', 'TEXT'],
+  ['restaurants', 'municipal_doc', 'TEXT'], ['restaurants', 'cr_doc', 'TEXT'], ['restaurants', 'health_count', 'INTEGER'], ['restaurants', 'health_docs', 'TEXT'],
+  ['captains', 'vehicle_color', 'TEXT'], ['captains', 'license_doc', 'TEXT'], ['captains', 'criminal_doc', 'TEXT'],
+  ['business_registrations', 'open_hour', 'TEXT'], ['business_registrations', 'close_hour', 'TEXT'], ['business_registrations', 'shifts', 'INTEGER'],
+  ['business_registrations', 's1_from', 'TEXT'], ['business_registrations', 's1_to', 'TEXT'], ['business_registrations', 's2_from', 'TEXT'], ['business_registrations', 's2_to', 'TEXT'],
+  ['business_registrations', 'municipal_doc', 'TEXT'], ['business_registrations', 'cr_doc', 'TEXT'], ['business_registrations', 'health_count', 'INTEGER'], ['business_registrations', 'health_docs', 'TEXT'],
+  ['business_registrations', 'vehicle_color', 'TEXT'], ['business_registrations', 'vehicle_plate', 'TEXT'], ['business_registrations', 'license_doc', 'TEXT'], ['business_registrations', 'criminal_doc', 'TEXT'],
+]) { try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${ty}`); } catch {} }
 
 // 🆔 ترقيم الأنشطة يبدأ من 1001
 export const RESTAURANT_ID_START = 1001;

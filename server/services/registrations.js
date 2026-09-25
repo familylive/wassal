@@ -17,6 +17,8 @@ export function getRegistration(id) {
 }
 
 // ---------- إشعار المشرف بطلب يحتاج اعتماد ----------
+const hr = (h) => { if (!h) return '-'; const [a, b] = String(h).split(':'); let x = Number(a); const ap = x >= 12 ? 'م' : 'ص'; if (x === 0) x = 12; else if (x > 12) x -= 12; return `${x}:${b} ${ap}`; };
+
 export async function notifySupervisor(reg) {
   const to = config.adminPhone || '';
   if (!to) { console.log('REG_NOTIFY_SKIPPED_NO_ADMIN_PHONE', reg.id); return false; }
@@ -24,11 +26,18 @@ export async function notifySupervisor(reg) {
   const typeRow = reg.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", reg.business_type_id) : null;
   let txt = isCap ? '🛵 *طلب تسجيل كابتن توصيل*\n\n' : '🆕 *طلب تسجيل نشاط جديد*\n\n';
   if (isCap) {
-    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n💰 التأمين (٥٠٠ ر.س): ${Number(reg.deposit_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}${reg.note ? ` (${reg.note})` : ''}\n📱 الجوال: ${reg.phone}\n`;
+    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n`
+      + `🚗 المركبة: ${reg.vehicle_type || '-'}${reg.vehicle_color ? ' · 🎨 ' + reg.vehicle_color : ''}${reg.vehicle_plate ? ' · 🔢 ' + reg.vehicle_plate : ''}\n`
+      + `🪪 رخصة القيادة: ${reg.license_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'}\n🧾 خلو السوابق: ${reg.criminal_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'}\n`
+      + `💰 التأمين (٥٠٠ ر.س): ${Number(reg.deposit_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}${reg.note ? ` (${reg.note})` : ''}\n📱 الجوال: ${reg.phone}\n`;
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
     txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n💳 الاشتراك (١٠٠٠ ر.س): ${Number(reg.subscription_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}\n👤 المسؤول: ${reg.owner_name || '-'}${reg.owner_id ? ` — هوية ${reg.owner_id}` : ' — ⚠️ بلا هوية'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
+    const sh = (reg.shifts === 2)
+      ? `فترتان: ${hr(reg.s1_from)}–${hr(reg.s1_to)} · ${hr(reg.s2_from)}–${hr(reg.s2_to)}`
+      : (reg.s1_from || reg.close_hour ? `فترة واحدة: ${hr(reg.s1_from)}–${hr(reg.close_hour)}` : '⚠️ غير محدّد');
+    txt += `🕐 الدوام: ${sh}\n🏛 رخصة البلدية: ${reg.municipal_doc ? '✅' : '⚠️ غير مرفقة'} · 📄 السجل التجاري: ${reg.cr_doc ? '✅' : '⚠️ غير مرفق'}${reg.health_count ? ` · 👨‍🍳 الشهادات الصحية: ${reg.health_count} عامل ${reg.health_docs ? '✅' : '⚠️ غير مرفقة'}` : ''}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -55,8 +64,9 @@ export async function approveRegistration(id) {
     const pass = String(reg.phone || '').slice(-6) || '123456';
     if (!cap) {
       const paidDeposit = Number(reg.deposit_paid || 0) ? 1 : 0;
-      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, password_hash, status, deposit_paid, blocked, blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, password_hash, status, deposit_paid, blocked, blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.owner_id || reg.national_id || null, reg.vehicle_type || 'دراجة',
+        reg.vehicle_plate || null, reg.vehicle_color || null, reg.license_doc || null, reg.criminal_doc || null,
         bcrypt.hashSync(pass, 10), 'offline', paidDeposit, paidDeposit ? 0 : 1, paidDeposit ? null : 'بانتظار تأمين الحساب (٥٠٠ ر.س)');
       cap = { id: Number(r.lastInsertRowid) };
     }
@@ -72,10 +82,13 @@ export async function approveRegistration(id) {
     const addr = [reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || null;
     const subPaid = Number(reg.subscription_paid || 0) ? 1 : 0;
     const newRestId = nextRestaurantId();   // 🆔 الترقيم يبدأ من 1001
-    q.run(`INSERT INTO restaurants (id, name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    q.run(`INSERT INTO restaurants (id, name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at,
+        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, health_count, health_docs)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       newRestId, reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
-      1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null);
+      1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
+      reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1, reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null,
+      reg.municipal_doc || null, reg.cr_doc || null, reg.health_count || null, reg.health_docs || null);
     const rid = newRestId;
     let catId;
     const existingCat = q.get("SELECT id FROM categories WHERE restaurant_id=? AND name=?", rid, 'الأصناف');
