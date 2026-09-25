@@ -7,7 +7,7 @@ import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import { addRecipient, notifySupervisorRecipient, notifyOwnerRecipient, notifyOwnerTeamInfo, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
 import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cashierPhone, addCashier, listUsers } from './restUsers.js';
-import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage } from './pledge.js';
+import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage, findPledge } from './pledge.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
 
@@ -257,8 +257,19 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     }
   } catch (e) { console.error('SUPERVISOR_ACTION_FAIL', e.message); }
 
-  // ===== مدير المطعم / تقرير المبيعات (لأصحاب الأنشطة ومستلمي التقارير) =====
   const bt = String(b || '').trim();
+
+  // ===== 📜 بوابة التعهد: كل مستخدم مسجّل (عميل · مالك · كاشير · مدير · كابتن) لازم يوقّع قبل أي خدمة =====
+  const isSupervisorPhone = config.adminPhone && validatePhone(phone) === validatePhone(config.adminPhone);
+  // (نتخطى البوابة أثناء التعهد نفسه وأثناء خطوات تسجيل العميل — لأنها تنتهي بالتعهد)
+  if (!isSupervisorPhone && !['pledge', 'ask_nid', 'ask_dob'].includes(state)) {
+    const need = pledgeNeeded(phone);
+    if (need && !findPledge(need.kind, phone)) {
+      return askPledge(phone, rid, { ...need, next: 'resume', resumeState: state, data: { ...data } });
+    }
+  }
+
+  // ===== مدير المطعم / تقرير المبيعات (لأصحاب الأنشطة ومستلمي التقارير) =====
   if (/^تقرير\s+(أمس|امس|البارح)$/.test(bt)) return sendReportNow(phone, rid, true);
   if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
   if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
@@ -2021,6 +2032,23 @@ function startCustomerSignup(phone, rid, customer, session) {
   return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج أي أوراق — بس *اسمك* و*موقعك* ✅\n\nوش *اسمك الكريم*؟`);
 }
 
+// 📜 هل هذا الرقم مستخدم مسجّل ما وقّع التعهد بعد؟ (كابتن · مالك · كاشير · مدير · عميل)
+function pledgeNeeded(phone) {
+  try {
+    if (isCaptainPhone(phone)) {
+      const c = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
+      return { kind: 'captain', name: c?.name || null, national_id: c?.national_id || null, doc: c?.id_doc || null };
+    }
+    const ru = restUserByPhone(phone);
+    if (ru) return { kind: ru.role === 'cashier' ? 'cashier' : 'owner', name: ru.name || null, national_id: ru.national_id || null, doc: ru.id_doc || null, restaurant_id: ru.restaurant_id };
+    const rec = findRecipientByPhone(validatePhone(phone));
+    if (rec && rec.status === 'approved') return { kind: 'manager', name: rec.name || null, national_id: rec.national_id || null, birth_date: rec.birth_date || null, doc: rec.id_doc || null, restaurant_id: rec.restaurant_id };
+    const cust = q.get("SELECT * FROM customers WHERE phone=? OR phone=?", validatePhone(phone), '+' + (validatePhone(phone) || ''));
+    if (cust && cust.name && !cust.pledged_at) return { kind: 'customer', name: cust.name, national_id: cust.national_id || null, birth_date: cust.birth_date || null };
+  } catch (e) { console.error('PLEDGE_CHECK_FAIL', e.message); }
+  return null;
+}
+
 // 📜 إرسال التعهد ثم تسجيله وإعطاء رقم التفعيل — pending = { kind, next, data, ... }
 function askPledge(phone, rid, pending = {}) {
   saveSession(phone, 'pledge', { ...(pending.data || {}), pledge: pending });
@@ -2064,6 +2092,21 @@ async function handlePledgeAccept(phone, rid, session, b, p) {
     ] });
   }
   if (next === 'cap_deposit_now') return sendCapDeposit(phone, rid, pending.data || session.data);
+  if (next === 'resume') {
+    const back = pending.resumeState;
+    if (back && back !== 'idle') {
+      saveSession(phone, back, pending.data || {});
+      if (back === 'cash_iddoc') return send(phone, rid, null, 'text', '📎 كمّل من مكانك: أرسل *صورة هويتك أو إقامتك*');
+      if (back === 'cap_iddoc' || back === 'reg_id_doc' || back === 'mgr_iddoc') return send(phone, rid, null, 'text', '📎 كمّل من مكانك: أرسل *صورة الهوية*');
+      return send(phone, rid, null, 'text', '✅ تم — كمّل من مكانك 👇');
+    }
+    saveSession(phone, 'idle', pending.data || {});
+    if (pending.kind === 'captain') {
+      const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
+      return send(phone, rid, null, 'text', `🛵 أهلاً كابتن *${cap?.name || ''}* — بيجيك الطلبات هنا على واتساب ✅\nاكتب *رصيدي* لمعرفة حسابك · *طلباتي* لطلباتك النشطة`);
+    }
+    return mainMenu(phone, rid);
+  }
   return mainMenu(phone, rid);
 }
 
@@ -2573,6 +2616,17 @@ export function isCaptainPhone(phone) {
 }
 
 export async function handleCaptainIncoming({ phone, body = '', payload = null }) {
+  // 📜 بوابة التعهد للكابتن (وقبول التعهد)
+  try {
+    const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
+    if (cap) {
+      const sess = getSession(phone);
+      if (sess.state === 'pledge') return handlePledgeAccept(phone, null, sess, body, payload);
+      if (!findPledge('captain', phone)) {
+        return askPledge(phone, null, { kind: 'captain', name: cap.name, national_id: cap.national_id, doc: cap.id_doc, next: 'resume', resumeState: 'idle', data: (sess.data || {}) });
+      }
+    }
+  } catch (e) { console.error('CAP_PLEDGE_GATE_FAIL', e.message); }
   const captain = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", phone, validatePhone(phone));
   if (!captain) return { ok: false };
   const b = String(body || '').trim();
