@@ -283,7 +283,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -340,9 +340,10 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_vehicle': return handleCapVehicle(phone, rid, session, b, p);
     case 'cap_deposit': return handleCapDeposit(phone, rid, session, b, p);
     case 'cap_deposit_wait': return handleCapDeposit(phone, rid, session, b, p);
-    case 'mgr_pick': return handleMgrPick(phone, rid, session, b, p);
     case 'mgr_name': return handleMgrName(phone, rid, session, b);
     case 'mgr_id': return handleMgrId(phone, rid, session, b);
+    case 'mgr_biz': return handleMgrBiz(phone, rid, session, b, p);
+    case 'mgr_pick': return handleMgrPick(phone, rid, session, b, p);
     case 'rep_name': return handleRepName(phone, rid, session, b);
     case 'rep_id': return handleRepId(phone, rid, session, b);
     case 'ad_price': return handleAdPrice(phone, rid, session, b);
@@ -1778,7 +1779,16 @@ function startCustomerSignup(phone, rid, customer, session) {
   return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج أي أوراق — بس *اسمك* و*موقعك* ✅\n\nوش *اسمك الكريم*؟`);
 }
 
-// 🏪 انضمام مدير النشاط (بنفسه): يختار النشاط → الاسم → الهوية → اعتماد المشرف
+// 🏪 انضمام مدير النشاط: اسمه → هويته → رقم النشاط (أو اسمه) → يتربط ويروح للاعتماد
+function findRestaurant(key) {
+  const k = String(key || '').trim();
+  const n = Number(k.replace(/[^\d]/g, ''));
+  if (n && /^\s*#?\s*\d+\s*$/.test(k)) {
+    const byId = q.get("SELECT * FROM restaurants WHERE id=?", n);
+    if (byId) return byId;
+  }
+  return q.get("SELECT * FROM restaurants WHERE name_ar LIKE ? OR IFNULL(name_en,'') LIKE ? ORDER BY id LIMIT 1", `%${k}%`, `%${k}%`);
+}
 function startManagerJoin(phone, rid, session) {
   const me = validatePhone(phone);
   const mine = findRecipientByPhone(me);
@@ -1786,21 +1796,8 @@ function startManagerJoin(phone, rid, session) {
     const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", mine.restaurant_id);
     return send(phone, rid, null, 'text', `✅ *أنت مضاف أصلاً* كمستلم تقارير لـ *${r?.name_ar || ''}*\nاكتب *تقرير* ويوصلك تقرير اليوم 📊`);
   }
-  const rests = q.all("SELECT id, name_ar, city FROM restaurants WHERE is_active IS NOT 0 ORDER BY id LIMIT 10");
-  if (!rests.length) return send(phone, rid, null, 'text', '🏪 ما فيه أنشطة مسجّلة حالياً 🙏\nأرسل *انضمام* لتسجيل نشاطك، وبعدها نقدر نضيفك كمدير.');
-  saveSession(phone, 'mgr_pick', { ...session.data, mgr: { phone: me } });
-  send(phone, rid, null, 'text', '🏪 *انضمام مدير نشاط*\n\nأي نشاط تديره؟ اختر من القائمة 👇\n_(بيوصلك تقرير المبيعات اليومي مختوم 📊)_');
-  return send(phone, rid, null, 'list', 'اختر النشاط', { list: [{ title: 'الأنشطة المسجّلة', rows: rests.map(r => ({ id: 'mgrbiz:' + r.id, title: String(r.name_ar).slice(0, 24), description: String(r.city || '').slice(0, 60) })) }] });
-}
-function handleMgrPick(phone, rid, session, b, p) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  let rid2 = null;
-  if (p && String(p).startsWith('mgrbiz:')) rid2 = Number(String(p).slice(7));
-  else { const n = Number(String(b || '').replace(/[^\d]/g, '')); if (n) rid2 = n; }
-  const rest = rid2 ? q.get("SELECT id, name_ar FROM restaurants WHERE id=?", rid2) : null;
-  if (!rest) return send(phone, rid, null, 'text', 'اختر النشاط من القائمة 👇 أو اكتب رقمه');
-  saveSession(phone, 'mgr_name', { ...session.data, mgr: { ...(session.data.mgr || {}), restaurant_id: rest.id, restaurant_name: rest.name_ar } });
-  return send(phone, rid, null, 'text', `🏪 *${rest.name_ar}* ✅\n\nوش *اسمك*؟`);
+  saveSession(phone, 'mgr_name', { ...session.data, mgr: { phone: me } });
+  return send(phone, rid, null, 'text', '🏪 *انضمام مدير نشاط*\n\nبيوصلك *تقرير المبيعات اليومي* مختوم 📊\n\nوش *اسمك*؟');
 }
 function handleMgrName(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -1809,16 +1806,40 @@ function handleMgrName(phone, rid, session, b) {
   saveSession(phone, 'mgr_id', { ...session.data, mgr: { ...session.data.mgr, name: name.slice(0, 40) } });
   return send(phone, rid, null, 'text', '🔢 و*رقم هويتك* (١٠ أرقام)؟');
 }
-async function handleMgrId(phone, rid, session, b) {
+function handleMgrId(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const nid = validNationalId(b);
   if (!nid) return send(phone, rid, null, 'text', 'رقم الهوية لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
-  const mgr = { ...(session.data.mgr || {}), national_id: nid };
+  saveSession(phone, 'mgr_biz', { ...session.data, mgr: { ...session.data.mgr, national_id: nid } });
+  const have = q.get("SELECT COUNT(*) c FROM restaurants").c;
+  return send(phone, rid, null, 'text', `✅ *${session.data.mgr?.name || ''}* · 🔢 ${nid}\n\n🏪 الحين أرسل *رقم النشاط* اللي تديره (تجده في بيانات النشاط أو من الإدارة)${have ? '' : '\n_(أو اكتب اسم النشاط)_'}`);
+}
+// رقم النشاط → ربط + إرسال للاعتماد
+async function handleMgrBiz(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const mgr = { ...(session.data.mgr || {}) };
+  let rest = null;
+  if (p && String(p).startsWith('mgrbiz:')) rest = q.get("SELECT * FROM restaurants WHERE id=?", Number(String(p).slice(7)));
+  else rest = findRestaurant(b);
+  if (!rest) {
+    const rests = q.all("SELECT id, name_ar, city FROM restaurants ORDER BY id LIMIT 10");
+    if (!rests.length) { saveSession(phone, 'idle', { mgr: null }); return send(phone, rid, null, 'text', '🏪 ما فيه أنشطة مسجّلة حالياً 🙏\nأرسل *انضمام* لتسجيل نشاطك، وبعدها نضيفك مدير عليه.'); }
+    saveSession(phone, 'mgr_pick', { ...session.data });
+    send(phone, rid, null, 'text', 'ما لقيت نشاط بهذا الرقم 🙏 اختر النشاط من القائمة 👇');
+    return send(phone, rid, null, 'list', 'الأنشطة المسجّلة', { list: [{ title: 'الأنشطة المسجّلة', rows: rests.map(r => ({ id: 'mgrbiz:' + r.id, title: `#${r.id} ${String(r.name_ar).slice(0, 20)}`, description: String(r.city || '').slice(0, 60) })) }] });
+  }
+  return finishManagerJoin(phone, rid, session, mgr, rest);
+}
+function handleMgrPick(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  return handleMgrBiz(phone, rid, session, b, p);
+}
+async function finishManagerJoin(phone, rid, session, mgr, rest) {
   saveSession(phone, 'idle', { ...session.data, mgr: null });
-  const row = addRecipient(mgr.restaurant_id, mgr.name, mgr.phone, '23:30', nid);
+  const row = addRecipient(rest.id, mgr.name, mgr.phone, '23:30', mgr.national_id);
   const ok = await notifySupervisorRecipient(row);
   return send(phone, rid, null, 'text', ok
-    ? `✅ *وصلني طلبك وأرسلته لمشرف المنصة للاعتماد*\n\n🏪 ${mgr.restaurant_name || ''}\n👤 ${mgr.name || ''}\n🔢 ${nid}\n📱 ${mgr.phone}\n\nأول ما يُعتمد بيوصلك تقرير المبيعات اليومي 📊`
+    ? `✅ *تم الربط وأرسلناه لمشرف المنصة للاعتماد*\n\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 ${mgr.name || ''}\n🔢 ${mgr.national_id}\n📱 ${mgr.phone}\n\nأول ما يُعتمد بيوصلك تقرير المبيعات اليومي 📊`
     : '✅ حفظت الطلب — لكن رقم مشرف المنصة غير مضبوط، كلّم الإدارة للاعتماد.');
 }
 

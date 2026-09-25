@@ -92,7 +92,7 @@ export async function approveRegistration(id) {
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;
   });
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\n🆔 *رقم نشاطك: #${newId}*\n_(أعطه لأي مدير تبي يضيفه بنفسه بكتابة «انضمام مدير»، أو أضفه أنت بكتابة «مدير»)_\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
   return { ok: true, kind: 'business', restaurant_id: newId, name: reg.business_name };
 }
 
