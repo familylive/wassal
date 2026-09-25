@@ -28,7 +28,7 @@ export async function notifySupervisor(reg) {
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
-    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n📱 جوال المسؤول: ${reg.phone}\n`;
+    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -68,7 +68,7 @@ export async function approveRegistration(id) {
   const phone = validatePhone(reg.phone) || reg.phone;
   const pass = String(reg.phone || '').slice(-6) || '123456';
   const newId = tx(() => {
-    const addr = [reg.city, reg.district].filter(Boolean).join(' — ') || null;
+    const addr = [reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || null;
     const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id)
       VALUES (?,?,?,?,?,?,?,?,?,?)`,
       reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
@@ -90,7 +90,7 @@ export async function approveRegistration(id) {
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;
   });
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n🏙 ${reg.city || ''}${reg.district ? ' — ' + reg.district : ''}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
   return { ok: true, kind: 'business', restaurant_id: newId, name: reg.business_name };
 }
 

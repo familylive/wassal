@@ -33,6 +33,7 @@ try { db.exec("ALTER TABLE restaurants ADD COLUMN business_type_id INTEGER"); } 
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN kind TEXT DEFAULT 'business'"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN city TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN district TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN postal_code TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN district TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN vehicle_type TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN captain_id INTEGER"); } catch {}

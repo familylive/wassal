@@ -401,7 +401,7 @@ function RegistrationsTab() {
         <div onClick={() => setOpen(open === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
           <b>{r.kind === 'captain' ? '🛵 كابتن' : '🏬 نشاط'} — {r.business_name || '-'}</b>
           <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
-            {r.city || '-'}{r.district ? ` — ${r.district}` : ''} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
+            {[r.city, r.district, r.postal_code].filter(Boolean).join(' — ') || '-'} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>

@@ -335,6 +335,7 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   business_type_id INTEGER,
   city TEXT,
   district TEXT,
+  postal_code TEXT,
   vehicle_type TEXT,
   items_json TEXT,
   status TEXT DEFAULT 'draft',

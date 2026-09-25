@@ -230,7 +230,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_city', 'cap_district', 'cap_vehicle'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_city', 'cap_district', 'cap_vehicle'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -266,6 +266,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'reg_name': return handleRegName(phone, rid, session, b);
     case 'reg_city': return handleRegCity(phone, rid, session, b);
     case 'reg_district': return handleRegDistrict(phone, rid, session, b);
+    case 'reg_postal': return handleRegPostal(phone, rid, session, b);
     case 'reg_items': return handleRegItems(phone, rid, session, b);
     case 'reg_prices': return handleRegPrices(phone, rid, session, b);
     case 'reg_review': return handleRegReview(phone, rid, session, b, p);
@@ -1194,8 +1195,21 @@ function handleRegDistrict(phone, rid, session, b) {
   const skip = /^(تخطى|تخطي|بدون|لا|تجاوز|-|0)$/i.test(raw);
   if (!skip && raw.length < 2) return send(phone, rid, null, 'text', 'اكتب اسم الحي، أو *تخطى* 🌸');
   const district = skip ? null : raw.replace(/^حي\s+/,'').slice(0, 40);
-  saveSession(phone, 'reg_items', { ...session.data, reg: { ...session.data.reg, district } });
-  return send(phone, rid, null, 'text', `${district ? '🏘 ' + district + '\n\n' : ''}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n🎙 تقدر ترسلها *رسالة صوتية* وأنا أفرّغها لك.`);
+  saveSession(phone, 'reg_postal', { ...session.data, reg: { ...session.data.reg, district } });
+  return send(phone, rid, null, 'text', `${district ? '🏘 ' + district + '\n' : ''}\nوش *الرمز البريدي* (العنوان المختصر)؟\nمثال: *AKMF0000*\n\nأو اكتب *تخطى*`);
+}
+
+// الرمز البريدي → الأصناف
+function handleRegPostal(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const raw = String(b).trim();
+  const skip = /^(تخطى|تخطي|بدون|لا|تجاوز|-|0)$/i.test(raw);
+  const code = skip ? null : raw.replace(/[\s\-]/g, '').toUpperCase();
+  if (!skip && !/^[A-Z0-9]{4,12}$/.test(code)) {
+    return send(phone, rid, null, 'text', 'اكتب الرمز بصيغة صحيحة — مثال: *AKMF0000* (أو اكتب *تخطى*)');
+  }
+  saveSession(phone, 'reg_items', { ...session.data, reg: { ...session.data.reg, postal: code ? code.slice(0, 12) : null } });
+  return send(phone, rid, null, 'text', `${code ? '🔢 ' + code + '\n\n' : ''}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n🎙 تقدر ترسلها *رسالة صوتية* وأنا أفرّغها لك.`);
 }
 
 // تحليل نص الأصناف: اسم + سعر (اختياري) + قسم (اختياري)
@@ -1267,7 +1281,7 @@ function sendRegReview(phone, rid, data) {
   const reg = data.reg || {};
   const items = reg.items || [];
   let t = '📋 *مراجعة التسجيل*\n\n';
-  t += `🏷 النوع: ${reg.icon || ''} ${reg.type_name || ''}\n🍽 الاسم: *${reg.name || ''}*\n📍 المدينة: ${reg.city || ''}\n🏘 الحي: ${reg.district || '—'}\n📱 الجوال: ${reg.phone}\n\n`;
+  t += `🏷 النوع: ${reg.icon || ''} ${reg.type_name || ''}\n🍽 الاسم: *${reg.name || ''}*\n📍 المدينة: ${reg.city || ''}\n🏘 الحي: ${reg.district || '—'}${reg.postal ? `\n🔢 الرمز البريدي: ${reg.postal}` : ''}\n📱 الجوال: ${reg.phone}\n\n`;
   t += `*الأصناف (${items.length}):*\n`;
   t += items.slice(0, 12).map((i, idx) => `${idx + 1}. ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — ❓ بلا سعر'}`).join('\n');
   if (items.length > 12) t += `\n… و${items.length - 12} غيرها`;
@@ -1286,13 +1300,13 @@ async function handleRegReview(phone, rid, session, b, p) {
   if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
     const reg = session.data.reg || {};
     const items = reg.items || [];
-    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, items_json, status)
-      VALUES ('business', ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, JSON.stringify(items));
+    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, items_json, status)
+      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, JSON.stringify(items));
     const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
     saveSession(phone, 'idle', { ...session.data, reg: null });
     const ok = await notifySupervisor(row);
     return send(phone, rid, null, 'text', ok
-      ? `🎉 *تم إرسال طلبك للإدارة!*\n\n🍽 ${reg.name}\n🍽 الأصناف: ${items.length}\n📍 ${reg.city || ''}${reg.district ? ' — ' + reg.district : ''}\n\nبنراجعه ونبلغك بالاعتماد قريباً 🙏`
+      ? `🎉 *تم إرسال طلبك للإدارة!*\n\n🍽 ${reg.name}\n🍽 الأصناف: ${items.length}\n📍 ${[reg.city, reg.district, reg.postal].filter(Boolean).join(' — ')}\n\nبنراجعه ونبلغك بالاعتماد قريباً 🙏`
       : '✅ تم حفظ طلبك.\n\n⚠️ رقم المشرف غير مضبوط — كلّم الإدارة للاعتماد.');
   }
   return sendRegReview(phone, rid, session.data);
