@@ -35,7 +35,7 @@ export function markDepositPaid(captainId, amount = null, note = 'تأمين ا�
   const c = q.get("SELECT * FROM captains WHERE id=?", captainId);
   if (!c) return { error: 'الكابتن غير موجود' };
   const amt = Number(amount || c.deposit_amount || DEFAULT_DEPOSIT);
-  q.run("UPDATE captains SET deposit_paid=1, deposit_paid_at=datetime('now'), blocked=0, blocked_reason=NULL WHERE id=?", captainId);
+  q.run("UPDATE captains SET deposit_paid=1, deposit_paid_at=datetime('now'), blocked=0, blocked_reason=NULL, deposit_balance=COALESCE(deposit_balance,0)+? WHERE id=?", amt, captainId);
   ledger(captainId, 'deposit', amt, { note });
   return { ok: true, amount: amt };
 }
@@ -120,4 +120,41 @@ export async function checkLateDeliveries() {
     } catch (e) { /* */ }
   }
   return applied;
+}
+
+// ---------- 🏛 عمولات المنصة (من النشاط + من الكابتن) ----------
+export async function applyCommissions(order) {
+  const cfg = (await import('../config.js')).default;
+  const pctBiz = Number(cfg.commissionBusinessPercent || 0);
+  const pctCap = Number(cfg.commissionCaptainPercent || 0);
+  const baseBiz = Math.max(0, Number(order.subtotal || 0) - Number(order.discount || 0));
+  const cb = Math.round(baseBiz * pctBiz / 100);
+  const cc = order.captain_id ? Math.round(Number(order.delivery_fee || 0) * pctCap / 100) : 0;
+  q.run("UPDATE orders SET commission_business=?, commission_captain=? WHERE id=?", cb, cc, order.id);
+  if (order.captain_id && cc > 0) {
+    q.run("UPDATE captains SET commission_due=COALESCE(commission_due,0)+?, deposit_balance=COALESCE(deposit_balance,0)-? WHERE id=?", cc, cc, order.captain_id);
+    ledger(order.captain_id, 'commission', -cc, { orderId: order.id, note: `عمولة المنصة ${pctCap}% من سعر التوصيل` });
+    await checkDepositBalance(order.captain_id);
+  }
+  return { business: cb, captain: cc };
+}
+
+// رصيد تأمين الكابتن انتهى؟ → إيقاف حتى يسدّد من جديد
+export async function checkDepositBalance(captainId) {
+  const c = q.get("SELECT * FROM captains WHERE id=?", captainId);
+  if (!c || Number(c.blocked)) return false;
+  if (!Number(c.deposit_paid)) return false;                 // بلا تأمين أصلاً
+  if (Number(c.deposit_balance || 0) > 0) return false;
+  q.run("UPDATE captains SET blocked=1, blocked_reason=?, status='offline' WHERE id=?",
+    'انتهى رصيد التأمين (عمولات المنصة)', captainId);
+  ledger(captainId, 'block', 0, { note: 'إيقاف — انتهاء رصيد التأمين بالعمولات' });
+  try {
+    await waSend({ phone: c.phone, type: 'text', body:
+      `⛔ *توقف استقبال الطلبات*\n\nانتهى رصيد تأمينك (٥٠٠ ر.س) بسبب عمولات المنصة.\nجدّد التأمين وأكمل التوصيل 💳` });
+  } catch (e) { /* */ }
+  try {
+    if (config.adminPhone) await waSend({ phone: config.adminPhone, type: 'text', body:
+      `⛔ *كابتن موقوف — انتهى رصيد التأمين*\n👤 ${c.name} · 📱 ${c.phone}\n🏛 إجمالي عمولات المنصة عليه: ${rls(c.commission_due)} ر.س` });
+  } catch (e) { /* */ }
+  return true;
 }

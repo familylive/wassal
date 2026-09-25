@@ -245,7 +245,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -294,6 +294,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'reg_items': return handleRegItems(phone, rid, session, b);
     case 'reg_prices': return handleRegPrices(phone, rid, session, b);
     case 'reg_review': return handleRegReview(phone, rid, session, b, p);
+    case 'reg_subscribe': return handleRegSubscribe(phone, rid, session, b, p);
     case 'cap_name': return handleCapName(phone, rid, session, b);
     case 'cap_id': return handleCapId(phone, rid, session, b);
     case 'cap_city': return handleCapCity(phone, rid, session, b);
@@ -1547,10 +1548,41 @@ async function handleRegReview(phone, rid, session, b, p) {
   if (p === 'reg_cancel' || REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️ (نص · 🎙 صوتية · 📷 صورة واضحة)'); }
   if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
+    const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
+    saveSession(phone, 'reg_subscribe', session.data);
+    send(phone, rid, null, 'text', `💳 *اشتراك النشاط السنوي: ${sub.toFixed(2)} ر.س*\n\nمبلغ اشتراك سنوي يُدفع للمنصة عند التسجيل ✅`);
+    return send(phone, rid, null, 'buttons', 'كيف تحب تكمل؟', { buttons: [
+      { id: 'sub_pay', title: '💳 ادفع الاشتراك' },
+      { id: 'sub_later', title: '⏳ أدفعه لاحقاً' }
+    ] });
+  }
+  return sendRegReview(phone, rid, session.data);
+}
+
+// خطوة اشتراك النشاط
+async function handleRegSubscribe(phone, rid, session, b, p) {
+  const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
+  if (p === 'sub_later') return submitBusinessReg(phone, rid, session, { subscriptionPaid: false });
+  if (p === 'sub_paid') return submitBusinessReg(phone, rid, session, { subscriptionPaid: false, claimed: true });
+  if (p === 'sub_pay') {
+    send(phone, rid, null, 'text', `💳 *اشتراك النشاط ${sub.toFixed(2)} ر.س*\n\nحوّل المبلغ لحساب المنصة، وبعد التحويل اضغط *✅ تم التحويل*.`);
+    if (config.adminPhone) send(phone, rid, null, 'text', `📱 للتحويل أو الاستفسار: الإدارة على الرقم ${config.adminPhone}`);
+    return send(phone, rid, null, 'buttons', 'بعد التحويل اضغط هنا 👇', { buttons: [
+      { id: 'sub_paid', title: '✅ تم التحويل' }, { id: 'sub_later', title: '⏳ لاحقاً' }
+    ] });
+  }
+  return send(phone, rid, null, 'buttons', 'اختر 👇', { buttons: [
+    { id: 'sub_pay', title: '💳 ادفع الاشتراك' }, { id: 'sub_later', title: '⏳ أدفعه لاحقاً' }
+  ] });
+}
+
+// إنشاء طلب تسجيل النشاط بعد خطوة الاشتراك
+async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false, claimed = false } = {}) {
+  {
     const reg = session.data.reg || {};
     const items = reg.items || [];
-    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, status)
-      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items));
+    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status)
+      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`, phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null);
     const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
     saveSession(phone, 'idle', { ...session.data, reg: null });
     const ok = await notifySupervisor(row);
@@ -1558,7 +1590,6 @@ async function handleRegReview(phone, rid, session, b, p) {
       ? `🎉 *تم إرسال طلبك للإدارة!*\n\n🍽 ${reg.name}\n🍽 الأصناف: ${items.length}\n📍 ${[reg.city, reg.district, reg.postal].filter(Boolean).join(' — ')}\n👤 ${reg.owner || ''}\n\nبنراجعه ونبلغك بالاعتماد قريباً 🙏`
       : '✅ تم حفظ طلبك.\n\n⚠️ رقم المشرف غير مضبوط — كلّم الإدارة للاعتماد.');
   }
-  return sendRegReview(phone, rid, session.data);
 }
 
 // ---- تسجيل كابتن ----

@@ -35,6 +35,10 @@ export const config = {
   quickOrder: process.env.QUICK_ORDER === 'true', // طلب مبسّط: المنيو ← الاختيار ← رابط الدفع ← الطلب ينتهي
   // رقم المشرف: تجيه إشعارات طلبات التسجيل للاعتماد
   adminPhone: process.env.ADMIN_PHONE || '',
+  commissionBusinessPercent: Number(process.env.COMMISSION_BUSINESS_PERCENT || 15),
+  commissionCaptainPercent: Number(process.env.COMMISSION_CAPTAIN_PERCENT || 15),
+  businessSubscription: Number(process.env.BUSINESS_SUBSCRIPTION || 100000),
+  captainDeposit: Number(process.env.CAPTAIN_DEPOSIT || 50000),
   supervisorName: process.env.SUPERVISOR_NAME || '',
   supervisorId: process.env.SUPERVISOR_ID || ''
 };

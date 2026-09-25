@@ -28,7 +28,7 @@ export async function notifySupervisor(reg) {
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
-    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n👤 المسؤول: ${reg.owner_name || '-'}${reg.owner_id ? ` — هوية ${reg.owner_id}` : ' — ⚠️ بلا هوية'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
+    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n💳 الاشتراك (١٠٠٠ ر.س): ${Number(reg.subscription_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}\n👤 المسؤول: ${reg.owner_name || '-'}${reg.owner_id ? ` — هوية ${reg.owner_id}` : ' — ⚠️ بلا هوية'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -70,10 +70,11 @@ export async function approveRegistration(id) {
   const pass = String(reg.phone || '').slice(-6) || '123456';
   const newId = tx(() => {
     const addr = [reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || null;
-    const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    const subPaid = Number(reg.subscription_paid || 0) ? 1 : 0;
+    const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
-      1000, 2000, 25, 1, reg.business_type_id || null);
+      1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null);
     const rid = Number(r.lastInsertRowid);
     let catId;
     const existingCat = q.get("SELECT id FROM categories WHERE restaurant_id=? AND name=?", rid, 'الأصناف');

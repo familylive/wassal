@@ -46,6 +46,14 @@ router.put('/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// 💳 تسجيل استلام اشتراك النشاط (١٠٠٠ ر.س)
+router.post('/:id/subscription', requireRole('admin'), (req, res) => {
+  const r = q.get("SELECT * FROM restaurants WHERE id=?", Number(req.params.id));
+  if (!r) return res.status(404).json({ error: 'النشاط غير موجود' });
+  q.run("UPDATE restaurants SET subscription_paid=1, subscription_paid_at=datetime('now') WHERE id=?", r.id);
+  res.json({ ok: true, amount: Number(req.body?.amount || 100000) });
+});
+
 router.delete('/:id', requireRole('admin'), (req, res) => {
   q.run("DELETE FROM restaurants WHERE id=?", req.params.id);
   res.json({ ok: true });

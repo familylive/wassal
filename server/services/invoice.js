@@ -14,7 +14,7 @@ const SITE = 'whats-ham.onrender.com';
 const NATIONAL = 'وصل — Wassal Order';
 
 const rls = (h) => (Number(h || 0) / 100).toFixed(2);
-const money = (h) => Number(h || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 let ready = false;
 let logoImg = null;
@@ -293,7 +293,8 @@ export async function renderPlatformReportPng(dateStr, stats) {
   }
   y += 20;
 
-  ar(`💳 شبكة: ${money(s.net)} ر.س   ·   💵 كاش: ${money(s.cash)} ر.س`, '25px Cairo', '#22303c', y + 18); y += 44;
+  ar(`💳 شبكة: ${money(s.net)} ر.س   ·   💵 كاش: ${money(s.cash)} ر.س`, '25px Cairo', '#22303c', y + 18); y += 42;
+  if (s.commissionBusiness != null) { ar(`🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س`, '23px Cairo', '#22303c', y + 16); y += 38; }
   if (s.discount) { ar(`🏷 الخصومات: -${money(s.discount)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
   if (s.fee) { ar(`🛵 رسوم التوصيل: ${money(s.fee)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
   y += 10;
@@ -302,7 +303,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
   ar(`${money(s.total)} ر.س`, 'bold 34px Cairo', '#ffffff', y + 47, 120, 'left');
   y += 70;
   c.fillStyle = DARK; c.fillRect(50, y, W - 100, 66);
-  ar(`حصة المنصة (${s.sharePercent}%)`, 'bold 28px Cairo', '#ffffff', y + 44, W - 80);
+  ar('حصة المنصة', 'bold 28px Cairo', '#ffffff', y + 44, W - 80);
   ar(`${money(s.share)} ر.س`, 'bold 32px Cairo', '#ffffff', y + 45, 120, 'left');
   y += 66;
 

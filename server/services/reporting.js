@@ -6,7 +6,7 @@ import { waSend } from './whatsapp.js';
 import { validatePhone } from '../utils.js';
 
 const rls = (h) => (Number(h || 0) / 100).toFixed(2);
-const money = (h) => Number(h || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const n = (v) => Number(v || 0);
 
 // الرياض = UTC+3 (قابل للتغيير عبر REPORT_TZ_OFFSET_MIN)
@@ -219,6 +219,7 @@ export function platformStats(dateStr) {
       COALESCE(SUM(CASE WHEN payment_method!='cash' THEN total ELSE 0 END),0) net
     FROM orders WHERE date(created_at)=? AND status!='cancelled'`, dateStr);
   const pickup = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status!='cancelled' AND order_type='pickup'", dateStr);
+  const commissions = q.get("SELECT COALESCE(SUM(commission_business),0) cb, COALESCE(SUM(commission_captain),0) cc FROM orders WHERE date(created_at)=? AND status='delivered'", dateStr);
   const types = rows.map(r => ({ ...r, orders: Number(r.orders) || 0, total: Number(r.total) || 0 }));
   const total = Number(agg.total) || 0;
   return {
@@ -230,7 +231,9 @@ export function platformStats(dateStr) {
     total, fee: Number(agg.fee) || 0, discount: Number(agg.disc) || 0,
     cash: Number(agg.cash) || 0, net: Number(agg.net) || 0,
     pickup: Number(pickup?.c) || 0,
-    share: Math.round(total * PLATFORM_SHARE_PERCENT / 100),
+    commissionBusiness: Number(commissions?.cb) || 0,
+    commissionCaptain: Number(commissions?.cc) || 0,
+    share: (Number(commissions?.cb) || 0) + (Number(commissions?.cc) || 0),
     sharePercent: PLATFORM_SHARE_PERCENT
   };
 }
@@ -252,11 +255,12 @@ export function buildPlatformReport(dateStr) {
   t += '\n';
   if (s.pickup) t += `🏪 استلام من الفرع: ${s.pickup} طلب\n`;
   t += `💳 شبكة: ${money(s.net)} ر.س · 💵 كاش: ${money(s.cash)} ر.س\n`;
+  t += `🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س\n`;
   if (s.discount) t += `🏷 الخصومات: -${money(s.discount)} ر.س\n`;
   if (s.fee) t += `🛵 رسوم التوصيل: ${money(s.fee)} ر.س\n`;
   t += '━━━━━━━━━━━━━━━━\n';
   t += `💰 *المجموع الختامي: ${money(s.total)} ر.س*\n`;
-  t += `🏛 *حصة المنصة (${s.sharePercent}%): ${money(s.share)} ر.س*`;
+  t += `🏛 *حصة المنصة: ${money(s.share)} ر.س*`;
   return t;
 }
 

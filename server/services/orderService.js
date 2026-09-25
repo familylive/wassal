@@ -64,6 +64,10 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
   // تقييم العميل عند التسليم/الاستلام (كل المسارات)
   if (status === 'delivered') { try { import('./flow.js').then(({ triggerRating }) => triggerRating(q.get("SELECT * FROM orders WHERE id=?", orderId))); } catch (e) {} }
   // 💵 تحصيل الكاش من العميل على الكابتن (وإيقافه لو وصل سقف التأمين)
+  // 🏛 عمولات المنصة: ١٥٪ من النشاط + ١٥٪ من الكابتن (قابلة للتعديل)
+  if (status === 'delivered') {
+    try { import('./captainAccount.js').then(({ applyCommissions }) => applyCommissions(order)).catch(() => {}); } catch (e) {}
+  }
   if (status === 'delivered' && order.payment_method === 'cash' && order.captain_id) {
     try { import('./captainAccount.js').then(({ addCollectedCash }) => addCollectedCash(order.captain_id, order)).catch(() => {}); } catch (e) {}
   }

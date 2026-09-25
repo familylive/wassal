@@ -143,7 +143,7 @@ function RestTab({ data, onChange }) {
   return (
     <Card title={`المطاعم (${data.length})`} action={<button className="btn sm" onClick={() => setModal({})}>➕ مطعم جديد</button>}>
       <table>
-        <thead><tr><th>المطعم</th><th>المدينة</th><th>التوصيل</th><th>التقييم</th><th>الطلبات</th><th>الحالة</th><th></th></tr></thead>
+        <thead><tr><th>المطعم</th><th>المدينة</th><th>التوصيل</th><th>التقييم</th><th>الطلبات</th><th>الحالة</th><th>الاشتراك</th><th></th></tr></thead>
         <tbody>
           {data.map(r => (
             <tr key={r.id}>
@@ -152,6 +152,13 @@ function RestTab({ data, onChange }) {
               <td>{r.rating_avg ? '⭐ ' + r.rating_avg : '-'}</td>
               <td>{r.delivered_count || r.orders_count || 0}</td>
               <td>{r.is_active ? <span className="badge b-green">نشط</span> : <span className="badge b-red">موقوف</span>}</td>
+              <td>{r.subscription_paid
+                ? <span className="badge b-green">✅ مدفوع</span>
+                : <button className="btn ghost sm" onClick={async () => {
+                    if (!window.confirm('تأكيد استلام اشتراك ' + r.name_ar + ' (١٠٠٠ ر.س)؟')) return;
+                    try { await api('/restaurants/' + r.id + '/subscription', { method: 'POST', body: {} }); notify('✅ تم تسجيل الاشتراك'); onChange(); }
+                    catch (e) { notify(e.message); }
+                  }}>💳 استلمت</button>}</td>
               <td className="row"><button className="btn ghost sm" onClick={() => setOpen(r)}>إدارة</button><button className="btn red sm" onClick={async () => { if (confirm('حذف المطعم؟')) { await api('/restaurants/' + r.id, { method: 'DELETE' }); onChange(); } }}>🗑</button></td>
             </tr>
           ))}
@@ -698,7 +705,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -722,7 +729,11 @@ function SettingsTab() {
       VOICE_REPLIES: d.voiceReplies ? 'true' : 'false',
       ADMIN_PHONE: d.adminPhone || '',
       SUPERVISOR_NAME: d.supervisorName || '',
-      SUPERVISOR_ID: d.supervisorId || ''
+      SUPERVISOR_ID: d.supervisorId || '',
+      COMMISSION_BUSINESS_PERCENT: d.commissionBusinessPercent != null ? String(d.commissionBusinessPercent) : '',
+      COMMISSION_CAPTAIN_PERCENT: d.commissionCaptainPercent != null ? String(d.commissionCaptainPercent) : '',
+      BUSINESS_SUBSCRIPTION: d.businessSubscription != null ? String(d.businessSubscription / 100) : '',
+      CAPTAIN_DEPOSIT: d.captainDeposit != null ? String(d.captainDeposit / 100) : ''
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -782,6 +793,18 @@ function SettingsTab() {
         </Fld>
         <Fld label="اسم المشرف العام">
           <input value={f.SUPERVISOR_NAME || ''} onChange={set('SUPERVISOR_NAME')} placeholder="الاسم الكامل" />
+        </Fld>
+        <Fld label="نسبة المنصة من النشاط %">
+          <input value={f.COMMISSION_BUSINESS_PERCENT || ''} onChange={set('COMMISSION_BUSINESS_PERCENT')} placeholder="15" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="نسبة المنصة من الكابتن %">
+          <input value={f.COMMISSION_CAPTAIN_PERCENT || ''} onChange={set('COMMISSION_CAPTAIN_PERCENT')} placeholder="15" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="اشتراك النشاط (ريال)">
+          <input value={f.BUSINESS_SUBSCRIPTION || ''} onChange={set('BUSINESS_SUBSCRIPTION')} placeholder="1000" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="تأمين الكابتن (ريال)">
+          <input value={f.CAPTAIN_DEPOSIT || ''} onChange={set('CAPTAIN_DEPOSIT')} placeholder="500" style={{ direction: 'ltr' }} />
         </Fld>
         <Fld label="رقم هوية المشرف العام">
           <input value={f.SUPERVISOR_ID || ''} onChange={set('SUPERVISOR_ID')} placeholder="1023456789" style={{ direction: 'ltr' }} />
