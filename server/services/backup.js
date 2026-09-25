@@ -11,44 +11,67 @@ const FILE = 'wassal.db';
 const TOKEN = process.env.GH_BACKUP_TOKEN || '';
 const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`;
 
-// جلب النسخة الاحتياطية من GitHub
+// جلب النسخة الاحتياطية من GitHub (مع تاريخ آخر تعديل)
 async function fetchBackup() {
   if (!TOKEN) return null;
   try {
     const r = await axios.get(API, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 20000 });
     const content = Buffer.from(r.data.content, 'base64');
-    if (content && content.length > 4000) return content;
+    if (!content || content.length <= 4000) return null;
+    let date = 0;
+    try {
+      const c = await axios.get(`https://api.github.com/repos/${OWNER}/${REPO}/commits?path=${FILE}&per_page=1`,
+        { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 15000 });
+      const d = c.data?.[0]?.commit?.committer?.date;
+      if (d) date = Date.parse(d) || 0;
+    } catch (e) { console.error('BACKUP_DATE_FAIL', e.message); }
+    return { content, date, size: content.length };
   } catch (e) { console.error('FETCH_BACKUP_FAIL', e.message); }
   return null;
 }
 
-// استعادة عند الإقلاع: فقط إذا كانت القاعدة المحلية فارغة (لا بيانات)
-// (البيانات المحلية الحية أحدث من النسخة — لا نستبدلها أبداً في الإقلاع العادي)
+// حالة القاعدة المحلية: هل فيها بيانات؟ ومتى آخر تعديل لها؟
+import { statSync as _statSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
-function localHasData() {
+function localInfo() {
+  let hasData = false, mtime = 0;
+  try { mtime = _statSync(config.dbPath).mtimeMs; } catch { mtime = 0; }
   try {
     const db = new DatabaseSync(config.dbPath, { readOnly: true });
     const r = db.prepare("SELECT COUNT(*) AS c FROM restaurants").get();
     db.close();
-    return Number(r.c) > 0;
-  } catch { return false; }
+    hasData = Number(r.c) > 0;
+  } catch { hasData = false; }
+  return { hasData, mtime };
 }
+function localHasData() { return localInfo().hasData; }
 
+// استعادة عند الإقلاع
+// القاعدة: نستعيد النسخة الاحتياطية إذا (١) القاعدة المحلية فاضية، أو (٢) النسخة الاحتياطية أحدث من الملف المحلي
+// هكذا لا يضيع أي شي بعد كل نشر (Render يمسح القرص)، وفي نفس الوقت لا نستبدل بيانات أحدث بنسخة أقدم.
 export async function restoreIfNeeded() {
-  if (localHasData()) return false; // قاعدة حية فيها بيانات — لا نلمسها
-  const backup = await fetchBackup();
-  if (!backup) return false;
-  // تحقق أن الملف قاعدة SQLite صحيحة (ترويسة)
-  const head = backup.slice(0, 16).toString('ascii');
-  if (!head.includes('SQLite format 3')) return false;
-  if (backup.length < 60000) return false; // قاعدة شبه فارغة — نتجاهلها
+  const local = localInfo();
+  const remote = await fetchBackup();
+  if (!remote) {
+    console.error('DB_RESTORE_SKIP no remote backup available', { localHasData: local.hasData, token: Boolean(TOKEN) });
+    return false;
+  }
+  const remoteNewer = remote.date > 0 && remote.date > (local.mtime - 5000);
+  if (local.hasData && !remoteNewer) {
+    console.log('DB_KEEP_LOCAL', { localMtime: new Date(local.mtime).toISOString(), remote: remote.date ? new Date(remote.date).toISOString() : 'n/a', remoteSize: remote.size });
+    return false;
+  }
+  const head = remote.content.slice(0, 16).toString('ascii');
+  if (!head.includes('SQLite format 3')) { console.error('DB_RESTORE_BAD_HEADER'); return false; }
+  if (remote.size < 60000) { console.error('DB_RESTORE_TOO_SMALL', remote.size); return false; }
   try {
-    // حذف ملفات WAL قديمة قبل الكتابة فوق القاعدة (تجنب فساد)
     try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
     try { rmSync(config.dbPath + '-shm', { force: true }); } catch {}
-    writeFileSync(config.dbPath, backup);
-    console.log('DB_RESTORED_FROM_BACKUP', backup.length);
+    // احفظ نسخة من المحلي قبل الاستبدال (حماية)
+    try { if (existsSync(config.dbPath)) writeFileSync(config.dbPath + '.bak', readFileSync(config.dbPath)); } catch {}
+    writeFileSync(config.dbPath, remote.content);
+    console.log('DB_RESTORED_FROM_BACKUP', remote.size, remote.date ? new Date(remote.date).toISOString() : 'n/a', local.hasData ? '(local was stale)' : '(local empty)');
     return true;
   } catch (e) { console.error('DB_RESTORE_FAIL', e.message); }
   return false;
