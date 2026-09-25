@@ -1,7 +1,9 @@
 // ---------- نسخ احتياطي تلقائي لقاعدة البيانات (مستودع GitHub خاص) ----------
 // المشكلة: قاعدة SQLite على Render تُمسح عند كل نشر
 // الحل: رفع نسخة للمستودع الخاص familylive/wassal-db-backup + استعادة عند الإقلاع
-import { readFileSync, existsSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import fs, { readFileSync, existsSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import path from 'node:path';
 import axios from 'axios';
 import config from './../config.js';
 
@@ -112,4 +114,93 @@ export function scheduleBackup() {
     dirty = false;
     await backupNow();
   }, 12000);
+}
+
+// ================= 📎 نسخ احتياطي للملفات المرفوعة (هويات · رخص · فواتير · صور تسليم) =================
+// مجلد uploads يُمسح عند كل نشر — نحفظه مضغوطاً في نفس المستودع الخاص ونستعيده عند الإقلاع
+const UP_API = `https://api.github.com/repos/${OWNER}/${REPO}/contents/uploads.tar.gz`;
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+const TAR = path.join(process.cwd(), 'uploads.tar.gz');
+
+export function uploadsSignature() {
+  try {
+    let count = 0, size = 0, newest = 0;
+    const walk = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = `${d}/${e.name}`;
+        if (e.isDirectory()) walk(p);
+        else { const st = fs.statSync(p); count++; size += st.size; newest = Math.max(newest, st.mtimeMs); }
+      }
+    };
+    if (fs.existsSync(UPLOADS_DIR)) walk(UPLOADS_DIR);
+    return { count, size, newest: Math.round(newest) };
+  } catch (e) { return { count: 0, size: 0, newest: 0 }; }
+}
+
+export async function backupUploads(force = false) {
+  if (!TOKEN) return false;
+  try {
+    const sig = uploadsSignature();
+    if (!sig.count) return false;
+    if (!force) {
+      const prev = getSig();
+      if (prev && prev.count === sig.count && prev.size === sig.size && prev.newest === sig.newest) return false;
+    }
+    execSync(`tar czf ${TAR} -C ${path.dirname(UPLOADS_DIR)} uploads`, { stdio: 'ignore' });
+    const size = statSync(TAR).size;
+    if (size > 45 * 1024 * 1024) { console.log('UPLOADS_BACKUP_TOO_BIG', size); return false; }
+    const content = readFileSync(TAR).toString('base64');
+    let sha = null;
+    try {
+      const g = await axios.get(UP_API, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 15000 });
+      sha = g.data.sha;
+    } catch { /* أول مرة */ }
+    const body = { message: `uploads ${new Date().toISOString().slice(0, 19)} (${sig.count} ملف)`, content };
+    if (sha) body.sha = sha;
+    await axios.put(UP_API, body, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 60000 });
+    saveSig(sig);
+    console.log('UPLOADS_BACKUP_OK', sig.count, size);
+    fs.rmSync(TAR, { force: true });
+    return true;
+  } catch (e) { console.error('UPLOADS_BACKUP_FAIL', e.message); return false; }
+}
+
+// اتصال قراءة/كتابة مستقل (لتجنّب الاستيراد الدائري مع db.js)
+function sigDb() {
+  const { DatabaseSync } = _sqlite;
+  if (!_sqliteConn) _sqliteConn = new DatabaseSync(config.dbPath);
+  return _sqliteConn;
+}
+let _sqlite = null, _sqliteConn = null;
+export function initSigDb(mod) { _sqlite = mod; }
+function getSig() {
+  try { const v = sigDb().prepare("SELECT value FROM app_settings WHERE key='uploads_backup_sig'").get()?.value; return v ? JSON.parse(v) : null; }
+  catch (e) { return null; }
+}
+function saveSig(sig) {
+  try {
+    sigDb().prepare("INSERT INTO app_settings (key,value,updated_at) VALUES ('uploads_backup_sig',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')").run(JSON.stringify(sig));
+  } catch (e) { /* لا مشكلة */ }
+}
+
+// استعادة الملفات عند الإقلاع إذا كان المجلد فاقداً
+export async function restoreUploadsIfNeeded() {
+  if (!TOKEN) return false;
+  try {
+    const sig = uploadsSignature();
+    if (sig.count > 0) return true;
+    const r = await axios.get(UP_API, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 60000 });
+    const buf = Buffer.from(r.data.content, 'base64');
+    if (!buf?.length) return false;
+    writeFileSync(TAR, buf);
+    execSync(`tar xzf ${TAR} -C ${path.dirname(UPLOADS_DIR)}`, { stdio: 'ignore' });
+    fs.rmSync(TAR, { force: true });
+    console.log('UPLOADS_RESTORED', uploadsSignature().count);
+    return true;
+  } catch (e) { console.error('UPLOADS_RESTORE_FAIL', e.message); return false; }
+}
+
+export function scheduleUploadsBackup() {
+  setInterval(() => { backupUploads().catch(() => {}); }, 30 * 60 * 1000);
+  setTimeout(() => { backupUploads().catch(() => {}); }, 120 * 1000);
 }

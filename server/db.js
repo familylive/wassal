@@ -120,6 +120,8 @@ try { db.exec("ALTER TABLE payments ADD COLUMN phone TEXT"); } catch {}
 
 // 🆔 اضبط بداية ترقيم الأنشطة على 1001
 try { ensureRestaurantSequence(); } catch (e) { console.error('SEQ_FAIL', e.message); }
+// حقن sqlite في خدمة النسخ الاحتياطي (لتجنّب الاستيراد الدائري)
+try { const { initSigDb } = await import('./services/backup.js'); initSigDb(await import('node:sqlite')); } catch (e) {}
 
 // تهيئة أولى فقط: إذا لم توجد أي مطاعم → زرع البيانات (مرة واحدة)
 try {

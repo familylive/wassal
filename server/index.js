@@ -80,6 +80,12 @@ import('./services/captainAccount.js').then(({ checkLateDeliveries }) => {
 });
 
 // 📊 تقرير المبيعات اليومي — فحص كل ٥ دقائق (مع تعويض لو كان السيرفر نائماً)
+// 📎 الملفات المرفوعة: استعادة عند الإقلاع + نسخ احتياطي دوري
+import('./services/backup.js').then(({ restoreUploadsIfNeeded, scheduleUploadsBackup }) => {
+  restoreUploadsIfNeeded().catch(() => {});
+  scheduleUploadsBackup();
+}).catch(e => console.error('UPLOADS_BACKUP_INIT_FAIL', e.message));
+
 // 🏠 الطلبات المسبقة (الأسر المنتجة): بث المستحق منها للكباتن
 import('./services/orderService.js').then(({ dispatchDuePreorders }) => {
   setInterval(() => dispatchDuePreorders().catch(e => console.error('PREORDER_LOOP_FAIL', e.message)), 5 * 60 * 1000);
