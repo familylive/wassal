@@ -186,6 +186,13 @@ export async function closeOrderWithCode(code, senderPhone, actorType = 'captain
     if (captain) await askCaptainToRateCustomer(captain.phone, ord, captain.id);
   } catch (e) { console.error('ASK_CAPTAIN_RATE_FAIL', e.message); }
   emitAll('order:delivered', { orderId: order.id });
+  // 🧾 فاتورة مختومة للعميل بعد الإغلاق (نتيح ثواني لتقييم الكابتن للعميل)
+  setTimeout(() => {
+    import('./invoice.js')
+      .then(({ sendOrderInvoice }) => sendOrderInvoice(order.id))
+      .then(r => { if (r?.ok) { q.run("UPDATE orders SET invoice_sent_at=datetime('now') WHERE id=?", order.id); console.log('ORDER_INVOICE_SENT', r.invNo); } })
+      .catch(e => console.error('ORDER_INVOICE_FAIL', e.message));
+  }, 6000);
   return { ok: true, order: q.get("SELECT * FROM orders WHERE id=?", order.id) };
 }
 

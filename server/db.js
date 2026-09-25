@@ -60,7 +60,7 @@ try { db.exec("ALTER TABLE customer_locations ADD COLUMN city TEXT"); } catch {}
 // 🏪 دوام النشاط والفترات + المستندات الرسمية · 🛵 مستندات الكابتن
 for (const [t, c, ty] of [
   ['items', 'stock_qty', 'INTEGER'],
-  ['orders', 'is_preorder', 'INTEGER'], ['orders', 'scheduled_for', 'TEXT'], ['orders', 'scheduled_time', 'TEXT'], ['orders', 'preorder_dispatched_at', 'TEXT'],
+  ['orders', 'is_preorder', 'INTEGER'], ['orders', 'invoice_no', 'INTEGER'], ['orders', 'invoice_file', 'TEXT'], ['orders', 'invoice_sent_at', 'TEXT'], ['orders', 'scheduled_for', 'TEXT'], ['orders', 'scheduled_time', 'TEXT'], ['orders', 'preorder_dispatched_at', 'TEXT'],
   ['customers', 'national_id', 'TEXT'], ['customers', 'birth_date', 'TEXT'], ['customers', 'activation_code', 'TEXT'], ['customers', 'pledged_at', 'TEXT'],
   ['captains', 'id_doc', 'TEXT'], ['restaurant_users', 'id_doc', 'TEXT'], ['restaurant_users', 'birth_date', 'TEXT'], ['business_registrations', 'id_doc', 'TEXT'],
   ['report_recipients', 'birth_date', 'TEXT'], ['report_recipients', 'id_doc', 'TEXT'],
