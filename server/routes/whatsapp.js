@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import config from '../config.js';
 import { q } from '../db.js';
-import { handleIncoming, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating } from '../services/flow.js';
+import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating } from '../services/flow.js';
 import { setStatus, closeOrderWithCode } from '../services/orderService.js';
 import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
 import { transcribeVoice } from '../services/voice.js';
+import { readItemsFromImage } from '../services/vision.js';
 import { rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
 
 const router = Router();
@@ -98,6 +99,22 @@ router.post('/webhook', async (req, res) => {
               } catch (e) {
                 console.error('voice transcribe error', e.message);
                 await handleIncoming({ phone, restaurantId: targetRid, body: 'أرسلت صوتية ولم أستطع فهمها، أعد المحاولة نصياً أو صوتياً', type: 'text' });
+              }
+            }
+          }
+          else if (msg.type === 'image' || msg.type === 'document') {
+            // 📷 صورة أصناف/منيو (أو مستند صورة): نقرأها بالذكاء
+            const mediaId = msg.image?.id || (String(msg.document?.mime_type || '').startsWith('image/') ? msg.document?.id : null);
+            if (!mediaId) {
+              await handlePhotoItems(phone, targetRid, []);   // مستند غير مدعوم — نوضح للمستخدم
+            } else {
+              try {
+                const items = await readItemsFromImage(mediaId);
+                logHit(msg.type, phone + ':' + ((items && items.length) ? items.length + ' صنف' : 'لم أقرأ أصنافاً'));
+                await handlePhotoItems(phone, targetRid, items || []);
+              } catch (e) {
+                console.error('image read error', e.message);
+                await handlePhotoItems(phone, targetRid, []);
               }
             }
           }

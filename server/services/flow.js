@@ -1209,7 +1209,8 @@ function handleRegPostal(phone, rid, session, b) {
     return send(phone, rid, null, 'text', 'اكتب الرمز بصيغة صحيحة — مثال: *AKMF0000* (أو اكتب *تخطى*)');
   }
   saveSession(phone, 'reg_items', { ...session.data, reg: { ...session.data.reg, postal: code ? code.slice(0, 12) : null } });
-  return send(phone, rid, null, 'text', `${code ? '🔢 ' + code + '\n\n' : ''}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n🎙 تقدر ترسلها *رسالة صوتية* وأنا أفرّغها لك.`);
+  return send(phone, rid, null, 'text', `${code ? '🔢 ' + code + '\n\n' : ''}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n📷 أو *ارفع صورة واضحة للأصناف* وأنا أقرأها لك وأسجّلها تلقائياً.
+🎙 أو أرسلها *رسالة صوتية* وأنا أفرّغها لك.`);
 }
 
 // تحليل نص الأصناف: اسم + سعر (اختياري) + قسم (اختياري)
@@ -1296,7 +1297,7 @@ function sendRegReview(phone, rid, data) {
 
 async function handleRegReview(phone, rid, session, b, p) {
   if (p === 'reg_cancel' || REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️'); }
+  if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️ (نص · 🎙 صوتية · 📷 صورة واضحة)'); }
   if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
     const reg = session.data.reg || {};
     const items = reg.items || [];
@@ -1358,6 +1359,35 @@ async function handleCapVehicle(phone, rid, session, b, p) {
   return send(phone, rid, null, 'text', ok
     ? `✅ *تم إرسال طلبك للإدارة*\n\n👤 ${reg.name}\n📍 ${reg.city}${reg.district ? ' — ' + reg.district : ''}\n🛵 ${v}\n\nبنبلغك بالاعتماد قريباً 🙏`
     : '✅ تم حفظ طلبك — بس رقم المشرف غير مضبوط.');
+}
+
+// ---------- أصناف مقروءة من صورة (OCR) ----------
+// تُدمج مع مسودة التسجيل الحالية (أثناء إدخال الأصناف أو المراجعة) ثم تُعرض للمراجعة
+export async function handlePhotoItems(phone, restaurantId, items = []) {
+  const rid = restaurantId;
+  const session = getSession(phone);
+  const state = session.state;
+  if (!items || !items.length) {
+    return send(phone, rid, null, 'text', '📷 وصلتني الصورة بس ما قدرت أقرأ منها أصناف واضحة 🙏\n\nجرّب صورة أوضح (إضاءة جيدة وبدون ميلان)، أو أرسل الأصناف *نصاً* أو 🎙 *صوتية*.');
+  }
+  if (state === 'reg_items' || state === 'reg_review') {
+    const reg = { ...(session.data.reg || {}) };
+    const list = [ ...(reg.items || []) ];
+    let added = 0;
+    for (const it of items) {
+      const name = String(it?.name || '').trim().slice(0, 80);
+      if (name.length < 2) continue;
+      const category = it?.category ? String(it.category).trim().slice(0, 40) : null;
+      if (list.some(x => x.name === name && (x.category || null) === category)) continue;
+      list.push({ name, price: Number(it?.price) || 0, category });
+      added += 1;
+    }
+    if (!added) return send(phone, rid, null, 'text', '📷 الأصناف اللي في الصورة مضافة عندك من قبل ✅');
+    reg.items = list;
+    send(phone, rid, null, 'text', `📷 قرأت *${added}* صنف من الصورة وأضفتها لأصنافك.`);
+    return sendRegReview(phone, rid, { ...session.data, reg });
+  }
+  return send(phone, rid, null, 'text', '📷 وصلتني الصورة 🙏\n\nلو تبي *تسجّل نشاطك*: أرسل كلمة *تسجيل* ونمشي خطوة خطوة.\nولو تبي *تطلب*: أرسل *المنيو*.');
 }
 
 export function isCaptainPhone(phone) {
