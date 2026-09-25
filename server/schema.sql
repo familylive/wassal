@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS orders (
   branch_id INTEGER,
   branch_name TEXT,
   delivery_code TEXT,
+  order_type TEXT DEFAULT 'delivery',
   delivery_photo TEXT,
   delivery_photo_at TEXT,
   cancel_reason TEXT,

@@ -98,8 +98,9 @@ export function rememberPhoneRestaurant(phone, restaurantId) {
 
 export async function waSend({ phone, restaurantId, orderId = null, type = 'text', body = null, buttons = null, list = null, image = null, document = null, participant = 'customer', channel = null }) {
   const payload = JSON.stringify({ buttons, list, image, document });
+  const oid = orderId && q.get("SELECT id FROM orders WHERE id=?", orderId) ? orderId : null;   // طلب محذوف؟ لا نكسر السجل
   q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
-    orderId, phone || null, resolveRestaurantId(phone, restaurantId), participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
+    oid, phone || null, resolveRestaurantId(phone, restaurantId), participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
   if (['cloud', '360dialog', 'letsbot'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try {
       if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
@@ -119,6 +120,7 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
 
 // ---------- log inbound ----------
 export function waLogIn({ orderId = null, phone = null, participant = 'customer', type = 'text', body = null, payload = null, channel = null }) {
+  const oid = orderId && q.get("SELECT id FROM orders WHERE id=?", orderId) ? orderId : null;
   q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
-    orderId, phone || null, resolveRestaurantId(phone, null), participant, 'in', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, JSON.stringify(payload || {}));
+    oid, phone || null, resolveRestaurantId(phone, null), participant, 'in', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, JSON.stringify(payload || {}));
 }

@@ -56,7 +56,8 @@ function cartTotals(rid, cart, branch = null) {
     const cp = q.get("SELECT * FROM coupons WHERE code=? AND is_active=1 AND (expires_at IS NULL OR expires_at >= datetime('now'))", cart.coupon);
     if (cp && subtotal >= cp.min_order) discount += cp.type === 'percent' ? Math.round(subtotal * cp.value / 100) : Math.min(cp.value, subtotal);
   }
-  const delivery_fee = subtotal >= (minOrder || 0) ? 0 : fee;
+  // 🏪 طلب استلام من النشاط: بلا رسوم توصيل ولا حد أدنى
+  const delivery_fee = cart?.pickup ? 0 : (subtotal >= (minOrder || 0) ? 0 : fee);
   return { subtotal, discount, delivery_fee, total: subtotal - discount + delivery_fee };
 }
 function cartText(rid, cart, branch = null) {
@@ -302,6 +303,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cart_item': return handleCartItem(phone, rid, customer, data, p);
     case 'order_review': return handleOrderReview(phone, rid, customer, data, p, b);
     case 'coupon': return handleCoupon(phone, rid, customer, data, b);
+    case 'order_type': return handleOrderType(phone, rid, customer, data, p, b);
     case 'payment_method': return handlePayMethod(phone, rid, customer, data, p);
     case 'awaiting_payment': return handleAwaitPay(phone, rid, customer, data, p);
     case 'address_pick': return handleAddressPick(phone, rid, customer, data, p);
@@ -777,7 +779,7 @@ function sendOrderReview(phone, rid, customer) {
   ] });
 }
 function handleOrderReview(phone, rid, customer, data, p, b) {
-  if (p === 'confirm') return choosePayment(phone, rid, customer);
+  if (p === 'confirm') return chooseOrderType(phone, rid, customer);
   if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
   if (p === 'menu') return showCart(phone, rid, customer);
   return sendOrderReview(phone, rid, customer);
@@ -846,6 +848,32 @@ function handleOffers(phone, rid, customer, data, p) {
 
 // ---------- الدفع ----------
 // ---------- الدفع ----------
+// 🛵 توصيل أم 🏪 استلام من النشاط
+function chooseOrderType(phone, rid, customer) {
+  const session = getSession(phone);
+  saveSession(phone, 'order_type', session.data);
+  return send(phone, rid, null, 'buttons', 'كيف تحب تستلم طلبك؟', { buttons: [
+    { id: 'otype:delivery', title: '🛵 توصيل لي' },
+    { id: 'otype:pickup', title: '🏪 استلام من النشاط' }
+  ] });
+}
+function handleOrderType(phone, rid, customer, data, p, b) {
+  const session = getSession(phone);
+  const cart = session.data.cart;
+  if (!cart || !cart.items.length) return showCart(phone, rid, customer);
+  let kind = p && p.startsWith('otype:') ? p.slice(6) : null;
+  if (!kind && /^(توصيل|دليفري)$/.test(String(b).trim())) kind = 'delivery';
+  if (!kind && /^(استلام|استلم|أستلم|من الفرع|من المطعم)$/.test(String(b).trim())) kind = 'pickup';
+  if (!['delivery', 'pickup'].includes(kind)) return chooseOrderType(phone, rid, customer);
+  cart.pickup = kind === 'pickup';
+  const next = { ...session.data, cart, orderType: kind };
+  saveSession(phone, 'payment_method', next);
+  if (kind === 'pickup') {
+    const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid);
+    send(phone, rid, null, 'text', `🏪 تمام — *استلام من ${r?.name_ar || 'النشاط'}*\nبلا رسوم توصيل ✅`);
+  }
+  return choosePayment(phone, rid, customer);
+}
 function choosePayment(phone, rid, customer) {
   const session = getSession(phone);
   saveSession(phone, 'payment_method', session.data);
@@ -862,7 +890,9 @@ async function handlePayMethod(phone, rid, customer, data, p) {
   if (!cart || !cart.items.length) return showCart(phone, rid, customer);
   const totals = cartTotals(rid, cart);
   if (method === 'cash') {
-    return askLocation(phone, rid, customer, { ...session.data, paymentMethod: 'cash', paid: false });
+    const d = { ...session.data, paymentMethod: 'cash', paid: false };
+    if (cart.pickup) return placeOrder(phone, rid, customer, { ...d, orderType: 'pickup', address: pickupAddress(rid), estDeliveryMin: 20 });
+    return askLocation(phone, rid, customer, d);
   }
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid);
   const pay = await createPayment({ total: totals.total, order_no: 'طلب جديد', restaurant_name: rest.name_ar }, method, { phone, restaurant_id: rid });
@@ -885,6 +915,9 @@ function handleAwaitPay(phone, rid, customer, data, p) {
       }
     }
     send(phone, rid, null, 'text', '✅ تم الدفع بنجاح، يعطيك العافية 🌸');
+    // 🏪 استلام من النشاط: ما نحتاج عنوان
+    const cartNow = getSession(phone).data.cart || {};
+    if (cartNow.pickup) return placeOrder(phone, rid, customer, { ...data, orderType: 'pickup', address: pickupAddress(rid), paid: true, estDeliveryMin: 20 });
     // 🚀 الطلب المبسّط: العنوان محفوظ؟ → ينشئ الطلب فوراً
     if (config.quickOrder && quickPlaceAfterPayment(phone, rid, customer, { ...data, paid: true })) return;
     return askLocation(phone, rid, customer, { ...data, paid: true });
@@ -1021,6 +1054,21 @@ function handleDeliveryTime(phone, rid, customer, data, p) {
 }
 
 // ---------- إنشاء الطلب ----------
+// عنوان «استلام من الفرع» (أقرب/أول فرع للنشاط)
+function pickupAddress(rid) {
+  const r = q.get("SELECT * FROM restaurants WHERE id=?", rid);
+  const b = q.get("SELECT * FROM branches WHERE restaurant_id=? ORDER BY id LIMIT 1", rid);
+  const parts = [b?.name, b?.city || r?.city, r?.address].filter(Boolean);
+  return {
+    label: 'استلام من الفرع',
+    national_address: parts.join(' — ') || (r?.name_ar || ''),
+    lat: b?.lat ?? r?.lat ?? null,
+    lng: b?.lng ?? r?.lng ?? null,
+    branch: b || null,
+    pickup: true
+  };
+}
+
 function placeOrder(phone, rid, customer, data) {
   const session = getSession(phone);
   const cart = session.data.cart;
@@ -1028,13 +1076,18 @@ function placeOrder(phone, rid, customer, data) {
   const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
   const branch = data.address?.branch || null;
   const totals = cartTotals(rid, cart, branch);
-  const order = createOrder({ restaurant: rest, customer, cart, totals, paymentMethod: data.paymentMethod, address: data.address, estDeliveryMin: data.estDeliveryMin || 30, branch });
+  const orderType = data.orderType || (cart.pickup ? 'pickup' : 'delivery');
+  const order = createOrder({ restaurant: rest, customer, cart, totals, paymentMethod: data.paymentMethod, address: data.address, estDeliveryMin: data.estDeliveryMin || 30, branch, orderType });
   if (data.paymentId) q.run("UPDATE payments SET order_id=? WHERE id=?", order.id, data.paymentId);
   if (data.paid) q.run("UPDATE orders SET payment_status='paid' WHERE id=?", order.id);
   q.run("UPDATE conversations SET order_id=? WHERE phone=? AND order_id IS NULL AND created_at >= datetime('now','-3 hours')", order.id, customer.phone);
   const d = { ...session.data, orderId: order.id };
   saveSession(phone, 'tracking', d);
-  send(phone, rid, order.id, 'text', `✅ *استلمت طلبك ${order.order_no}!*\n\n${cartText(rid, cart, branch)}\n📍 التوصيل إلى: ${data.address.national_address || (data.address.lat + ',' + data.address.lng)}\n🕐 يوصل تقريباً خلال ${data.estDeliveryMin || 30} دقيقة\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه لأحد إلا للمندوب وقت الاستلام 🌸\n\nبخليك على علم بكل مرحلة لين يوصل طلبك 🛵`);
+  if (orderType === 'pickup') {
+    send(phone, rid, order.id, 'text', `✅ *استلمت طلبك ${order.order_no}!*\n\n${cartText(rid, cart, branch)}\n🏪 *استلام من:* ${data.address.national_address}\n🕐 جاهز تقريباً خلال ${data.estDeliveryMin || 20} دقيقة\n\n🔐 *رقم استلام طلبك: ${order.delivery_code}*\nأعطهم الرقم وقت الاستلام من الفرع 🌸\n\nبنبلغك أول ما يصير طلبك جاهز 📦`);
+  } else {
+    send(phone, rid, order.id, 'text', `✅ *استلمت طلبك ${order.order_no}!*\n\n${cartText(rid, cart, branch)}\n📍 التوصيل إلى: ${data.address.national_address || (data.address.lat + ',' + data.address.lng)}\n🕐 يوصل تقريباً خلال ${data.estDeliveryMin || 30} دقيقة\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه لأحد إلا للمندوب وقت الاستلام 🌸\n\nبخليك على علم بكل مرحلة لين يوصل طلبك 🛵`);
+  }
   return send(phone, rid, order.id, 'buttons', '', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
 }
 

@@ -11,22 +11,23 @@ export function addEvent(orderId, event, message, actorType = 'system', actorId 
     orderId, event, message, actorType, actorId);
 }
 
-export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null }) {
+export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null, orderType = 'delivery' }) {
+  const isPickup = orderType === 'pickup';
   const orderNo = nextOrderNo();
   const deliveryCode = String(Math.floor(100000 + Math.random() * 900000));
   const itemsJson = JSON.stringify(cart.items.map(i => ({ item_id: i.item_id, name: i.name, price: i.price, quantity: i.quantity, offer_id: i.offer_id || null })));
   const r = q.run(`INSERT INTO orders (order_no, restaurant_id, customer_id, items_json, subtotal, discount, delivery_fee, total,
-    payment_method, payment_status, status, address_label, national_address, lat, lng, est_delivery_min, branch_id, branch_name, delivery_code, notes)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    payment_method, payment_status, status, address_label, national_address, lat, lng, est_delivery_min, branch_id, branch_name, delivery_code, order_type, notes)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     orderNo, restaurant.id, customer.id, itemsJson, totals.subtotal, totals.discount, totals.delivery_fee, totals.total,
     paymentMethod, 'pending', 'new', address.label, address.national_address, address.lat, address.lng, estDeliveryMin,
-    branch?.id || null, branch?.name || null, deliveryCode, notes);
+    branch?.id || null, branch?.name || null, deliveryCode, isPickup ? 'pickup' : 'delivery', notes);
   const order = q.get("SELECT * FROM orders WHERE id = ?", r.lastInsertRowid);
-  addEvent(order.id, 'new', 'تم إنشاء الطلب وانتظار تأكيد المطعم');
+  addEvent(order.id, 'new', isPickup ? 'طلب استلام من النشاط (بدون توصيل)' : 'تم إنشاء الطلب وانتظار تأكيد المطعم');
   addEvent(order.id, 'payment', `طريقة الدفع: ${paymentMethod}`);
   emitTo(`restaurant:${restaurant.id}`, 'order:new', { orderId: order.id, order });
   emitTo('admin', 'order:new', { orderId: order.id, order });
-  broadcastToCaptains(order);
+  if (!isPickup) broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
   scheduleBackup(); // نسخة احتياطية فورية بعد كل طلب
   return order;
 }
@@ -37,6 +38,7 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
   const valid = ['confirmed', 'preparing', 'ready', 'with_captain', 'on_the_way', 'arrived', 'delivered', 'cancelled'];
   if (!valid.includes(status)) return { error: 'حالة غير صالحة' };
   q.run("UPDATE orders SET status=?, updated_at=datetime('now') WHERE id=?", status, orderId);
+  const isPickupOrder = order.order_type === 'pickup';
   const msgs = {
     confirmed: '✔️ أكد المطعم طلبك وجاري التحضير.',
     preparing: '👨‍🍳 جاري تحضير طلبك الآن.',
@@ -44,7 +46,8 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
     with_captain: '🛵 استلم الكابتن طلبك من المطعم.',
     on_the_way: '🛵 كابتن التوصيل في الطريق إليك!',
     arrived: '📍 وصل كابتن التوصيل! طلبك عند الباب 🚪',
-    delivered: '🎉 تم تسليم طلبك بنجاح. شكراً لطلبك معنا!'
+    delivered: isPickupOrder ? '🎉 تم استلام طلبك من الفرع. شكراً لطلبك معنا!' : '🎉 تم تسليم طلبك بنجاح. شكراً لطلبك معنا!',
+    ready: isPickupOrder ? '📦 طلبك جاهز — تفضل باستلامه من الفرع 🙏' : '📦 طلبك جاهز للتسليم.'
   };
   addEvent(orderId, status, msgs[status] || status, actorType, actorId);
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
@@ -52,6 +55,8 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status, order: { ...order, status } });
   if (order.captain_id) emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status, order: { ...order, status } });
   if (status === 'arrived') q.run("UPDATE orders SET arrived_at=datetime('now') WHERE id=?", orderId);
+  // تقييم العميل عند التسليم/الاستلام (كل المسارات)
+  if (status === 'delivered') { try { import('./flow.js').then(({ triggerRating }) => triggerRating(q.get("SELECT * FROM orders WHERE id=?", orderId))); } catch (e) {} }
   if (status === 'delivered') {
     q.run("UPDATE orders SET delivered_at=datetime('now'), payment_status = CASE WHEN payment_method='cash' THEN 'paid' ELSE payment_status END WHERE id=?", orderId);
     if (order.captain_id) q.run("UPDATE captains SET status='available', deliveries_count=deliveries_count+1 WHERE id=?", order.captain_id);
@@ -78,7 +83,6 @@ export async function closeOrderWithCode(code, senderPhone, actorType = 'captain
   addEvent(order.id, 'delivered', 'تم إغلاق الطلب برمز الاستلام 🔐');
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text', body: '🔐 تم التحقق من رمز الاستلام وإغلاق طلبك بنجاح! 🎉' });
-  try { const { triggerRating } = await import('./flow.js'); triggerRating(q.get("SELECT * FROM orders WHERE id=?", order.id)); } catch (e) {}
   // تقييم الكابتن للعميل (بعد الإغلاق)
   try {
     const { askCaptainToRateCustomer } = await import('./ratings.js');

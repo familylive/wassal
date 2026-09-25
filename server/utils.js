@@ -27,8 +27,9 @@ export function computeTier(points) {
 }
 
 export function nextOrderNo() {
-  const row = q.get("SELECT order_no FROM orders ORDER BY id DESC LIMIT 1");
-  const n = row ? parseInt(String(row.order_no).replace('#', '')) + 1 : 1001;
+  // نأخذ أكبر رقم طلب فعلي ونتجاهل أي قيمة غير رقمية (حماية من #NaN)
+  const row = q.get("SELECT MAX(CAST(REPLACE(order_no, '#', '') AS INTEGER)) AS m FROM orders WHERE order_no GLOB '#[0-9]*'");
+  const n = Number(row?.m) > 0 ? Number(row.m) + 1 : 1001;
   return `#${n}`;
 }
 

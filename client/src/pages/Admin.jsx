@@ -108,7 +108,13 @@ function Dashboard({ stats, orders, captains = [], onOpen, onChange }) {
         <Card title="الطلبات المفتوحة">
           {stats.openOrders.map(o => (
             <div key={o.id} className="row" style={{ justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-              <div><b>{o.order_no}</b> — {o.name_ar}<br /><small style={{ color: 'var(--mut)' }}>{o.created_at?.slice(0, 16)}</small></div>
+              <div>
+                <b>{o.order_no}</b> — {o.name_ar}{' '}
+                {o.order_type === 'pickup'
+                  ? <span className="badge b-amber">🏪 استلام</span>
+                  : <span className="badge b-gray">🛵 توصيل</span>}
+                <br /><small style={{ color: 'var(--mut)' }}>{o.created_at?.slice(0, 16)}</small>
+              </div>
               <div className="row" style={{ gap: 6 }}>
                 <Badge s={o.status} />
                 <AssignCaptain order={o} captains={captains} onChange={onChange} />
