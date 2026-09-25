@@ -32,10 +32,10 @@ try { db.exec("ALTER TABLE conversations ADD COLUMN phone TEXT"); } catch {}
 try { db.exec("ALTER TABLE conversations ADD COLUMN restaurant_id INTEGER"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_restaurant ON conversations(restaurant_id)"); } catch {}
 // ترحيل: اربط المحادثات القديمة بالمطعم المختار للرقم حتى تظهر في شاشة المحادثات
-// المصدر: آخر مطعم معروف للرقم (من جلسة الواتساب أو من جدول wa_phone_restaurant)
+// المصادر: خانة restaurant_id في الجلسة، أو الحقل currentRestaurantId داخل data_json، أو جدول wa_phone_restaurant
 try {
-  db.exec("UPDATE conversations SET restaurant_id = (SELECT s.restaurant_id FROM whatsapp_sessions s WHERE s.phone = conversations.phone AND s.restaurant_id > 0) WHERE restaurant_id IS NULL AND EXISTS (SELECT 1 FROM whatsapp_sessions s WHERE s.phone = conversations.phone AND s.restaurant_id > 0)");
-} catch {}
+  db.exec("UPDATE conversations SET restaurant_id = (SELECT COALESCE(NULLIF(s.restaurant_id,0), json_extract(s.data_json,'$.currentRestaurantId')) FROM whatsapp_sessions s WHERE s.phone = conversations.phone LIMIT 1) WHERE restaurant_id IS NULL AND EXISTS (SELECT 1 FROM whatsapp_sessions s WHERE s.phone = conversations.phone AND (s.restaurant_id > 0 OR json_extract(s.data_json,'$.currentRestaurantId') > 0))");
+} catch (e) { console.error('MIGRATE_PIN_SESSIONS_FAIL', e.message); }
 try {
   db.exec("UPDATE conversations SET restaurant_id = (SELECT h.restaurant_id FROM wa_phone_restaurant h WHERE h.phone = conversations.phone AND h.restaurant_id > 0) WHERE restaurant_id IS NULL AND EXISTS (SELECT 1 FROM wa_phone_restaurant h WHERE h.phone = conversations.phone AND h.restaurant_id > 0)");
 } catch {}
