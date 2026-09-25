@@ -356,7 +356,6 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT DEFAULT 'business',
   phone TEXT NOT NULL,
-  owner_name TEXT,
   business_name TEXT,
   business_type_id INTEGER,
   city TEXT,

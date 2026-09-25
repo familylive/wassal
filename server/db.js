@@ -57,6 +57,24 @@ try { db.exec("ALTER TABLE orders ADD COLUMN penalty_quarters INTEGER DEFAULT 0"
 try { db.exec("ALTER TABLE orders ADD COLUMN penalty_total INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN commission_business INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE customer_locations ADD COLUMN city TEXT"); } catch {}
+
+// 🆔 ترقيم الأنشطة يبدأ من 1001
+export const RESTAURANT_ID_START = 1001;
+export function nextRestaurantId() {
+  try {
+    const mx = Number(db.prepare("SELECT IFNULL(MAX(id),0) AS m FROM restaurants").get()?.m || 0);
+    return Math.max(RESTAURANT_ID_START, mx + 1);
+  } catch (e) { return RESTAURANT_ID_START; }
+}
+export function ensureRestaurantSequence() {
+  try {
+    const mx = Number(db.prepare("SELECT IFNULL(MAX(id),0) AS m FROM restaurants").get()?.m || 0);
+    if (mx >= RESTAURANT_ID_START) return;
+    const row = db.prepare("SELECT seq FROM sqlite_sequence WHERE name='restaurants'").get();
+    if (row) db.exec(`UPDATE sqlite_sequence SET seq=${RESTAURANT_ID_START - 1} WHERE name='restaurants'`);
+    else db.exec(`INSERT INTO sqlite_sequence (name, seq) VALUES ('restaurants', ${RESTAURANT_ID_START - 1})`);
+  } catch (e) { /* sqlite_sequence غير موجود — لا مشكلة */ }
+}
 try { db.exec("ALTER TABLE orders ADD COLUMN commission_captain INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN commission_due INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN deposit_balance INTEGER DEFAULT 0"); } catch {}
@@ -82,6 +100,9 @@ try {
 } catch {}
 try { db.exec("ALTER TABLE payments ADD COLUMN restaurant_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE payments ADD COLUMN phone TEXT"); } catch {}
+
+// 🆔 اضبط بداية ترقيم الأنشطة على 1001
+try { ensureRestaurantSequence(); } catch (e) { console.error('SEQ_FAIL', e.message); }
 
 // تهيئة أولى فقط: إذا لم توجد أي مطاعم → زرع البيانات (مرة واحدة)
 try {

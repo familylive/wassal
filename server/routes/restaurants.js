@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { q } from '../db.js';
+import { q, nextRestaurantId } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { ensureDefaultBranch } from '../services/branches.js';
 
@@ -16,8 +16,9 @@ router.get('/', (req, res) => {
 
 router.post('/', requireRole('admin'), (req, res) => {
   const b = req.body || {};
-  const r = q.run(`INSERT INTO restaurants (name_ar, name_en, phone, whatsapp_number, city, address, lat, lng, delivery_fee, min_order, avg_prep_time_min, logo, cover, is_active)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  const r = q.run(`INSERT INTO restaurants (id, name_ar, name_en, phone, whatsapp_number, city, address, lat, lng, delivery_fee, min_order, avg_prep_time_min, logo, cover, is_active)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    nextRestaurantId(),
     b.name_ar, b.name_en || null, b.phone || null, b.whatsapp_number || null, b.city || null, b.address || null,
     b.lat || null, b.lng || null, b.delivery_fee || 1000, b.min_order || 3000, b.avg_prep_time_min || 25, b.logo || null, b.cover || null, b.is_active ?? 1);
   const id = Number(r.lastInsertRowid);

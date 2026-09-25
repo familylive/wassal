@@ -1,6 +1,6 @@
 // ---------- تسجيل الأنشطة والكباتن عبر واتساب ----------
 // دورة العمل: مسودة في المحادثة → اعتماد صاحب النشاط → إشعار المشرف → اعتماد الإدارة → إنشاء النشاط/الكابتن وربطه بالجوال
-import { q, tx } from '../db.js';
+import { q, tx, nextRestaurantId } from '../db.js';
 import config from '../config.js';
 import { waSend } from './whatsapp.js';
 import { validatePhone } from '../utils.js';
@@ -71,11 +71,12 @@ export async function approveRegistration(id) {
   const newId = tx(() => {
     const addr = [reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || null;
     const subPaid = Number(reg.subscription_paid || 0) ? 1 : 0;
-    const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
+    const newRestId = nextRestaurantId();   // 🆔 الترقيم يبدأ من 1001
+    q.run(`INSERT INTO restaurants (id, name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      newRestId, reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
       1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null);
-    const rid = Number(r.lastInsertRowid);
+    const rid = newRestId;
     let catId;
     const existingCat = q.get("SELECT id FROM categories WHERE restaurant_id=? AND name=?", rid, 'الأصناف');
     if (existingCat) catId = existingCat.id;

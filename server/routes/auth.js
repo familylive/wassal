@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { q } from '../db.js';
+import { q, nextRestaurantId } from '../db.js';
 import { signToken, requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = Router();
@@ -28,11 +28,12 @@ router.post('/login', (req, res) => {
 router.post('/register-restaurant', requireAuth, requireRole('admin'), (req, res) => {
   const { name_ar, phone, email, password, ...rest } = req.body || {};
   if (!name_ar || !password) return res.status(400).json({ error: 'الاسم وكلمة المرور مطلوبان' });
-  const r = q.run(`INSERT INTO restaurants (name_ar, phone, city, delivery_fee, min_order, avg_prep_time_min)
-    VALUES (?,?,?,?,?,?)`, name_ar, phone || null, rest.city || null, rest.delivery_fee || 1000, rest.min_order || 3000, rest.avg_prep_time_min || 25);
+  const newRestId = nextRestaurantId();
+  q.run(`INSERT INTO restaurants (id, name_ar, phone, city, delivery_fee, min_order, avg_prep_time_min)
+    VALUES (?,?,?,?,?,?,?)`, newRestId, name_ar, phone || null, rest.city || null, rest.delivery_fee || 1000, rest.min_order || 3000, rest.avg_prep_time_min || 25);
   q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, email, password_hash, role) VALUES (?,?,?,?,?,?)",
-    Number(r.lastInsertRowid), name_ar, phone || null, email || null, bcrypt.hashSync(password, 10), 'owner');
-  res.json({ ok: true, restaurant_id: Number(r.lastInsertRowid) });
+    newRestId, name_ar, phone || null, email || null, bcrypt.hashSync(password, 10), 'owner');
+  res.json({ ok: true, restaurant_id: newRestId });
 });
 
 // إنشاء كابتن (الكنترول)
