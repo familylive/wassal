@@ -54,6 +54,23 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
+// 📄 معاينة الفاتورة المختومة (PDF) — للإدارة
+router.get('/:id/invoice', requireRole('admin'), async (req, res) => {
+  const row = q.get("SELECT * FROM report_recipients WHERE id=?", Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'غير موجود' });
+  const { buildInvoiceFiles } = await import('../services/invoice.js');
+  const { localNow, shiftDate } = await import('../services/reporting.js');
+  const { date } = localNow();
+  const target = String(req.query.which || 'today') === 'yesterday' ? shiftDate(date, -1) : date;
+  try {
+    const inv = await buildInvoiceFiles(row.restaurant_id, target);
+    if (!inv) return res.status(404).json({ error: 'تعذر إنشاء الفاتورة' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${inv.invoice.no}.pdf"`);
+    res.send(inv.pdf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // إرسال تقرير الآن (اختبار / بناءً على الطلب) — which=today|yesterday
 router.post('/:id/send', requireRole('admin'), async (req, res) => {
   const row = q.get("SELECT * FROM report_recipients WHERE id=?", Number(req.params.id));

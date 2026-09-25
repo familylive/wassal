@@ -458,6 +458,14 @@ function ReportsTab() {
       await load();
     } catch (e) { notify(e.message); } finally { setBusy(false); }
   };
+  const preview = async (r) => {
+    try {
+      const res = await fetch(`/api/report-recipients/${r.id}/invoice`, { headers: { Authorization: 'Bearer ' + getToken() } });
+      if (!res.ok) throw new Error('تعذر جلب الفاتورة');
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), '_blank');
+    } catch (e) { notify(e.message); }
+  };
   const setHour = async (r, report_hour) => { try { await api(`/report-recipients/${r.id}`, { method: 'PUT', body: { report_hour } }); await load(); notify('✅ تم تحديث وقت التقرير'); } catch (e) { notify(e.message); } };
   const add = async () => {
     if (!f.restaurant_id || !f.phone.trim()) return notify('اختر النشاط واكتب الجوال');
@@ -480,6 +488,7 @@ function ReportsTab() {
         <div className="row" style={{ gap: 6 }}>
           {r.status !== 'approved' && <button className="btn sm" disabled={busy} onClick={() => act(r, 'approve')}>✅</button>}
           {r.status !== 'rejected' && <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'reject')}>❌</button>}
+          <button className="btn ghost sm" disabled={busy} onClick={() => preview(r)} title="معاينة الفاتورة المختومة">📄</button>
           <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'send')} title="أرسل التقرير الآن">📤</button>
           <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'delete')}>🗑</button>
         </div>

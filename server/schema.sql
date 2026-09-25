@@ -346,6 +346,19 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- فواتير/تقارير المبيعات المرسومة (لكل نشاط ويوم رقم ثابت)
+CREATE TABLE IF NOT EXISTS invoices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  restaurant_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  no TEXT UNIQUE,
+  total INTEGER DEFAULT 0,
+  orders_count INTEGER DEFAULT 0,
+  file TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- مستلمو تقارير المبيعات (مدير المطعم) — يُعتمدون من مشرف المنصة
 CREATE TABLE IF NOT EXISTS report_recipients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

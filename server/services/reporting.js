@@ -51,11 +51,15 @@ export function dailyStats(restaurantId, dateStr) {
     for (const it of items) {
       const name = String(it?.name || '').trim();
       if (!name) continue;
-      const qty = n(it?.quantity ?? it?.qty ?? 1);
-      tally.set(name, (tally.get(name) || 0) + (qty || 1));
+      const qty = n(it?.quantity ?? it?.qty ?? 1) || 1;
+      const price = n(it?.price);
+      const cur = tally.get(name) || { qty: 0, sales: 0 };
+      cur.qty += qty;
+      cur.sales += price * qty;
+      tally.set(name, cur);
     }
   }
-  const top = [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, qty]) => ({ name, qty }));
+  const top = [...tally.entries()].sort((a, b) => b[1].qty - a[1].qty).slice(0, 20).map(([name, v]) => ({ name, qty: v.qty, sales: v.sales }));
   return {
     ...day,
     orders, delivered, cancelled,
@@ -99,7 +103,7 @@ export function buildDailyReport(restaurantId, dateStr) {
   if (s.salesCount > s.delivered) t += `⏳ طلبات جارية/غير مكتملة: ${s.salesCount - s.delivered}\n`;
   if (s.top.length) {
     t += '\n🔥 *الأكثر مبيعاً*\n';
-    t += s.top.map((x, i) => `${i + 1}. ${x.name} ×${x.qty}`).join('\n') + '\n';
+    t += s.top.slice(0, 5).map((x, i) => `${i + 1}. ${x.name} ×${x.qty}`).join('\n') + '\n';
   }
   t += '\n🙏 يعطيك العافية';
   return t;
@@ -108,8 +112,24 @@ export function buildDailyReport(restaurantId, dateStr) {
 export async function sendReportTo(phone, restaurantId, dateStr) {
   const text = buildDailyReport(restaurantId, dateStr);
   if (!text) return false;
-  try { await waSend({ phone, type: 'text', body: text }); return true; }
-  catch (e) { console.error('REPORT_SEND_FAIL', e.message); return false; }
+  let ok = false;
+  try { await waSend({ phone, type: 'text', body: text }); ok = true; }
+  catch (e) { console.error('REPORT_SEND_FAIL', e.message); }
+  // 📄 الفاتورة المختومة كمرفق PDF
+  try {
+    const { buildInvoiceFiles } = await import('./invoice.js');
+    const inv = await buildInvoiceFiles(restaurantId, dateStr);
+    if (inv) {
+      const link = `${String(config.publicUrl || '').replace(/\/$/, '')}/uploads/invoices/${inv.base}.pdf`;
+      await waSend({
+        phone, type: 'document',
+        body: `📄 *فاتورة مبيعات ${inv.invoice.no}*\n${inv.restaurant?.name_ar || ''} — ${dateStr}\nالمجموع الختام: ${(Number(inv.stats.salesTotal || 0) / 100).toFixed(2)} ر.س`,
+        document: { link, filename: `${inv.invoice.no}.pdf` }
+      });
+      ok = ok || true;
+    }
+  } catch (e) { console.error('INVOICE_SEND_FAIL', e.message); }
+  return ok;
 }
 
 // ---------- مستلمو التقارير ----------

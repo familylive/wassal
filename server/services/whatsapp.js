@@ -3,7 +3,7 @@ import config from '../config.js';
 import { q } from '../db.js';
 
 // ---------- provider: Meta WhatsApp Cloud API ----------
-async function sendCloud({ phone, type, body, buttons, list, image }) {
+async function sendCloud({ phone, type, body, buttons, list, image, document }) {
   const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
   if (!token) throw new Error('WHATSAPP_TOKEN غير معرّف');
   // ميتا تقبل الصيغة الدولية للأرقام بدون + أو 00 — ننظّف الرقم دائماً
@@ -19,6 +19,7 @@ async function sendCloud({ phone, type, body, buttons, list, image }) {
     interactive: { type: 'list', body: { text: body }, action: { button: 'اختر', sections: list } }
   };
   else if (type === 'image') msg = { messaging_product: 'whatsapp', to: to, type: 'image', image: { link: image, caption: body || '' } };
+  else if (type === 'document') msg = { messaging_product: 'whatsapp', to: to, type: 'document', document: { link: document?.link || image, filename: document?.filename || 'file.pdf', caption: body || '' } };
   // 360dialog: نفس صيغة Meta لكن عبر بوابة 360dialog
   const is360 = provider === '360dialog';
   const url = is360 ? `${apiUrl}/v1/messages` : `${apiUrl}/${phoneNumberId}/messages`;
@@ -95,14 +96,14 @@ export function rememberPhoneRestaurant(phone, restaurantId) {
   } catch (e) {}
 }
 
-export async function waSend({ phone, restaurantId, orderId = null, type = 'text', body = null, buttons = null, list = null, image = null, participant = 'customer', channel = null }) {
-  const payload = JSON.stringify({ buttons, list, image });
+export async function waSend({ phone, restaurantId, orderId = null, type = 'text', body = null, buttons = null, list = null, image = null, document = null, participant = 'customer', channel = null }) {
+  const payload = JSON.stringify({ buttons, list, image, document });
   q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
     orderId, phone || null, resolveRestaurantId(phone, restaurantId), participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
   if (['cloud', '360dialog', 'letsbot'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try {
       if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
-      else await sendCloud({ phone, type, body, buttons, list, image });
+      else await sendCloud({ phone, type, body, buttons, list, image, document });
       console.log('WA_SEND_OK', type, phone);
       // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)
       // 🎙️ صوت لكل رسائل البوت (نص + قوائم + أزرار) — ما عدا الصور والمواقع
