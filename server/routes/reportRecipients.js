@@ -54,6 +54,16 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
+// ⏰ وقت تقرير الإدارة المجمّع
+router.post('/platform/hour', requireRole('admin'), async (req, res) => {
+  const { parseReportHour, setRecipientHour } = await import('../services/reporting.js');
+  const raw = req.body?.hour;
+  const hour = parseReportHour(raw) || String(raw || '').slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(hour)) return res.status(400).json({ error: 'وقت غير صحيح — مثال: 00:30' });
+  q.run("INSERT INTO app_settings (key, value, updated_at) VALUES ('PLATFORM_REPORT_HOUR', ?, datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')", hour);
+  res.json({ ok: true, hour });
+});
+
 // 🏛 تقرير الإدارة المجمّع (كل الأنشطة + حصة المنصة) — إرسال/معاينة
 router.post('/platform/send', requireRole('admin'), async (req, res) => {
   const { localNow, shiftDate, sendPlatformReport, buildPlatformReport, platformStats, PLATFORM_REPORT_HOUR, PLATFORM_SHARE_PERCENT } = await import('../services/reporting.js');

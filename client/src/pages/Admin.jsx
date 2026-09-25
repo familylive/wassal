@@ -676,7 +676,14 @@ function ReportsTab() {
       </div>
       {plat && (
         <div style={{ background: 'var(--bg2, #f7f9fb)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
-          <div style={{ fontSize: 12.5, color: 'var(--mut)', marginBottom: 6 }}>تقرير يوم {plat.date} — يُرسل الساعة {plat.hour}</div>
+          <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, color: 'var(--mut)' }}>تقرير يوم {plat.date} — يُرسل الساعة</span>
+            <input type="time" value={plat.hour || '00:00'} style={{ width: 118 }}
+              onChange={async (e) => {
+                try { await api('/report-recipients/platform/hour', { method: 'POST', body: { hour: e.target.value } }); setPlat({ ...plat, hour: e.target.value }); notify('✅ تم تحديث وقت تقرير الإدارة'); }
+                catch (err) { notify(err.message); }
+              }} />
+          </div>
           <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.9, margin: 0 }}>{plat.text}</pre>
         </div>
       )}

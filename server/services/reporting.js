@@ -164,7 +164,7 @@ export async function notifySupervisorRecipient(row) {
     + `👤 مدير المطعم: ${row.name || '-'}\n`
     + `🔢 هويته: ${row.national_id || '⚠️ غير مسجّلة'}\n`
     + `📱 جواله: ${row.phone}\n`
-    + `⏰ وقت التقرير اليومي: ${row.report_hour || '23:30'}\n\n`
+    + `⏰ وقت التقرير اليومي: ${prettyHour(row.report_hour)}\n\n`
     + 'هل تعتمد إضافته؟ (بيوصله تقرير المبيعات اليومي)';
   try {
     await waSend({ phone: to, type: 'buttons', body: txt, buttons: [
@@ -183,7 +183,7 @@ export async function approveRecipient(id) {
   const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", row.restaurant_id);
   try {
     await waSend({ phone: row.phone, type: 'text', body:
-      `🎉 *تم اعتمادك مستلم تقرير مبيعات*\n\n🏪 ${r?.name_ar || ''}\n⏰ بيوصلك التقرير اليومي الساعة ${row.report_hour || '23:30'}\n\n💡 تكتب كلمة *تقرير* بأي وقت ويرسلك تقرير اليوم فوراً\nوتكتب *تقرير أمس* لتقرير اليوم السابق` });
+      `🎉 *تم اعتمادك مستلم تقرير مبيعات*\n\n🏪 ${r?.name_ar || ''} (#${row.restaurant_id})\n⏰ بيوصلك التقرير اليومي الساعة *${prettyHour(row.report_hour)}*\n\n💡 تكتب *تقرير* بأي وقت ويوصلك تقرير اليوم فوراً\n• *تقرير أمس* لتقرير اليوم السابق\n• *وقت التقرير* لتغيير ساعة الإرسال 🔔` });
   } catch (e) { console.error('REPORT_WELCOME_FAIL', e.message); }
   return { ok: true, name: row.name, phone: row.phone, restaurant: r?.name_ar };
 }
@@ -292,15 +292,62 @@ export async function sendPlatformReport(dateStr, { force = false } = {}) {
   return { ok, date: dateStr, stats: s, text };
 }
 
-// ساعة تقرير الإدارة (افتراضي 12 منتصف الليل)
-export const PLATFORM_REPORT_HOUR = String(process.env.PLATFORM_REPORT_HOUR || '00:00').slice(0, 5);
+// ⏰ تحويل نص المستخدم إلى وقت HH:MM (يقبل 23:30 · 10:30 · «10 مساءً» · «7 صباحاً» · «9»)
+const AR_DIGITS = { '٠':0,'١':1,'٢':2,'٣':3,'٤':4,'٥':5,'٦':6,'٧':7,'٨':8,'٩':9 };
+export function parseReportHour(input) {
+  let t = String(input || '').trim()
+    .replace(/[٠-٩]/g, (d) => String(AR_DIGITS[d]))
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, '')   // تشكيل وتطويل فقط (نُبقي الهمزة)
+    .replace(/\s+/g, ' ');
+  if (!t) return null;
+  // 23:30 · 10:30 · 11:30 م · 12:00 ص
+  let m = t.match(/^(\d{1,2})\s*:\s*(\d{2})\s*(ص|م|صباح|صباحا|مساء|ليلا)?$/);
+  if (m) {
+    let h = +m[1]; const mi = +m[2]; const part = m[3] || '';
+    if (/صباح|^ص$/.test(part)) { if (h === 12) h = 0; }
+    else if (/مساء|ليلا|^م$/.test(part)) { if (h < 12) h += 12; }
+    return (h <= 23 && mi <= 59) ? `${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}` : null;
+  }
+  m = t.match(/^(?:الساعة\s*)?(\d{1,2})\s*(?:الساعة|ساعة)?\s*(مساء|ليل|ليلا|الليل|عصر|ظهر|صباح|صباحا|صبح|فجر|م|ص)?$/);
+  if (!m) return null;
+  let h = +m[1];
+  const part = m[2] || '';
+  if (/صباح|صبح|فجر/.test(part)) { if (h === 12) h = 0; }
+  else if (/عصر|ظهر/.test(part)) { if (h < 12) h += 12; }
+  else if (/مساء|ليل|^م$/.test(part)) { if (h < 12) h += 12; }
+  else { if (h >= 1 && h <= 11) h += 12; }   // بلا تحديد → نفترض المساء
+  return (h >= 0 && h <= 23) ? `${String(h).padStart(2,'0')}:00` : null;
+}
+export function setRecipientHour(id, hour) {
+  const h = parseReportHour(hour) || String(hour || '').slice(0, 5);
+  q.run("UPDATE report_recipients SET report_hour=?, updated_at=datetime('now') WHERE id=?", h, Number(id));
+  return q.get("SELECT * FROM report_recipients WHERE id=?", Number(id));
+}
+// ساعة تقرير الإدارة (من الإعدادات ثم متغير البيئة — افتراضي 12 منتصف الليل)
+export function platformReportHour() {
+  try {
+    const v = q.get("SELECT value FROM app_settings WHERE key='PLATFORM_REPORT_HOUR'")?.value;
+    if (v) return String(v).slice(0, 5);
+  } catch (e) {}
+  return String(process.env.PLATFORM_REPORT_HOUR || '00:00').slice(0, 5);
+}
+export const PLATFORM_REPORT_HOUR = platformReportHour();
+
+// ⏰ صيغة عربية للوقت: 23:30 → «١١:٣٠ مساءً»
+export function prettyHour(hhmm) {
+  const [h0, m0] = String(hhmm || '23:30').split(':');
+  let h = Number(h0); const mi = String(m0 || '00').padStart(2, '0');
+  const part = h >= 12 ? 'مساءً' : 'صباحاً';
+  if (h === 0) h = 12; else if (h > 12) h -= 12;
+  return `${h}:${mi} ${part}`;
+}
 
 // ---------- الإرسال المجدول (مع تعويض لو كان السيرفر نائماً) ----------
 export async function runDueReports() {
   const { date, hhmm } = localNow();
   // 🏛 تقرير الإدارة المجمّع
   try {
-    const hour = PLATFORM_REPORT_HOUR;
+    const hour = platformReportHour();
     if (hhmm >= hour) {
       const target = hour >= '12:00' ? date : shiftDate(date, -1);
       const already = q.get("SELECT id FROM platform_reports WHERE date=?", target);

@@ -5,7 +5,7 @@ import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
-import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport } from './reporting.js';
+import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
 
@@ -264,6 +264,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
   // 🆔 رقم النشاط (لصاحب النشاط أو مديره)
   if (/^(رقم النشاط|رقم المطعم|رقم المتجر|رقمي|رقم حسابي|معرف النشاط)$/.test(bt)) return sendBusinessNumber(phone, rid);
+  // 🔔 وقت التقرير اليومي
+  if (/^(وقت التقرير|وقت الرسالة|وقت التقرير اليومي|غير وقت التقرير|غيير وقت التقرير)$/.test(bt)) return startChangeReportHour(phone, rid);
   // 📣 طلب إعلان من النشاط
   if (/^(عرض|اعلان|إعلان|أعلن|اعلن|أعلن عندكم|طلب اعلان|طلب إعلان)$/.test(bt)) return startAdRequestFlow(phone, rid, session);
 
@@ -285,7 +287,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -345,6 +347,10 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'mgr_name': return handleMgrName(phone, rid, session, b);
     case 'mgr_id': return handleMgrId(phone, rid, session, b);
     case 'mgr_biz': return handleMgrBiz(phone, rid, session, b, p);
+    case 'mgr_hour': return handleMgrHour(phone, rid, session, b, p);
+    case 'rep_hour': return handleRepHour(phone, rid, session, b, p);
+    case 'hour_pick': return handleHourPick(phone, rid, session, b, p);
+    case 'hour_change': return handleHourChange(phone, rid, session, b, p);
     case 'mgr_pick': return handleMgrPick(phone, rid, session, b, p);
     case 'rep_name': return handleRepName(phone, rid, session, b);
     case 'rep_id': return handleRepId(phone, rid, session, b);
@@ -1781,6 +1787,18 @@ function startCustomerSignup(phone, rid, customer, session) {
   return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج أي أوراق — بس *اسمك* و*موقعك* ✅\n\nوش *اسمك الكريم*؟`);
 }
 
+// ⏰ سؤال وقت التقرير اليومي (مشترك)
+const HOUR_OPTIONS = [
+  { id: 'rhour:23:30', title: '🌙 ١١:٣٠ مساءً' },
+  { id: 'rhour:21:00', title: '🕘 ٩:٠٠ مساءً' },
+  { id: 'rhour:00:00', title: '🕛 ١٢:٠٠ منتصف الليل' }
+];
+function askReportHour(phone, rid, extra = '', current = null) {
+  return send(phone, rid, null, 'buttons',
+    `⏰ *وقت التقرير اليومي*\n\n${extra ? extra + '\n\n' : ''}أي ساعة تبيه يوصلك؟${current ? `\n(الحالي: *${prettyHour(current)}*)` : ''}\n_(أو اكتب الوقت: 10:30 · 9 مساءً · 7 صباحاً)_`,
+    { buttons: HOUR_OPTIONS });
+}
+
 // 🏪 انضمام مدير النشاط: اسمه → هويته → رقم النشاط (أو اسمه) → يتربط ويروح للاعتماد
 function findRestaurant(key) {
   const k = String(key || '').trim();
@@ -1830,7 +1848,15 @@ async function handleMgrBiz(phone, rid, session, b, p) {
     send(phone, rid, null, 'text', 'ما لقيت نشاط بهذا الرقم 🙏 اختر النشاط من القائمة 👇');
     return send(phone, rid, null, 'list', 'الأنشطة المسجّلة', { list: [{ title: 'الأنشطة المسجّلة', rows: rests.map(r => ({ id: 'mgrbiz:' + r.id, title: `#${r.id} ${String(r.name_ar).slice(0, 20)}`, description: String(r.city || '').slice(0, 60) })) }] });
   }
-  return finishManagerJoin(phone, rid, session, mgr, rest);
+  saveSession(phone, 'mgr_hour', { ...session.data, mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } });
+  return askReportHour(phone, rid, `🏪 *${rest.name_ar}* (#${rest.id}) ✅`);
+}
+async function handleMgrHour(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const hour = (p && String(p).startsWith('rhour:')) ? String(p).slice(6) : parseReportHour(b);
+  if (!hour) return send(phone, rid, null, 'text', '⏰ اكتب الوقت بهذي الصيغة: 10:30 أو 9 مساءً أو 7 صباحاً');
+  const mgr = { ...(session.data.mgr || {}), hour };
+  return finishManagerJoin(phone, rid, session, mgr, { id: mgr.restaurant_id, name_ar: mgr.restaurant_name });
 }
 function handleMgrPick(phone, rid, session, b, p) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -1838,7 +1864,7 @@ function handleMgrPick(phone, rid, session, b, p) {
 }
 async function finishManagerJoin(phone, rid, session, mgr, rest) {
   saveSession(phone, 'idle', { ...session.data, mgr: null });
-  const row = addRecipient(rest.id, mgr.name, mgr.phone, '23:30', mgr.national_id);
+  const row = addRecipient(rest.id, mgr.name, mgr.phone, mgr.hour || '23:30', mgr.national_id);
   const ok = await notifySupervisorRecipient(row);
   return send(phone, rid, null, 'text', ok
     ? `✅ *تم الربط وأرسلناه لمشرف المنصة للاعتماد*\n\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 ${mgr.name || ''}\n🔢 ${mgr.national_id}\n📱 ${mgr.phone}\n\nأول ما يُعتمد بيوصلك تقرير المبيعات اليومي 📊`
@@ -1867,11 +1893,67 @@ async function handleRepPhone(phone, rid, session, b) {
   const rep = data.rep || {};
   const norm = validatePhone(digits);
   saveSession(phone, 'idle', { ...data, rep: null });
-  const row = addRecipient(rep.restaurant_id, rep.name, norm, '23:30', rep.national_id);
+  saveSession(phone, 'rep_hour', { ...data, rep: { ...rep, phone: norm } });
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rep.restaurant_id);
+  return askReportHour(phone, rid, `👤 *${rep.name || ''}* · 📱 ${norm}\n🏪 ${rest?.name_ar || ''}`);
+}
+// ⏰ اختيار وقت التقرير عند إضافة المدير من صاحب النشاط
+async function handleRepHour(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const hour = (p && String(p).startsWith('rhour:')) ? String(p).slice(6) : parseReportHour(b);
+  if (!hour) return send(phone, rid, null, 'text', '⏰ اكتب الوقت: 10:30 أو 9 مساءً');
+  const rep2 = session.data.rep || {};
+  saveSession(phone, 'idle', { ...session.data, rep: null });
+  const row = addRecipient(rep2.restaurant_id, rep2.name, rep2.phone, hour, rep2.national_id);
   const ok = await notifySupervisorRecipient(row);
   return send(phone, rid, null, 'text', ok
-    ? `✅ *وصلني طلبك وأرسلته لمشرف المنصة للاعتماد*\n\n👤 ${rep.name || ''}\n📱 ${norm}\n⏰ التقرير اليومي الساعة ١١:٣٠ مساءً\n\nأول ما يُعتمد بيوصله التقرير 🙏`
+    ? `✅ *وصلني طلبك وأرسلته لمشرف المنصة للاعتماد*\n\n👤 ${rep2.name || ''}\n📱 ${rep2.phone}\n⏰ التقرير اليومي الساعة *${prettyHour(hour)}*\n\nأول ما يُعتمد بيوصله التقرير 🙏`
     : '✅ حفظت الطلب — لكن رقم مشرف المنصة غير مضبوط، كلّم الإدارة للاعتماد.');
+}
+// 🔔 تغيير وقت التقرير لاحقاً (لمستلم التقرير أو لصاحب النشاط)
+function startChangeReportHour(phone, rid) {
+  const me = validatePhone(phone);
+  const rrid = ownerRestaurantId(phone);
+  const rec = findRecipientByPhone(me);
+  if (rec && rec.status === 'approved') {
+    saveSession(phone, 'hour_change', { hourTarget: rec.id });
+    const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", rec.restaurant_id);
+    return askReportHour(phone, rid, `🏪 ${r?.name_ar || ''}`, rec.report_hour);
+  }
+  if (rrid) {
+    const rows = q.all("SELECT * FROM report_recipients WHERE restaurant_id=? AND status='approved' ORDER BY id", rrid);
+    if (!rows.length) return send(phone, rid, null, 'text', '🔔 ما فيه مستلم تقرير معتمد بعد ⏰\nأضف مدير النشاط بكتابة *مدير*، أول خطوة نحدد معك وقت التقرير.\nوللعلم: تقرير الإدارة المجمّع يوصل يومياً بوقته المحدد ✅');
+    if (rows.length === 1) {
+      saveSession(phone, 'hour_change', { hourTarget: rows[0].id });
+      return askReportHour(phone, rid, `👤 ${rows[0].name || ''} · 🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid)?.name_ar || ''}`, rows[0].report_hour);
+    }
+    saveSession(phone, 'hour_pick', { hourRows: rows.map(r => r.id) });
+    send(phone, rid, null, 'text', '🔔 وقت تقرير مين؟ اختر:');
+    return send(phone, rid, null, 'list', 'مستلمو التقارير', { list: [{ title: 'المستلمون', rows: rows.slice(0, 10).map((r, i) => ({ id: 'hourfor:' + r.id, title: String(r.name || ('مستلم ' + (i + 1))).slice(0, 24), description: `${prettyHour(r.report_hour)}` })) }] });
+  }
+  return send(phone, rid, null, 'text', '🔔 خدمة وقت التقرير لأصحاب الأنشطة ومستلمي التقارير 🌸\n\n• سجّل نشاطك: *انضمام*\n• وإذا أنت مدير: *انضمام مدير*');
+}
+function handleHourPick(phone, rid, session, b, p) {
+  const ids = session.data.hourRows || [];
+  let id = null;
+  if (p && String(p).startsWith('hourfor:')) id = Number(String(p).slice(8));
+  else if (b && ids.includes(Number(String(b).trim()))) id = Number(String(b).trim());
+  if (!id) return send(phone, rid, null, 'text', 'اختر من القائمة 👇');
+  const row = q.get("SELECT * FROM report_recipients WHERE id=?", id);
+  if (!row) return send(phone, rid, null, 'text', 'اختر من القائمة 👇');
+  saveSession(phone, 'hour_change', { hourTarget: row.id });
+  return askReportHour(phone, rid, `👤 ${row.name || ''}`, row.report_hour);
+}
+function handleHourChange(phone, rid, session, b, p) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const hour = (p && String(p).startsWith('rhour:')) ? String(p).slice(6) : parseReportHour(b);
+  if (!hour) return send(phone, rid, null, 'text', '⏰ اكتب الوقت: 10:30 أو 9 مساءً أو 7 صباحاً');
+  const id = session.data.hourTarget;
+  const row = id ? setRecipientHour(id, hour) : null;
+  saveSession(phone, 'idle', { ...session.data, hourTarget: null, hourRows: null });
+  if (!row) return send(phone, rid, null, 'text', 'ما لقيت المستلم 🙏');
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🔔 تغيّر وقت التقرير اليومي لـ *${row.name || ''}* → *${prettyHour(row.report_hour)}*` }).catch(() => {});
+  return send(phone, rid, null, 'text', `✅ *تم* — بيوصلك تقرير المبيعات اليومي الساعة *${prettyHour(row.report_hour)}* ⏰\n\n_(تبديل الوقت بأي وقت: اكتب *وقت التقرير*)_`);
 }
 // تقرير فوري بكلمة «تقرير»
 async function sendReportNow(phone, rid, yesterday) {
