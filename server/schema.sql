@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS restaurant_users (
   password_hash TEXT NOT NULL,
   role TEXT DEFAULT 'owner',
   national_id TEXT,
+  id_doc TEXT,
+  birth_date TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -116,6 +118,10 @@ CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   phone TEXT UNIQUE NOT NULL,
   name TEXT,
+  national_id TEXT,
+  birth_date TEXT,
+  activation_code TEXT,
+  pledged_at TEXT,
   tier TEXT DEFAULT 'برونزي',
   points_balance INTEGER DEFAULT 0,
   total_points_earned INTEGER DEFAULT 0,
@@ -147,6 +153,7 @@ CREATE TABLE IF NOT EXISTS captains (
   vehicle_color TEXT,
   license_doc TEXT,
   criminal_doc TEXT,
+  id_doc TEXT,
   city TEXT,
   district TEXT,
   national_id TEXT,
@@ -402,6 +409,21 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- 📜 التعهدات وأرقام التفعيل (عميل · مالك · مدير · كاشير · كابتن)
+CREATE TABLE IF NOT EXISTS agreements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  name TEXT,
+  national_id TEXT,
+  birth_date TEXT,
+  doc TEXT,
+  restaurant_id INTEGER,
+  code TEXT,
+  accepted_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- طلبات الإعلانات: النشاط يطلب → المشرف يسعّر → موافقة → دفع → نص الإعلان → اعتماد → إرسال لعملاء المدينة

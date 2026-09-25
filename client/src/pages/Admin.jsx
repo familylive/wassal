@@ -49,13 +49,18 @@ function UsersTab() {
               <td style={{ fontSize: 12.5 }}>{u.login || '—'}</td>
               <td style={{ fontSize: 12.5 }}>{u.section}</td>
               <td>{u.is_active === 0 || u.is_active === false ? <span className="badge b-gray">موقوف</span> : <span className="badge b-green">نشط</span>}</td>
-              <td>{(u.kind === 'restaurant_user' || u.kind === 'captain') ? <button className="btn ghost sm" onClick={() => reset(u)}>🔑 كلمة المرور</button> : null}</td>
+              <td>
+              {u.id_doc ? <a href={u.id_doc} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>🪪 الهوية</a> : null}
+              {u.birth_date ? <div style={{ fontSize: 11.5, color: 'var(--mut)' }}>🎂 {u.birth_date}</div> : null}
+              {u.pledge?.code ? <div style={{ fontSize: 11.5, color: 'var(--mut)' }}>📜 تفعيل {u.pledge.code}</div> : null}
+              {(u.kind === 'restaurant_user' || u.kind === 'captain') ? <button className="btn ghost sm" onClick={() => reset(u)}>🔑 كلمة المرور</button> : null}
+            </td>
             </tr>
           ))}
         </tbody>
       </table>
       <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 8 }}>
-        🔑 كلمة مرور صاحب النشاط والكاشير والكابتن = <b>آخر ٦ أرقام من جوالهم</b> — وزر «كلمة المرور» يعيد تعيينها ويعطيك إياها لترسلها له.
+        📜 كل مستخدم يوقّع <b>تعهد</b> عند التسجيل ويحصل على <b>رقم تفعيل</b> — ويظهر هنا. · 🔑 كلمة مرور صاحب النشاط والكاشير والكابتن = <b>آخر ٦ أرقام من جوالهم</b> — وزر «كلمة المرور» يعيد تعيينها ويعطيك إياها لترسلها له.
       </div>
     </Card>
   );

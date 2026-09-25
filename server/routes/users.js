@@ -19,18 +19,20 @@ export const ROLES_AR = {
 // 👥 كل المستخدمين في المنصة مع أدوارهم
 router.get('/', requireRole('admin'), (req, res) => {
   const admins = q.all("SELECT id, name, email, created_at FROM admins").map(a => ({ ...a, kind: 'admin', role: 'admin', role_ar: ROLES_AR.admin, login: a.email }));
-  const restUsers = q.all(`SELECT u.id, u.name, u.phone, u.email, u.role, u.national_id, u.is_active, u.created_at, u.restaurant_id, r.name_ar AS restaurant_name
+  const restUsers = q.all(`SELECT u.id, u.name, u.phone, u.email, u.role, u.national_id, u.id_doc, u.is_active, u.created_at, u.restaurant_id, r.name_ar AS restaurant_name
     FROM restaurant_users u LEFT JOIN restaurants r ON r.id=u.restaurant_id ORDER BY u.restaurant_id, CASE u.role WHEN 'owner' THEN 0 WHEN 'cashier' THEN 1 ELSE 2 END, u.id`)
     .map(u => ({ ...u, kind: 'restaurant_user', role_ar: roleAr(u.role), login: u.phone || u.email }));
-  const managers = q.all(`SELECT p.id, p.name, p.phone, p.national_id, p.status, p.report_hour, p.restaurant_id, r.name_ar AS restaurant_name
+  const managers = q.all(`SELECT p.id, p.name, p.phone, p.national_id, p.birth_date, p.id_doc, p.status, p.report_hour, p.restaurant_id, r.name_ar AS restaurant_name
     FROM report_recipients p LEFT JOIN restaurants r ON r.id=p.restaurant_id ORDER BY p.id DESC`)
     .map(p => ({ ...p, kind: 'manager', role: 'manager', role_ar: ROLES_AR.manager, is_active: p.status === 'approved', login: p.phone }));
-  const captains = q.all(`SELECT id, name, phone, email, city, status, is_active, blocked, deposit_balance, created_at FROM captains ORDER BY id DESC`)
+  const captains = q.all(`SELECT id, name, phone, email, city, status, is_active, blocked, deposit_balance, national_id, id_doc, created_at FROM captains ORDER BY id DESC`)
     .map(c => ({ ...c, kind: 'captain', role: 'captain', role_ar: ROLES_AR.captain, login: c.phone }));
-  const customers = q.all(`SELECT c.id, c.name, c.phone, c.total_orders, c.total_spent, c.created_at,
+  const ags = q.all("SELECT kind, phone, code, accepted_at FROM agreements").reduce((a, x) => (a[x.kind + ':' + x.phone] = x, a), {});
+  const customers = q.all(`SELECT c.id, c.name, c.phone, c.national_id, c.birth_date, c.activation_code, c.pledged_at, c.total_orders, c.total_spent, c.created_at,
       (SELECT COUNT(*) FROM customer_locations cl WHERE cl.customer_id=c.id) AS addresses
     FROM customers c ORDER BY c.id DESC`).map(c => ({ ...c, kind: 'customer', role: 'customer', role_ar: ROLES_AR.customer, login: c.phone }));
-  res.json({ admins, restaurant_users: restUsers, managers, captains, customers, roles: ROLES_AR,
+  const withPledge = (x) => ({ ...x, pledge: ags[x.kind + ':' + String(x.phone || '').replace(/^\+/, '')] || null });
+  res.json({ admins, restaurant_users: restUsers.map(withPledge), managers: managers.map(withPledge), captains: captains.map(withPledge), customers: customers.map(withPledge), roles: ROLES_AR,
     counts: { admins: admins.length, restaurant_users: restUsers.length, managers: managers.length, captains: captains.length, customers: customers.length } });
 });
 

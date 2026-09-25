@@ -7,6 +7,7 @@ import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import { addRecipient, notifySupervisorRecipient, notifyOwnerRecipient, notifyOwnerTeamInfo, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
 import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cashierPhone, addCashier, listUsers } from './restUsers.js';
+import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage } from './pledge.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
 
@@ -306,7 +307,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
+    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -314,15 +316,21 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (!IN_REG_FLOW && state === 'ask_name') {
     if (b.length < 2) return send(phone, rid, null, 'text', 'عطني اسمك الكريم 🌸 عشان أكمل طلبك');
     q.run("UPDATE customers SET name=? WHERE id=?", b.slice(0, 40), customer.id);
-    send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!\nعساك طيب؟ 🙌\n\n*أمرني* — وش تبي تطلب اليوم؟ 😋`);
-    // 📍 الموقع مطلوب: نخزّنه من أول مرة (تسجيل العميل) لعرض أقرب الأنشطة وحساب التوصيل
-    const loc = getCustomerLocation(phone);
-    if (!loc || loc.lat == null || loc.lng == null) {
-      saveSession(phone, 'signup_location', {});
-      send(phone, rid, null, 'text', '📍 *خطوة أخيرة يا غالي:* أرسل لنا موقعك الحالي\nعشان نعرض لك *أقرب الأنشطة* لك ونحسب التوصيل بدقة ✅');
-      return send(phone, rid, null, 'buttons', 'في واتساب: زر 📎 ← الموقع 👇', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
-    }
-    return showRestaurants(phone);
+    saveSession(phone, 'ask_nid', { ...data, custName: b.slice(0, 40) });
+    send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!`);
+    return send(phone, rid, null, 'text', '🆔 *رقم هويتك الوطنية* أو *الإقامة*؟ (١٠ أرقام — بدون صورة)\n_(لأمان الجميع وتوثيق التعامل)_');
+  }
+  // 👤 تسجيل العميل: الهوية → تاريخ الميلاد → التعهد
+  if (state === 'ask_nid') {
+    const nid = validNationalId(b);
+    if (!nid) return send(phone, rid, null, 'text', 'رقم الهوية/الإقامة لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
+    saveSession(phone, 'ask_dob', { ...data, custNid: nid });
+    return send(phone, rid, null, 'text', '🎂 و*تاريخ ميلادك*؟ (مثال: 1998-05-20 أو 1415/05/20)');
+  }
+  if (state === 'ask_dob') {
+    const dob = parseBirthDate(b);
+    if (!dob) return send(phone, rid, null, 'text', 'اكتب التاريخ بالشكل: *1998-05-20* أو *20/5/1998* 🙏');
+    return askPledge(phone, rid, { kind: 'customer', name: data.custName, national_id: data.custNid, birth_date: dob, next: 'customer_done', data: {} });
   }
 
   // الأوامر العامة في أي وقت
@@ -353,6 +361,11 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'reg_owner': return handleRegOwner(phone, rid, session, b);
     case 'reg_owner_id': return handleRegOwnerId(phone, rid, session, b);
     case 'reg_items': return handleRegItems(phone, rid, session, b);
+    case 'reg_id_doc': return handleRegIdDoc(phone, rid, session, b, mediaRef);
+    case 'pledge': return handlePledgeAccept(phone, rid, session, b, p);
+    case 'mgr_iddoc': return handleMgrIdDoc(phone, rid, session, b, mediaRef);
+    case 'cap_iddoc': return handleCapIdDoc(phone, rid, session, b, mediaRef);
+    case 'cash_iddoc': return handleCashIdDoc(phone, rid, session, b, mediaRef);
     case 'reg_shift': return handleRegShift(phone, rid, session, b, p);
     case 'reg_s1f': return handleRegShiftTime(phone, rid, session, b, 's1_from', 'reg_s1t', '✅ من {t} — ومتى *يقفل* النشاط؟');
     case 'reg_s1t': {
@@ -1583,7 +1596,15 @@ function handleRegOwnerId(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const id = validNationalId(b);
   if (!id) return send(phone, rid, null, 'text', 'رقم الهوية لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
-  saveSession(phone, 'reg_items', { ...session.data, reg: { ...session.data.reg, owner_id: id } });
+  saveSession(phone, 'reg_id_doc', { ...session.data, reg: { ...session.data.reg, owner_id: id } });
+  return send(phone, rid, null, 'text', '🪪 *صورة هويتك الوطنية* (أو الإقامة)\n\n📎 أرسل صورة واضحة للوجه والخلف\n_(أو اكتب *تخطى*)_');
+}
+async function handleRegIdDoc(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.id_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة الهوية، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'reg_items', { ...session.data, reg });
   return send(phone, rid, null, 'text', ITEMS_PROMPT('✅ تم حفظ بياناتك.\n\n'));
 }
 
@@ -1743,6 +1764,10 @@ async function handleRegReview(phone, rid, session, b, p) {
   if (p === 'reg_cancel' || REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️ (نص · 🎙 صوتية · 📷 صورة واضحة)'); }
   if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
+    const reg0 = session.data.reg || {};
+    return askPledge(phone, rid, { kind: 'owner', name: reg0.owner || null, national_id: reg0.owner_id || null, doc: reg0.id_doc || null, next: 'reg_subscribe_now', data: session.data });
+  }
+  if (p === 'reg_pledged_ok') {
     const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
     saveSession(phone, 'reg_subscribe', session.data);
     send(phone, rid, null, 'text', `💳 *اشتراك النشاط السنوي: ${sub.toFixed(2)} ر.س*\n\nمبلغ اشتراك سنوي يُدفع للمنصة عند التسجيل ✅`);
@@ -1888,14 +1913,27 @@ async function handleCapCriminal(phone, rid, session, b, mediaRef) {
   const reg = { ...(session.data.reg || {}) };
   if (mediaRef) reg.criminal_doc = mediaRef;
   else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل شهادة خلو السوابق من أبشر، أو اكتب *تخطى* 🙏');
-  saveSession(phone, 'cap_deposit', { ...session.data, reg });
-  send(phone, rid, null, 'text', `💰 *تأمين الحساب: ٥٠٠ ر.س*\n\nمبلغ تأمين يُدفع مرة واحدة، ويُحفظ لك رصيد — وكل ما وصلت مبالغك المحصّلة للحدّ نوقف الاستقبال مؤقتاً حتى التسوية ✅`);
+  saveSession(phone, 'cap_iddoc', { ...session.data, reg });
+  return send(phone, rid, null, 'text', '🪪 *صورة هويتك الوطنية* (أو الإقامة)\n\n📎 أرسل صورة واضحة\n_(أو اكتب *تخطى*)_');
+}
+async function handleCapIdDoc(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  if (mediaRef) reg.id_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة الهوية، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'cap_pledge', { ...session.data, reg });
+  return askPledge(phone, rid, { kind: 'captain', name: reg.name || null, national_id: reg.national_id || null, doc: reg.id_doc || null, next: 'cap_deposit_now', data: { ...session.data, reg } });
+}
+
+// 💰 خطوة تأمين الحساب (تُستدعى بعد التعهد كذلك)
+function sendCapDeposit(phone, rid, data) {
+  saveSession(phone, 'cap_deposit', data);
+  send(phone, rid, null, 'text', `💰 *تأمين الحساب: ${rls(Number(config.captainDeposit || 50000))} ر.س*\n\nمبلغ تأمين يُدفع مرة واحدة، ويُحفظ لك رصيد — وكل ما وصلت مبالغك المحصّلة للحدّ نوقف الاستقبال مؤقتاً حتى التسوية ✅`);
   return send(phone, rid, null, 'buttons', 'كيف تحب تكمل؟', { buttons: [
     { id: 'dep_pay', title: '💳 ادفع التأمين' },
     { id: 'dep_later', title: '⏳ أدفعه لاحقاً' }
   ] });
 }
-
 // خطوة التأمين ثم إرسال الطلب
 async function handleCapDeposit(phone, rid, session, b, p) {
   const reg = session.data.reg || {};
@@ -1943,6 +1981,30 @@ function startAddManager(phone, rid, session) {
   saveSession(phone, 'rep_name', { ...session.data, reg: null, rep: { restaurant_id: rrid } });
   return send(phone, rid, null, 'text', '👤 *إضافة مدير المطعم* — بيوصله *تقرير المبيعات اليومي* على واتساب (المجموع الختام · شبكة · كاش).\n\nوش *اسمه*؟');
 }
+// 👤 إكمال تسجيل العميل بعد التعهد (الموقع ثم عرض الأنشطة)
+function finishCustomerSignup(phone, rid) {
+  const loc = getCustomerLocation(phone);
+  if (!loc || loc.lat == null || loc.lng == null) {
+    saveSession(phone, 'signup_location', {});
+    send(phone, rid, null, 'text', '📍 *خطوة أخيرة:* أرسل موقعك الحالي\nعشان نعرض لك *أقرب الأنشطة* ونحسب التوصيل بدقة ✅');
+    return send(phone, rid, null, 'buttons', 'في واتساب: زر 📎 ← الموقع 👇', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+  }
+  return showRestaurants(phone);
+}
+// 🎂 تحويل تاريخ الميلاد
+function parseBirthDate(x) {
+  const t = String(x || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).trim();
+  let m = t.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  m = t.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  m = t.match(/^(\d{8})$/);
+  if (m) return `${m[1].slice(0,4)}-${m[1].slice(4,6)}-${m[1].slice(6,8)}`;
+  m = t.match(/^(\d{6})$/);
+  if (m) return `19${m[1].slice(4,6)}-${m[1].slice(2,4)}-${m[1].slice(0,2)}`;
+  return null;
+}
+
 // 👤 تسجيل حساب العميل (اسم + موقع) — ما يحتاج أكثر
 function startCustomerSignup(phone, rid, customer, session) {
   const loc = getCustomerLocation(phone);
@@ -1957,6 +2019,52 @@ function startCustomerSignup(phone, rid, customer, session) {
   }
   saveSession(phone, 'ask_name', { ...session.data, pendingState: 'directory' });
   return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج أي أوراق — بس *اسمك* و*موقعك* ✅\n\nوش *اسمك الكريم*؟`);
+}
+
+// 📜 إرسال التعهد ثم تسجيله وإعطاء رقم التفعيل — pending = { kind, next, data, ... }
+function askPledge(phone, rid, pending = {}) {
+  saveSession(phone, 'pledge', { ...(pending.data || {}), pledge: pending });
+  send(phone, rid, null, 'text', PLEDGE_TEXT);
+  return send(phone, rid, null, 'buttons', 'للموافقة اضغط 👇', { buttons: PLEDGE_BUTTONS });
+}
+async function handlePledgeAccept(phone, rid, session, b, p) {
+  const pending = session.data.pledge || {};
+  const yes = p === 'pledge_ok' || /^(اوافق|أوافق|موافق|اقبل|أقبل|تم|نعم|agree)$/.test(String(b || '').trim());
+  if (!yes) return send(phone, rid, null, 'buttons', 'لازم توافق على التعهد عشان نكمّل 🙏', { buttons: PLEDGE_BUTTONS });
+  const info = {
+    kind: pending.kind || 'customer',
+    phone: validatePhone(phone) || phone,
+    name: pending.name || null,
+    national_id: pending.national_id || null,
+    birth_date: pending.birth_date || null,
+    doc: pending.doc || null,
+    restaurant_id: pending.restaurant_id || null
+  };
+  const { code } = createPledge(info);
+  // حدّث سجلات المستخدم برقم التفعيل
+  try {
+    if (info.kind === 'customer') q.run("UPDATE customers SET national_id=COALESCE(?,national_id), birth_date=COALESCE(?,birth_date), activation_code=?, pledged_at=datetime('now') WHERE phone=? OR phone=?", info.national_id, info.birth_date, code, info.phone, '+' + info.phone);
+    if (info.kind === 'owner' || info.kind === 'cashier') q.run("UPDATE restaurant_users SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.doc, info.phone, '+' + info.phone);
+    if (info.kind === 'captain') q.run("UPDATE captains SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.doc, info.phone, '+' + info.phone);
+    if (info.kind === 'manager') q.run("UPDATE report_recipients SET national_id=COALESCE(?,national_id), birth_date=COALESCE(?,birth_date), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.birth_date, info.doc, info.phone, '+' + info.phone);
+  } catch (e) { console.error('PLEDGE_UPDATE_FAIL', e.message); }
+  await send(phone, rid, null, 'text', pledgeMessage(code));
+  const next = pending.next || 'done';
+  // متابعة الدورة
+  if (next === 'customer_done') return finishCustomerSignup(phone, rid);
+  if (next === 'reg_review') return sendRegReview(phone, rid, { ...(session.data.reg ? session.data : pending.data || {}) });
+  if (next === 'cap_submit') { saveSession(phone, 'cap_deposit', { ...pending.data }); return sendCapDeposit(phone, rid, pending.data); }
+  if (next === 'manager_done') return finishManagerJoinAfterPledge(phone, rid, pending, code);
+  if (next === 'reg_subscribe_now') {
+    saveSession(phone, 'reg_subscribe', pending.data || session.data);
+    const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
+    send(phone, rid, null, 'text', `💳 *اشتراك النشاط السنوي: ${sub.toFixed(2)} ر.س*\n\nمبلغ اشتراك سنوي يُدفع للمنصة عند التسجيل ✅`);
+    return send(phone, rid, null, 'buttons', 'كيف تحب تكمل؟', { buttons: [
+      { id: 'sub_pay', title: '💳 ادفع الاشتراك' }, { id: 'sub_later', title: '⏳ أدفعه لاحقاً' }
+    ] });
+  }
+  if (next === 'cap_deposit_now') return sendCapDeposit(phone, rid, pending.data || session.data);
+  return mainMenu(phone, rid);
 }
 
 // ⏰ سؤال وقت التقرير اليومي (مشترك)
@@ -2002,9 +2110,8 @@ function handleMgrId(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const nid = validNationalId(b);
   if (!nid) return send(phone, rid, null, 'text', 'رقم الهوية لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
-  saveSession(phone, 'mgr_biz', { ...session.data, mgr: { ...session.data.mgr, national_id: nid } });
-  const have = q.get("SELECT COUNT(*) c FROM restaurants").c;
-  return send(phone, rid, null, 'text', `✅ *${session.data.mgr?.name || ''}* · 🔢 ${nid}\n\n🏪 الحين أرسل *رقم النشاط* اللي تديره (تجده في بيانات النشاط أو من الإدارة)${have ? '' : '\n_(أو اكتب اسم النشاط)_'}`);
+  saveSession(phone, 'mgr_iddoc', { ...session.data, mgr: { ...session.data.mgr, national_id: nid } });
+  return send(phone, rid, null, 'text', `✅ *${session.data.mgr?.name || ''}* · 🔢 ${nid}\n\n🪪 *صورة هويتك* (أو الإقامة)\n📎 أرسل صورة واضحة\n_(أو اكتب *تخطى*)_`);
 }
 // رقم النشاط → ربط + إرسال للاعتماد
 async function handleMgrBiz(phone, rid, session, b, p) {
@@ -2035,6 +2142,36 @@ function handleMgrPick(phone, rid, session, b, p) {
   return handleMgrBiz(phone, rid, session, b, p);
 }
 async function finishManagerJoin(phone, rid, session, mgr, rest) {
+  // 📜 تعهد + رقم تفعيل قبل الربط
+  saveSession(phone, 'mgr_pledge', { ...session.data, mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } });
+  return askPledge(phone, rid, { kind: 'manager', name: mgr.name || null, national_id: mgr.national_id || null, birth_date: mgr.birth_date || null, doc: mgr.id_doc || null, restaurant_id: rest.id, next: 'manager_done', data: { mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } } });
+}
+// 🪪 صورة هوية المدير قبل التعهد
+async function handleMgrIdDoc(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const mgr = { ...(session.data.mgr || {}) };
+  if (mediaRef) mgr.id_doc = mediaRef;
+  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة هويتك/إقامتك، أو اكتب *تخطى* 🙏');
+  saveSession(phone, 'mgr_biz', { ...session.data, mgr });
+  const have = q.get("SELECT COUNT(*) c FROM restaurants").c;
+  return send(phone, rid, null, 'text', `🏪 الحين أرسل *رقم النشاط* اللي تديره${have ? '' : '\n_(أو اكتب اسم النشاط)_'}`);
+}
+// بعد التعهد: الربط + إشعار صاحب النشاط
+async function finishManagerJoinAfterPledge(phone, rid, pending, code) {
+  const mgr = pending?.data?.mgr || {};
+  const rest = { id: mgr.restaurant_id, name_ar: mgr.restaurant_name };
+  const row = addRecipient(rest.id, mgr.name, mgr.phone, mgr.hour || '23:30', mgr.national_id);
+  if (mgr.id_doc) { try { q.run("UPDATE report_recipients SET id_doc=? WHERE id=?", mgr.id_doc, row.id); } catch (e) {} }
+  saveSession(phone, 'idle', {});
+  const sent = await notifyOwnerRecipient(row);
+  if (!sent) await notifySupervisorRecipient(row);
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📊 طلب انضمام مدير (بانتظار اعتماد صاحب النشاط)\n🏪 ${rest.name_ar} (#${rest.id})\n👤 ${mgr.name || ''} · 📱 ${mgr.phone}\n🔢 التعهد/التفعيل: ${code}` }).catch(() => {});
+  return send(phone, rid, null, 'text', sent
+    ? `✅ *تم الربط وأرسلناه لصاحب النشاط للاعتماد*\n\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 ${mgr.name || ''}\n📱 ${mgr.phone}\n⏰ وقت التقرير: *${prettyHour(row.report_hour)}*`
+    : '✅ *تم الربط* — بيوصلك تقرير المبيعات اليومي 📊');
+}
+
+async function _finishManagerJoin_old(phone, rid, session, mgr, rest) {
   saveSession(phone, 'idle', { ...session.data, mgr: null });
   const row = addRecipient(rest.id, mgr.name, mgr.phone, mgr.hour || '23:30', mgr.national_id);
   // ✅ الاعتماد من *صاحب النشاط* عبر جواله (وإن ما له جوال → ترجع للإدارة)

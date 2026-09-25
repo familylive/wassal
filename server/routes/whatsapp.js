@@ -28,7 +28,8 @@ function logHit(kind, summary, raw = '') {
 // حالات استقبال مستندات التسجيل داخل الواتساب
 const REG_DOC_STATES = {
   reg_lic: 'municipal', reg_cr: 'cr', reg_hdoc: 'health',
-  cap_license: 'license', cap_criminal: 'criminal'
+  cap_license: 'license', cap_criminal: 'criminal',
+  reg_id_doc: 'owner-id', cap_iddoc: 'captain-id', mgr_iddoc: 'manager-id', cash_iddoc: 'cashier-id'
 };
 
 function parseLetsBot(body) {
