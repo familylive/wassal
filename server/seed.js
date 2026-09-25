@@ -6,7 +6,13 @@ const H = (p) => bcrypt.hashSync(p, 10);
 tx(() => {
   // ---------- أدمن ----------
   if (!q.get("SELECT id FROM admins LIMIT 1"))
-    q.run("INSERT INTO admins (name, email, password_hash) VALUES (?,?,?)", 'مدير المنصة', 'admin@wassal.app', H('admin123'));
+    q.run("INSERT INTO admins (name, email, password_hash) VALUES (?,?,?)", 'مدير المنصة', 'admin@wassal.app', H(process.env.ADMIN_PASSWORD || 'admin123'));
+
+  // البيانات التجريبية (مطاعم · فروع · أصناف · كباتن · عميل) — تُزرع فقط عند طلبها صراحةً
+  if (process.env.SEED_DEMO !== 'true') {
+    console.log('SEED_DEMO_SKIP — تم تخطي البيانات التجريبية (اضبط SEED_DEMO=true لإرجاعها)');
+    return;
+  }
 
   // ---------- مطاعم ----------
   const mkRest = (name, phone, pw, opts = {}) => {

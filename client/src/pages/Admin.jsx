@@ -505,6 +505,14 @@ function SettingsTab() {
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
   const [testRes, setTestRes] = useState(null);
+  const [clearing, setClearing] = useState(false);
+  const clearDemo = async () => {
+    if (!window.confirm('تأكيد: حذف كل المطاعم والمشتركين والكباتن والطلبات والمحادثات؟\n\nتُبقي الإعدادات وأنواع الأنشطة وحساب المدير.')) return;
+    if (!window.confirm('تأكيد أخير — لا يمكن التراجع إلا من نسخة الأمان. متأكد؟')) return;
+    setClearing(true);
+    try { await api('/dbadmin/reset-demo?confirm=YES', { method: 'POST', body: {} }); notify('✅ تم تفريغ البيانات التجريبية'); }
+    catch (e) { notify(e.message); } finally { setClearing(false); }
+  };
   const [pw, setPw] = useState({ cur: '', next: '' });
   const load = () => api('/settings').then(d => {
     setS(d);
@@ -612,6 +620,17 @@ function SettingsTab() {
             style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
         </Fld>
         <button className="btn ghost sm" disabled={busy || !raw.trim()} onClick={() => save({ raw })}>📥 قراءة النص وتطبيقه</button>
+      </div>
+      <div style={{ marginTop: 18, padding: 12, border: '1px solid #f3c7c7', borderRadius: 10, background: '#fff7f7' }}>
+        <div style={{ fontWeight: 700, color: '#c62828', marginBottom: 4 }}>🧹 تفريغ البيانات التجريبية</div>
+        <div style={{ fontSize: 12.5, color: 'var(--mut)', lineHeight: 1.8, marginBottom: 8 }}>
+          يحذف: المطاعم وأصنافها · المشتركين · الكباتن · الطلبات · المحادثات.
+          <br />ويُبقي: حساب المدير · إعدادات واتساب · أنواع الأنشطة.
+          <br />تُؤخذ نسخة أمان تلقائياً قبل الحذف.
+        </div>
+        <button className="btn ghost" disabled={clearing} onClick={clearDemo} style={{ borderColor: '#e57373', color: '#c62828' }}>
+          {clearing ? '… جارٍ التفريغ' : '🧹 افرغ البيانات التجريبية'}
+        </button>
       </div>
     </Card>
   );

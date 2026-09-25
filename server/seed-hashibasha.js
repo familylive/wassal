@@ -7,6 +7,11 @@ const menu = JSON.parse(readFileSync(new URL('./data/hashibasha/hb_menu.json', i
 const IMG = (fn) => '/uploads/hashibasha/' + fn;
 const H = (p) => bcrypt.hashSync(p, 10);
 
+if (process.env.SEED_DEMO !== 'true') {
+  console.log('SEED_HASHIBASHA_SKIP — بيانات حاشي باشا التجريبية معطلة (اضبط SEED_DEMO=true لإرجاعها)');
+  process.exit(0);
+}
+
 tx(() => {
   // ===== المطعم الرئيسي =====
   let rest = q.get("SELECT id FROM restaurants WHERE name_ar='حاشي باشا'");
