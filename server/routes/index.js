@@ -18,6 +18,7 @@ import businessTypes from './businessTypes.js';
 import registrations from './registrations.js';
 import reportRecipients from './reportRecipients.js';
 import adRequests from './adRequests.js';
+import users from './users.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -39,4 +40,5 @@ router.use('/business-types', businessTypes);
 router.use('/registrations', registrations);
 router.use('/report-recipients', reportRecipients);
 router.use('/ad-requests', adRequests);
+router.use('/users', users);
 export default router;

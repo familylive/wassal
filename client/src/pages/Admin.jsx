@@ -3,8 +3,63 @@ import { api, sar, statusAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
 import { Card, Stat, Modal, Fld, Badge, Money, Pay } from '../components/ui.jsx';
 
-const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'regs', 'reports', 'types', 'settings'];
-const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', reports: '📊 تقارير المبيعات', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
+const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'users', 'ads', 'loyalty', 'chats', 'regs', 'reports', 'types', 'settings'];
+const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', users: '👥 المستخدمون والأدوار', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', reports: '📊 تقارير المبيعات', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
+
+// 👥 المستخدمون والأدوار
+function UsersTab() {
+  const { notify } = useApp();
+  const [d, setD] = useState(null);
+  const [kw, setKw] = useState('');
+  const load = () => api('/users').then(setD).catch(() => {});
+  useEffect(() => { load(); }, []);
+  if (!d) return <Card title="👥 المستخدمون والأدوار">…</Card>;
+  const reset = async (u) => {
+    if (!u.login) return notify('لا يوجد جوال');
+    try {
+      const r = await api('/users/reset-password', { method: 'POST', body: { kind: u.kind, id: u.id } });
+      notify(`🔑 كلمة مرور ${r.name || ''}: ${r.password} — أرسلها له`);
+    } catch (e) { notify(e.message); }
+  };
+  const rows = [
+    ...d.admins.map(u => ({ ...u, section: 'الإدارة' })),
+    ...d.restaurant_users.map(u => ({ ...u, section: (u.restaurant_name || 'أنشطة') + ' #' + u.restaurant_id })),
+    ...d.managers.map(u => ({ ...u, section: 'مديرو التقارير · ' + (u.restaurant_name || '') })),
+    ...d.captains.map(u => ({ ...u, section: 'الكباتن' })),
+    ...d.customers.map(u => ({ ...u, section: 'العملاء' }))
+  ].filter(u => !kw || `${u.name || ''} ${u.phone || ''} ${u.login || ''} ${u.section} ${u.role_ar || ''}`.includes(kw));
+  return (
+    <Card title={`👥 المستخدمون والأدوار (${rows.length})`} action={
+      <div className="row" style={{ gap: 6 }}>
+        <input placeholder="🔍 بحث…" value={kw} onChange={e => setKw(e.target.value)} style={{ width: 170 }} />
+        <button className="btn ghost sm" onClick={load}>🔄 تحديث</button>
+      </div>
+    }>
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 8 }}>
+        🔴 الإدارة · 👤 صاحب النشاط (المالك): يسجّل ويضيف كاشير/مدير · 🧾 الكاشير: يستلم الطلبات وممنوع من التسجيل · 📊 المدير: تقرير المبيعات · 🛵 الكابتن: التوصيل · 🙋 العميل: يطلب من واتساب
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>الدور</th><th>الاسم</th><th>الدخول</th><th>الجهة</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          {rows.map(u => (
+            <tr key={u.kind + '-' + u.id}>
+              <td>{u.id}</td>
+              <td><span className="badge b-blue">{u.role_ar}</span></td>
+              <td><b>{u.name || '—'}</b></td>
+              <td style={{ fontSize: 12.5 }}>{u.login || '—'}</td>
+              <td style={{ fontSize: 12.5 }}>{u.section}</td>
+              <td>{u.is_active === 0 || u.is_active === false ? <span className="badge b-gray">موقوف</span> : <span className="badge b-green">نشط</span>}</td>
+              <td>{(u.kind === 'restaurant_user' || u.kind === 'captain') ? <button className="btn ghost sm" onClick={() => reset(u)}>🔑 كلمة المرور</button> : null}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 8 }}>
+        🔑 كلمة مرور صاحب النشاط والكاشير والكابتن = <b>آخر ٦ أرقام من جوالهم</b> — وزر «كلمة المرور» يعيد تعيينها ويعطيك إياها لترسلها له.
+      </div>
+    </Card>
+  );
+}
 
 export default function Admin() {
   const { user, socket, logout, notify } = useApp();
@@ -56,6 +111,7 @@ export default function Admin() {
         {tab === 'restaurants' && <RestTab data={restaurants} onChange={load} />}
         {tab === 'captains' && <CaptainsTab data={captains} onChange={load} />}
         {tab === 'customers' && <CustomersTab data={customers} />}
+        {tab === 'users' && <UsersTab />}
         {tab === 'ads' && <AdsTab data={ads} onChange={load} />}
         {tab === 'loyalty' && <LoyaltyTab />}
         {tab === 'chats' && <ChatsTab restaurants={restaurants} />}
