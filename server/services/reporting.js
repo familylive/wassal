@@ -1,6 +1,7 @@
 // ---------- تقارير المبيعات اليومية + مستلمو التقارير ----------
 // صاحب النشاط يضيف مدير المطعم من المحادثة → إشعار مشرف المنصة → اعتماد → تقرير يومي على واتساب
 import { q } from '../db.js';
+import { ownerPhone, cashierPhone } from './restUsers.js';
 import config from '../config.js';
 import { waSend } from './whatsapp.js';
 import { validatePhone } from '../utils.js';
@@ -152,6 +153,30 @@ export function addRecipient(restaurantId, name, phoneRaw, hour = '23:30', natio
   const r = q.run("INSERT INTO report_recipients (restaurant_id, name, national_id, phone, status, report_hour) VALUES (?,?,?,?,'pending',?)",
     restaurantId, name || null, nid, phone, hour || '23:30');
   return q.get("SELECT * FROM report_recipients WHERE id=?", Number(r.lastInsertRowid));
+}
+
+// 👤 إشعار *صاحب النشاط* لاعتماد المدير (المالك يعتمد بنفسه من جواله)
+export async function notifyOwnerRecipient(row) {
+  const owner = ownerPhone(row.restaurant_id);
+  if (!owner) return false;
+  const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", row.restaurant_id);
+  const txt = `📊 *طلب إضافة مدير لنشاطك*\n\n🏪 ${r?.name_ar || ''} (#${row.restaurant_id})\n👤 ${row.name || '-'}\n🔢 هويته: ${row.national_id || '⚠️ غير مسجّلة'}\n📱 جواله: ${row.phone}\n⏰ وقت التقرير: ${prettyHour(row.report_hour)}\n\n_تعتمد إضافته أنت (صاحب النشاط) — وبيوصله تقرير المبيعات اليومي._`;
+  try {
+    await waSend({ phone: owner, type: 'buttons', body: txt, buttons: [
+      { id: `rowner_ok:${row.id}`, title: '✅ اعتماد' },
+      { id: `rowner_no:${row.id}`, title: '❌ رفض' }
+    ] });
+    return true;
+  } catch (e) { console.error('REPORT_OWNER_NOTIFY_FAIL', e.message); return false; }
+}
+
+// 👤 إشعار صاحب النشاط بمن انضم لفريقه (للعلم)
+export async function notifyOwnerTeamInfo(restaurantId, line) {
+  const owner = ownerPhone(restaurantId);
+  if (!owner) return false;
+  const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", restaurantId);
+  try { await waSend({ phone: owner, type: 'text', body: `👥 *فريق نشاطك* — ${r?.name_ar || ''}\n\n${line}\n\n_(اكتب *مستخدمين* لعرض الفريق)_` }); return true; }
+  catch (e) { return false; }
 }
 
 // إشعار مشرف المنصة لاعتماد مستلم التقرير

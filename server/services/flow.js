@@ -5,7 +5,7 @@ import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
-import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
+import { addRecipient, notifySupervisorRecipient, notifyOwnerRecipient, notifyOwnerTeamInfo, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
 import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cashierPhone, addCashier, listUsers } from './restUsers.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
@@ -273,6 +273,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
   // 🏪 أزرار إشعار الطلب (استلمت / جاهز) + كلماتها
   if (p && /^ord(ok|ready):\d+$/.test(String(p))) return handleOrderActionFromOwner(phone, rid, p);
+  if (p && /^rowner_(ok|no):\d+$/.test(String(p))) return handleOwnerRecipientAction(phone, rid, p);
   if (p === 'add_cashier') return startAddCashier(phone, rid, session);
   if (p === 'add_manager') return startAddManager(phone, rid, session);
   if (/^(جاهز|استلمت|تم الاستلام)$/.test(bt) && ownerRestaurantId(phone)) return handleOrderActionFromOwner(phone, rid, null, b);
@@ -1885,10 +1886,13 @@ function handleMgrPick(phone, rid, session, b, p) {
 async function finishManagerJoin(phone, rid, session, mgr, rest) {
   saveSession(phone, 'idle', { ...session.data, mgr: null });
   const row = addRecipient(rest.id, mgr.name, mgr.phone, mgr.hour || '23:30', mgr.national_id);
-  const ok = await notifySupervisorRecipient(row);
-  return send(phone, rid, null, 'text', ok
-    ? `✅ *تم الربط وأرسلناه لمشرف المنصة للاعتماد*\n\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 ${mgr.name || ''}\n🔢 ${mgr.national_id}\n📱 ${mgr.phone}\n\nأول ما يُعتمد بيوصلك تقرير المبيعات اليومي 📊`
-    : '✅ حفظت الطلب — لكن رقم مشرف المنصة غير مضبوط، كلّم الإدارة للاعتماد.');
+  // ✅ الاعتماد من *صاحب النشاط* عبر جواله (وإن ما له جوال → ترجع للإدارة)
+  const sent = await notifyOwnerRecipient(row);
+  if (!sent) await notifySupervisorRecipient(row);
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📊 طلب انضمام مدير (بانتظار اعتماد صاحب النشاط)\n🏪 ${rest.name_ar} (#${rest.id})\n👤 ${mgr.name || ''} · 📱 ${mgr.phone} · ⏰ ${prettyHour(row.report_hour)}` }).catch(() => {});
+  return send(phone, rid, null, 'text', sent
+    ? `✅ *تم الربط وأرسلناه لصاحب النشاط للاعتماد*\n\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 ${mgr.name || ''}\n🔢 ${mgr.national_id}\n📱 ${mgr.phone}\n⏰ وقت التقرير: *${prettyHour(row.report_hour)}*\n\nأول ما يعتمد بيوصلك تقرير المبيعات اليومي 📊`
+    : '✅ *تم الربط* — بيوصلك تقرير المبيعات اليومي 📊');
 }
 
 function handleRepName(phone, rid, session, b) {
@@ -1925,10 +1929,10 @@ async function handleRepHour(phone, rid, session, b, p) {
   const rep2 = session.data.rep || {};
   saveSession(phone, 'idle', { ...session.data, rep: null });
   const row = addRecipient(rep2.restaurant_id, rep2.name, rep2.phone, hour, rep2.national_id);
-  const ok = await notifySupervisorRecipient(row);
-  return send(phone, rid, null, 'text', ok
-    ? `✅ *وصلني طلبك وأرسلته لمشرف المنصة للاعتماد*\n\n👤 ${rep2.name || ''}\n📱 ${rep2.phone}\n⏰ التقرير اليومي الساعة *${prettyHour(hour)}*\n\nأول ما يُعتمد بيوصله التقرير 🙏`
-    : '✅ حفظت الطلب — لكن رقم مشرف المنصة غير مضبوط، كلّم الإدارة للاعتماد.');
+  await approveRecipient(row.id);   // ✅ صاحب النشاط هو المعتمد — بلا اعتماد الإدارة
+  const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", rep2.restaurant_id);
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📊 أضاف *${r?.name_ar || ''}* (#${rep2.restaurant_id}) مديراً للتقارير:\n👤 ${rep2.name || ''} · 📱 ${rep2.phone} · ⏰ ${prettyHour(hour)}` }).catch(() => {});
+  return send(phone, rid, null, 'text', `✅ *تم إضافة المدير ${rep2.name || ''}*\n📱 ${rep2.phone}\n⏰ بيوصله تقرير المبيعات اليومي الساعة *${prettyHour(hour)}*\n\n_(تبيّن لي: اكتب *مستخدمين*)_`);
 }
 // 🔔 تغيير وقت التقرير لاحقاً (لمستلم التقرير أو لصاحب النشاط)
 function startChangeReportHour(phone, rid) {
@@ -2017,7 +2021,8 @@ async function handleCashPhone(phone, rid, session, b) {
     await waSend({ phone: norm, restaurantId: cash.restaurant_id, type: 'text', body:
       `🧾 *مرحباً ${cash.name}*\n\nأنت مسجّل كـ *الكاشير* في *${rest?.name_ar || ''}* ✅\n\n📦 *الطلبات بتوصلك هنا على واتساب* — اضغط «✅ استلمت» و«📦 جاهز» لمتابعتها.\n\n🔑 لوحة النشاط:${(config.publicUrl || '')}/restaurant\n👤 دخولك: ${norm}\n🔑 كلمة المرور: ${created ? password : '(نفس كلمتك السابقة)'}` });
   } catch (e) { console.error('CASHIER_WELCOME_FAIL', e.message); }
-  // إشعار الإدارة (للعلم)
+  // إشعار صاحب النشاط (تأكيد) + إشعار الإدارة (للعلم فقط — بلا اعتماد)
+  await notifyOwnerTeamInfo(cash.restaurant_id, `🧾 *الكاشير* — ${cash.name} · ${norm}\n📦 الطلبات صارت توصله ويتابعها ✅`);
   if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🧾 أضاف *${rest?.name_ar || ''}* (#${cash.restaurant_id}) كاشيراً جديداً:\n👤 ${cash.name}\n📱 ${norm}\n_(الطلبات صارت توصله)_` }).catch(() => {});
   return send(phone, rid, null, 'text', `✅ *تم إضافة الكاشير ${cash.name}*\n📱 ${norm}\n🔑 كلمة مروره: *${created ? password : '(نفس كلمته السابقة)'}*\n\n📦 من الآن *الطلبات توصله على واتساب* ويتابعها ✅\n_(تبيّن لي: اكتب *مستخدمين*)_`);
 }
@@ -2056,6 +2061,26 @@ function sendBusinessNumber(phone, rid) {
 }
 
 // 🏪 صاحب النشاط: تأكيد الطلب / الطلب جاهز من أزرار إشعار الطلب
+// 👤 اعتماد صاحب النشاط لمديره (من أزرار رسالته)
+async function handleOwnerRecipientAction(phone, rid, p) {
+  const m = String(p || '').match(/^rowner_(ok|no):(\d+)$/);
+  if (!m) return null;
+  const id = Number(m[2]);
+  const row = q.get("SELECT * FROM report_recipients WHERE id=?", id);
+  if (!row) return send(phone, rid, null, 'text', 'ما لقيت الطلب 🙏');
+  const isAdmin = config.adminPhone && validatePhone(phone) === validatePhone(config.adminPhone);
+  const rrid = ownerRestaurantId(phone);
+  if (!isAdmin && rrid !== row.restaurant_id) return send(phone, rid, null, 'text', '🚫 هذا الاعتماد لصاحب النشاط (المالك) فقط');
+  if (m[1] === 'ok') {
+    const r = await approveRecipient(id);
+    if (r.error && r.error !== 'معتمد مسبقاً') return send(phone, rid, null, 'text', r.error);
+    try { await waSend({ phone: row.phone, type: 'text', body: `✅ *اعتمدك صاحب النشاط* كمستلم تقرير مبيعات 📊` }); } catch (e) {}
+    return send(phone, rid, null, 'text', `✅ *تم اعتماد ${row.name || ''}* — بيوصله التقرير اليومي الساعة *${prettyHour(row.report_hour)}* 📊`);
+  }
+  await rejectRecipient(id, 'رفض صاحب النشاط');
+  return send(phone, rid, null, 'text', `❌ *تم رفض ${row.name || ''}* — وما بيوصله أي تقرير.`);
+}
+
 async function handleOrderActionFromOwner(phone, rid, p, b = '') {
   const m = String(p || '').match(/^ord(ok|ready):(\d+)$/);
   let orderId = m ? Number(m[2]) : null;
