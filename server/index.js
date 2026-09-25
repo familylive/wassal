@@ -73,6 +73,12 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
 server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
 
 // نسخ احتياطي دوري كل دقيقتين (إضافة للنسخ الفوري بعد الطلبات)
+// 📊 تقرير المبيعات اليومي — فحص كل ٥ دقائق (مع تعويض لو كان السيرفر نائماً)
+import('./services/reporting.js').then(({ runDueReports }) => {
+  setInterval(() => runDueReports().catch(e => console.error('REPORT_LOOP_FAIL', e.message)), 5 * 60 * 1000);
+  setTimeout(() => runDueReports().then(n => { if (n) console.log('REPORTS_CATCHUP', n); }).catch(() => {}), 25000);
+});
+
 import('./services/backup.js').then(({ scheduleBackup, backupNow }) => {
   setInterval(scheduleBackup, 2 * 60 * 1000);
   console.log('🔄 النسخ الاحتياطي التلقائي مفعّل (كل دقيقتين)');

@@ -6,17 +6,19 @@ import { q } from '../db.js';
 async function sendCloud({ phone, type, body, buttons, list, image }) {
   const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
   if (!token) throw new Error('WHATSAPP_TOKEN غير معرّف');
+  // ميتا تقبل الصيغة الدولية للأرقام بدون + أو 00 — ننظّف الرقم دائماً
+  const to = String(phone || '').replace(/[^\d]/g, '');
   let msg;
-  if (type === 'text') msg = { messaging_product: 'whatsapp', to: phone, type: 'text', text: { body } };
+  if (type === 'text') msg = { messaging_product: 'whatsapp', to: to, type: 'text', text: { body } };
   else if (type === 'buttons') msg = {
-    messaging_product: 'whatsapp', to: phone, type: 'interactive',
+    messaging_product: 'whatsapp', to: to, type: 'interactive',
     interactive: { type: 'button', body: { text: body }, action: { buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title.slice(0, 20) } })) } }
   };
   else if (type === 'list') msg = {
-    messaging_product: 'whatsapp', to: phone, type: 'interactive',
+    messaging_product: 'whatsapp', to: to, type: 'interactive',
     interactive: { type: 'list', body: { text: body }, action: { button: 'اختر', sections: list } }
   };
-  else if (type === 'image') msg = { messaging_product: 'whatsapp', to: phone, type: 'image', image: { link: image, caption: body || '' } };
+  else if (type === 'image') msg = { messaging_product: 'whatsapp', to: to, type: 'image', image: { link: image, caption: body || '' } };
   // 360dialog: نفس صيغة Meta لكن عبر بوابة 360dialog
   const is360 = provider === '360dialog';
   const url = is360 ? `${apiUrl}/v1/messages` : `${apiUrl}/${phoneNumberId}/messages`;

@@ -3,8 +3,8 @@ import { api, sar, statusAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
 import { Card, Stat, Modal, Fld, Badge, Money, Pay } from '../components/ui.jsx';
 
-const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'regs', 'types', 'settings'];
-const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
+const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'regs', 'reports', 'types', 'settings'];
+const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', reports: '📊 تقارير المبيعات', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
 
 export default function Admin() {
   const { user, socket, logout, notify } = useApp();
@@ -60,6 +60,7 @@ export default function Admin() {
         {tab === 'loyalty' && <LoyaltyTab />}
         {tab === 'chats' && <ChatsTab restaurants={restaurants} />}
         {tab === 'regs' && <RegistrationsTab />}
+        {tab === 'reports' && <ReportsTab />}
         {tab === 'types' && <TypesTab />}
         {tab === 'settings' && <SettingsTab />}
         {sel && <OrderModal o={sel} onClose={() => setSel(null)} refresh={load} />}
@@ -435,6 +436,87 @@ function RegistrationsTab() {
       )}
       <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginTop: 12 }}>
         💡 الاعتماد من هنا أو من إشعار واتساب على رقم المشرف (اضبطه في ⚙️ إعدادات واتساب).
+      </div>
+    </Card>
+  );
+}
+
+function ReportsTab() {
+  const { notify } = useApp();
+  const [rows, setRows] = useState([]);
+  const [rests, setRests] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ restaurant_id: '', name: '', phone: '', report_hour: '23:30' });
+  const load = () => api('/report-recipients').then(setRows).catch(e => notify(e.message));
+  useEffect(() => { load(); api('/restaurants').then(d => setRests(d || [])).catch(() => {}); }, []);
+  const act = async (r, action) => {
+    setBusy(true);
+    try {
+      if (action === 'delete') { if (!window.confirm('حذف ' + (r.name || r.phone) + ' من مستلمي التقارير؟')) { setBusy(false); return; } await api(`/report-recipients/${r.id}`, { method: 'DELETE' }); }
+      else if (action === 'send') { const d = await api(`/report-recipients/${r.id}/send`, { method: 'POST', body: { which: 'today' } }); notify(d.ok ? '✅ تم إرسال التقرير الآن' : '⚠️ فشل الإرسال'); }
+      else { await api(`/report-recipients/${r.id}/${action}`, { method: 'POST', body: {} }); notify(action === 'approve' ? '✅ تم الاعتماد' : '❌ تم الرفض'); }
+      await load();
+    } catch (e) { notify(e.message); } finally { setBusy(false); }
+  };
+  const setHour = async (r, report_hour) => { try { await api(`/report-recipients/${r.id}`, { method: 'PUT', body: { report_hour } }); await load(); notify('✅ تم تحديث وقت التقرير'); } catch (e) { notify(e.message); } };
+  const add = async () => {
+    if (!f.restaurant_id || !f.phone.trim()) return notify('اختر النشاط واكتب الجوال');
+    setBusy(true);
+    try { await api('/report-recipients', { method: 'POST', body: f }); notify('✅ تمت الإضافة والاعتماد'); setF({ restaurant_id: '', name: '', phone: '', report_hour: '23:30' }); await load(); }
+    catch (e) { notify(e.message); } finally { setBusy(false); }
+  };
+  const label = s => s === 'approved' ? '✅ معتمد' : s === 'rejected' ? '❌ مرفوض' : '⏳ بانتظار الاعتماد';
+  const pending = rows.filter(r => r.status === 'pending');
+  const others = rows.filter(r => r.status !== 'pending');
+  const Row = r => (
+    <div key={r.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--line)' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div>
+          <b>👤 {r.name || 'بدون اسم'}</b> <span style={{ fontSize: 12.5, color: 'var(--mut)' }}>— {r.restaurant_name || 'نشاط محذوف'}</span>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+            📱 {r.phone} · {label(r.status)} · ⏰ التقرير {r.report_hour || '23:30'}{r.last_sent_date ? ` · آخر إرسال ${r.last_sent_date}` : ''}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 6 }}>
+          {r.status !== 'approved' && <button className="btn sm" disabled={busy} onClick={() => act(r, 'approve')}>✅</button>}
+          {r.status !== 'rejected' && <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'reject')}>❌</button>}
+          <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'send')} title="أرسل التقرير الآن">📤</button>
+          <button className="btn ghost sm" disabled={busy} onClick={() => act(r, 'delete')}>🗑</button>
+        </div>
+      </div>
+      <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 12.5, color: 'var(--mut)' }}>وقت التقرير اليومي:</span>
+        <input type="time" value={r.report_hour || '23:30'} onChange={e => setHour(r, e.target.value)} style={{ width: 120 }} />
+      </div>
+    </div>
+  );
+  return (
+    <Card title={`📊 مستلمو تقارير المبيعات${pending.length ? ` (${pending.length} بانتظار)` : ''}`}>
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 12 }}>
+        👤 <b>مدير المطعم</b> يضيف نفسه من واتساب بكتابة <b>«مدير»</b> → يوصلك إشعار للاعتماد هنا أو على واتساب.
+        <br />📄 التقرير اليومي يوصله تلقائياً (المجموع الختام · شبكة · كاش · الأكثر مبيعاً)، ويكتب <b>«تقرير»</b> بأي وقت ليوصله فوراً.
+      </div>
+      {pending.length > 0 && <div style={{ marginBottom: 8, fontWeight: 700, color: '#ef6c00' }}>⏳ بانتظار اعتمادك ({pending.length})</div>}
+      {pending.map(Row)}
+      {!pending.length && <div className="empty">لا توجد طلبات معلقة ✅</div>}
+      {others.length > 0 && (<>
+        <div style={{ margin: '16px 0 6px', fontWeight: 700 }}>المعتمدون والمرفوضون</div>
+        {others.slice(0, 40).map(Row)}
+      </>)}
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>➕ إضافة مباشرة (تُعتمد فوراً)</div>
+        <div className="grid g2">
+          <Fld label="النشاط">
+            <select value={f.restaurant_id} onChange={e => setF({ ...f, restaurant_id: e.target.value })}>
+              <option value="">— اختر —</option>
+              {rests.map(r => <option key={r.id} value={r.id}>{r.name_ar}</option>)}
+            </select>
+          </Fld>
+          <Fld label="اسم المدير"><input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></Fld>
+          <Fld label="جواله"><input value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="0551234567" style={{ direction: 'ltr' }} /></Fld>
+          <Fld label="وقت التقرير اليومي"><input type="time" value={f.report_hour} onChange={e => setF({ ...f, report_hour: e.target.value })} /></Fld>
+        </div>
+        <button className="btn" disabled={busy} onClick={add}>➕ إضافة واعتماد</button>
       </div>
     </Card>
   );

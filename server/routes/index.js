@@ -16,6 +16,7 @@ import dbadmin from './dbadmin.js';
 import settings from './settings.js';
 import businessTypes from './businessTypes.js';
 import registrations from './registrations.js';
+import reportRecipients from './reportRecipients.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -35,4 +36,5 @@ router.use('/dbadmin', dbadmin);
 router.use('/settings', settings);
 router.use('/business-types', businessTypes);
 router.use('/registrations', registrations);
+router.use('/report-recipients', reportRecipients);
 export default router;

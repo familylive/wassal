@@ -346,6 +346,20 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- مستلمو تقارير المبيعات (مدير المطعم) — يُعتمدون من مشرف المنصة
+CREATE TABLE IF NOT EXISTS report_recipients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  restaurant_id INTEGER NOT NULL,
+  name TEXT,
+  phone TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  report_hour TEXT DEFAULT '23:30',
+  last_sent_date TEXT,
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- كباتن كل نشاط (اللي يحددهم صاحب النشاط)
 CREATE TABLE IF NOT EXISTS restaurant_captains (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -5,6 +5,7 @@ import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
+import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport } from './reporting.js';
 import config from '../config.js';
 
 // ---------- session ----------
@@ -206,15 +207,24 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   try {
     const isSupervisor = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone));
     if (isSupervisor && p) {
-      const m = p.match(/^(biz|cap)_(ok|no):(\d+)$/);
+      const m = p.match(/^(biz|cap|rp)_(ok|no):(\d+)$/);
       if (m) {
-        const act = m[2], id = Number(m[3]);
-        const r = act === 'ok' ? await approveRegistration(id) : await rejectRegistration(id);
+        const kind = m[1], act = m[2], id = Number(m[3]);
+        const r = kind === 'rp'
+          ? (act === 'ok' ? await approveRecipient(id) : await rejectRecipient(id))
+          : (act === 'ok' ? await approveRegistration(id) : await rejectRegistration(id));
         const who = r?.name ? `: ${r.name}` : '';
-        return send(phone, rid, null, 'text', r?.error ? `⚠️ ${r.error}` : (act === 'ok' ? `✅ تم الاعتماد${who}` : `❌ تم الرفض${who}`));
+        const label = kind === 'rp' ? 'مستلم التقرير' : '';
+        return send(phone, rid, null, 'text', r?.error ? `⚠️ ${r.error}` : (act === 'ok' ? `✅ تم الاعتماد${label ? ' ' + label : ''}${who}` : `❌ تم الرفض${who}`));
       }
     }
   } catch (e) { console.error('SUPERVISOR_ACTION_FAIL', e.message); }
+
+  // ===== مدير المطعم / تقرير المبيعات (لأصحاب الأنشطة ومستلمي التقارير) =====
+  const bt = String(b || '').trim();
+  if (/^تقرير\s+(أمس|امس|البارح)$/.test(bt)) return sendReportNow(phone, rid, true);
+  if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
+  if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
 
   // ===== بدء التسجيل الذاتي (نشاط / كابتن) =====
   if (/^تسجيل\s*(كابتن|مندوب)$/.test(b)) return startCaptainReg(phone, rid, session);
@@ -230,7 +240,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_city', 'cap_district', 'cap_vehicle'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_items', 'reg_prices', 'reg_review', 'cap_name', 'cap_city', 'cap_district', 'cap_vehicle', 'rep_name', 'rep_phone'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -274,6 +284,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_city': return handleCapCity(phone, rid, session, b);
     case 'cap_district': return handleCapDistrict(phone, rid, session, b);
     case 'cap_vehicle': return handleCapVehicle(phone, rid, session, b, p);
+    case 'rep_name': return handleRepName(phone, rid, session, b);
+    case 'rep_phone': return handleRepPhone(phone, rid, session, b);
     case 'browse_categories': return handleCat(phone, rid, customer, p, b);
     case 'browse_items': return handleItems(phone, rid, customer, p, b);
     case 'item_detail': return handleItemDetail(phone, rid, customer, data, p, b);
@@ -1359,6 +1371,53 @@ async function handleCapVehicle(phone, rid, session, b, p) {
   return send(phone, rid, null, 'text', ok
     ? `✅ *تم إرسال طلبك للإدارة*\n\n👤 ${reg.name}\n📍 ${reg.city}${reg.district ? ' — ' + reg.district : ''}\n🛵 ${v}\n\nبنبلغك بالاعتماد قريباً 🙏`
     : '✅ تم حفظ طلبك — بس رقم المشرف غير مضبوط.');
+}
+
+// ---------- مدير المطعم: مستلم تقرير المبيعات ----------
+// نشاط صاحب الرسالة (من حسابات الأنشطة)
+function ownerRestaurantId(phone) {
+  const norm = validatePhone(phone);
+  const r = q.get("SELECT restaurant_id FROM restaurant_users WHERE (phone=? OR phone=?) AND is_active=1 ORDER BY (role='owner') DESC, id LIMIT 1", norm, String(phone || ''));
+  return r?.restaurant_id || null;
+}
+function startAddManager(phone, rid, session) {
+  const rrid = ownerRestaurantId(phone);
+  if (!rrid) return send(phone, rid, null, 'text', '📊 هذي الخدمة لأصحاب الأنشطة المسجّلين عندنا 🌸\n\nسجّل نشاطك أولاً بكتابة *تسجيل* وجاهزين نخدمك.');
+  saveSession(phone, 'rep_name', { ...session.data, reg: null, rep: { restaurant_id: rrid } });
+  return send(phone, rid, null, 'text', '👤 *إضافة مدير المطعم* — بيوصله *تقرير المبيعات اليومي* على واتساب (المجموع الختام · شبكة · كاش).\n\nوش *اسمه*؟');
+}
+function handleRepName(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const name = String(b).trim();
+  if (name.length < 2) return send(phone, rid, null, 'text', 'اكتب اسمه 🌸');
+  saveSession(phone, 'rep_phone', { ...session.data, rep: { ...session.data.rep, name: name.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `👤 *${name.slice(0, 40)}*\n\nوش *جواله*؟ (مثال: 0551234567)`);
+}
+async function handleRepPhone(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const digits = String(b || '').replace(/[^\d]/g, '');
+  if (digits.length < 9) return send(phone, rid, null, 'text', 'اكتب رقم جوال صحيح 🌸 مثال: 0551234567');
+  const data = session.data || {};
+  const rep = data.rep || {};
+  const norm = validatePhone(digits);
+  saveSession(phone, 'idle', { ...data, rep: null });
+  const row = addRecipient(rep.restaurant_id, rep.name, norm, '23:30');
+  const ok = await notifySupervisorRecipient(row);
+  return send(phone, rid, null, 'text', ok
+    ? `✅ *وصلني طلبك وأرسلته لمشرف المنصة للاعتماد*\n\n👤 ${rep.name || ''}\n📱 ${norm}\n⏰ التقرير اليومي الساعة ١١:٣٠ مساءً\n\nأول ما يُعتمد بيوصله التقرير 🙏`
+    : '✅ حفظت الطلب — لكن رقم مشرف المنصة غير مضبوط، كلّم الإدارة للاعتماد.');
+}
+// تقرير فوري بكلمة «تقرير»
+async function sendReportNow(phone, rid, yesterday) {
+  const rec = findRecipientByPhone(phone);
+  const rrid = ownerRestaurantId(phone) || (rec?.status === 'approved' ? rec.restaurant_id : null);
+  if (!rrid) {
+    return send(phone, rid, null, 'text', '📊 خدمة تقارير المبيعات لأصحاب الأنشطة ومستلمي التقارير 🌸\n\n• سجّل نشاطك بكتابة *تسجيل*\n• أو أضف مدير المطعم بكتابة *مدير*');
+  }
+  const { localNow, shiftDate } = await import('./reporting.js');
+  const target = yesterday ? shiftDate(localNow().date, -1) : localNow().date;
+  const txt = buildDailyReport(rrid, target);
+  return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
 }
 
 // ---------- أصناف مقروءة من صورة (OCR) ----------
