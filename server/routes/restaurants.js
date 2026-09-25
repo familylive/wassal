@@ -48,6 +48,12 @@ router.put('/:id', (req, res) => {
 });
 
 // 💳 تسجيل استلام اشتراك النشاط (١٠٠٠ ر.س)
+// 👥 مستخدمو النشاط (المالك · الكاشير · المدير)
+router.get('/:id/users', async (req, res) => {
+  const { listUsers } = await import('../services/restUsers.js');
+  res.json(listUsers(Number(req.params.id)));
+});
+
 router.post('/:id/subscription', requireRole('admin'), (req, res) => {
   const r = q.get("SELECT * FROM restaurants WHERE id=?", Number(req.params.id));
   if (!r) return res.status(404).json({ error: 'النشاط غير موجود' });

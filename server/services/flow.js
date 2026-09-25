@@ -6,6 +6,7 @@ import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js'
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
+import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cashierPhone, addCashier, listUsers } from './restUsers.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
 
@@ -261,9 +262,19 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
   if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
   if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
+  // 🚫 الكاشير: ممنوع من تسجيل نشاط/كابتن/إضافة مدير — الطلبات ومتابعتها فقط
+  const WANT_JOIN = /^(انضمام|انضم)/.test(b) || /^تسجيل\s*(كابتن|مندوب|نشاط|مطعم|بقالة)/.test(b)
+    || /^(مدير|أضف مدير|إضافة مدير|كاشير|أضف كاشير|إضافة كاشير|مستخدمين)$/.test(b);
+  if (WANT_JOIN && isCashierPhone(phone)) {
+    const u = restUserByPhone(phone);
+    const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", u.restaurant_id);
+    return send(phone, rid, null, 'text', `🚫 *هذي الميزة لصاحب النشاط (المالك) فقط*\n\nأنت مسجّل عندنا كـ *الكاشير* في *${r?.name_ar || ''}* 🧾\nومهمتك: استلام الطلبات ومتابعتها ✅\n\n_(لو تحتاج صلاحية إضافية، كلّم صاحب النشاط)_`);
+  }
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
   // 🏪 أزرار إشعار الطلب (استلمت / جاهز) + كلماتها
   if (p && /^ord(ok|ready):\d+$/.test(String(p))) return handleOrderActionFromOwner(phone, rid, p);
+  if (p === 'add_cashier') return startAddCashier(phone, rid, session);
+  if (p === 'add_manager') return startAddManager(phone, rid, session);
   if (/^(جاهز|استلمت|تم الاستلام)$/.test(bt) && ownerRestaurantId(phone)) return handleOrderActionFromOwner(phone, rid, null, b);
   // 🆔 رقم النشاط (لصاحب النشاط أو مديره)
   if (/^(رقم النشاط|رقم المطعم|رقم المتجر|رقمي|رقم حسابي|معرف النشاط)$/.test(bt)) return sendBusinessNumber(phone, rid);
@@ -273,6 +284,10 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (/^(عرض|اعلان|إعلان|أعلن|اعلن|أعلن عندكم|طلب اعلان|طلب إعلان)$/.test(bt)) return startAdRequestFlow(phone, rid, session);
 
   // ===== انضمام (نشاط / كابتن / مدير) — والعميل «تسجيل» = إنشاء حسابه =====
+  // 🧾 إضافة كاشير (صاحب النشاط فقط)
+  if (/^(كاشير|أضف كاشير|اضف كاشير|إضافة كاشير|اضافة كاشير|كاشير جديد)$/.test(b)) return startAddCashier(phone, rid, session);
+  // 👥 مستخدمو النشاط
+  if (/^(مستخدمين|المستخدمين|فريقي|فريق العمل)$/.test(b)) return sendTeam(phone, rid);
   if (/^(انضمام|انضم)\s*(كابتن|مندوب|توصيل)$/.test(b) || /^تسجيل\s*(كابتن|مندوب)$/.test(b)) return startCaptainReg(phone, rid, session);
   if (/^(انضمام|انضم)\s*(مدير|مدير النشاط|مشرف النشاط|مسؤول النشاط)$/.test(b)) return startManagerJoin(phone, rid, session);
   if (/^(انضمام|انضم)$/.test(b) || /^انضمام\s*(نشاط|مطعم|بقالة|سوبر\s?ماركت|صيدلية|أسرة منتجة|اسر منتجة|متجر|محل)$/.test(b)
@@ -290,7 +305,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -347,6 +362,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_vehicle': return handleCapVehicle(phone, rid, session, b, p);
     case 'cap_deposit': return handleCapDeposit(phone, rid, session, b, p);
     case 'cap_deposit_wait': return handleCapDeposit(phone, rid, session, b, p);
+    case 'cash_name': return handleCashName(phone, rid, session, b);
+    case 'cash_phone': return handleCashPhone(phone, rid, session, b);
     case 'mgr_name': return handleMgrName(phone, rid, session, b);
     case 'mgr_id': return handleMgrId(phone, rid, session, b);
     case 'mgr_biz': return handleMgrBiz(phone, rid, session, b, p);
@@ -1969,6 +1986,60 @@ async function sendReportNow(phone, rid, yesterday) {
   const target = yesterday ? shiftDate(localNow().date, -1) : localNow().date;
   const txt = buildDailyReport(rrid, target);
   return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
+}
+
+// 🧾 إضافة كاشير (يستلم الطلبات ويتابعها) — من جوال صاحب النشاط (المالك)
+function startAddCashier(phone, rid, session) {
+  const rrid = ownerRestaurantId(phone);
+  if (!rrid) return send(phone, rid, null, 'text', '🧾 إضافة الكاشير متاحة لصاحب النشاط (المالك) 🌸\n\nسجّل نشاطك بكتابة *انضمام* وبعد الاعتماد تقدر تضيف كاشير.');
+  const me = validatePhone(phone);
+  saveSession(phone, 'cash_name', { ...session.data, cash: { restaurant_id: rrid }, });
+  return send(phone, rid, null, 'text', `🧾 *إضافة كاشير*\n\nالكاشير هو اللي *توصله الطلبات* على واتساب ويتابعها ✅\n_(ويقدر يدخل لوحة النشاط — لكن *ما يقدر* يسجّل نشاط أو يضيف مدير)_\n\nوش *اسمه*؟`);
+}
+function handleCashName(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const name = String(b || '').trim();
+  if (name.length < 2) return send(phone, rid, null, 'text', 'اكتب الاسم 🌸');
+  saveSession(phone, 'cash_phone', { ...session.data, cash: { ...session.data.cash, name: name.slice(0, 40) } });
+  return send(phone, rid, null, 'text', 'وش *جواله*؟ (مثال: 0551234567)');
+}
+async function handleCashPhone(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const digits = String(b || '').replace(/[^\d]/g, '');
+  if (digits.length < 9) return send(phone, rid, null, 'text', 'اكتب رقم جوال صحيح 🌸 مثال: 0551234567');
+  const cash = { ...(session.data.cash || {}) };
+  const norm = validatePhone(digits);
+  saveSession(phone, 'idle', { ...session.data, cash: null });
+  const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", cash.restaurant_id);
+  // ترحيب الكاشير على واتسابه
+  try {
+    await waSend({ phone: norm, restaurantId: cash.restaurant_id, type: 'text', body:
+      `🧾 *مرحباً ${cash.name}*\n\nأنت مسجّل كـ *الكاشير* في *${rest?.name_ar || ''}* ✅\n\n📦 *الطلبات بتوصلك هنا على واتساب* — اضغط «✅ استلمت» و«📦 جاهز» لمتابعتها.\n\n🔑 لوحة النشاط:${(config.publicUrl || '')}/restaurant\n👤 دخولك: ${norm}\n🔑 كلمة المرور: ${created ? password : '(نفس كلمتك السابقة)'}` });
+  } catch (e) { console.error('CASHIER_WELCOME_FAIL', e.message); }
+  // إشعار الإدارة (للعلم)
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🧾 أضاف *${rest?.name_ar || ''}* (#${cash.restaurant_id}) كاشيراً جديداً:\n👤 ${cash.name}\n📱 ${norm}\n_(الطلبات صارت توصله)_` }).catch(() => {});
+  return send(phone, rid, null, 'text', `✅ *تم إضافة الكاشير ${cash.name}*\n📱 ${norm}\n🔑 كلمة مروره: *${created ? password : '(نفس كلمته السابقة)'}*\n\n📦 من الآن *الطلبات توصله على واتساب* ويتابعها ✅\n_(تبيّن لي: اكتب *مستخدمين*)_`);
+}
+// 👥 مستخدمو النشاط
+function sendTeam(phone, rid) {
+  const rrid = ownerRestaurantId(phone) || (restUserByPhone(phone)?.restaurant_id ?? null);
+  if (!rrid) return send(phone, rid, null, 'text', '👥 هذي الخدمة لأصحاب الأنشطة 🌸');
+  const users = listUsers(rrid);
+  const recs = q.all("SELECT * FROM report_recipients WHERE restaurant_id=? AND status='approved'", rrid);
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid);
+  let t = `👥 *فريق نشاطك* — ${rest?.name_ar || ''} (#${rrid})\n━━━━━━━━━━━━━━\n`;
+  for (const u of users) t += `• ${roleAr(u.role)} — ${u.name || ''} · ${u.phone || ''}\n`;
+  if (recs.length) t += `\n📊 *مديرو التقارير:*\n` + recs.map(r => `• ${r.name || ''} · ${r.phone} · ⏰ ${r.report_hour || '23:30'}`).join('\n') + '\n';
+  t += `\n🧾 الكاشير: ${cashierPhone(rrid) ? '✅ ' + cashierPhone(rrid) : '❌ ما فيه كاشير بعد — اكتب *كاشير*'}\n`;
+  t += `📦 مستلم الطلبات الآن: ${ordersPhoneLabel(rrid)}`;
+  return send(phone, rid, null, 'text', t);
+}
+function ordersPhoneLabel(rid) {
+  const c = cashierPhone(rid);
+  if (c) return `🧾 الكاشير ${c}`;
+  const o = ownerPhone(rid);
+  return o ? `👤 صاحب النشاط ${o}` : '⚠️ غير محدد';
 }
 
 // 🆔 إرسال رقم النشاط لصاحبه أو مديره (ليعطيه للمدير ليسجّل، أو ليكتبه المدير)

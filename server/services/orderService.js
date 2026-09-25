@@ -5,25 +5,27 @@ import { nextOrderNo, now, validatePhone } from '../utils.js';
 import { broadcastToCaptains } from './dispatch.js';
 import { awardPoints } from './loyalty.js';
 import { scheduleBackup } from './backup.js';
+import { ordersPhone } from './restUsers.js';
 
 const money = (h) => (Number(h || 0) / 100).toFixed(2);
 const PAY_AR = { applepay: '🍎 Apple Pay', mada: '💳 مدى', card: '💳 بطاقة', cash: '💵 كاش عند الاستلام' };
 
-// 🏪 جوال صاحب النشاط (يستلم الطلبات)
-export function restaurantOwnerPhone(restaurant) {
+// 🧾 جوال مستلم الطلبات: الكاشير أولاً ثم صاحب النشاط (المالك)
+export async function restaurantOrdersPhone(restaurant) {
   if (!restaurant) return null;
-  const direct = restaurant.phone || restaurant.whatsapp_number;
-  if (direct) return validatePhone(direct) || String(direct);
-  const u = q.get("SELECT phone FROM restaurant_users WHERE restaurant_id=? ORDER BY (role='owner') DESC, id LIMIT 1", restaurant.id);
-  return u?.phone ? (validatePhone(u.phone) || u.phone) : null;
+  const { ordersPhone } = await import('./restUsers.js');
+  try { return ordersPhone(restaurant.id); } catch (e) {
+    const direct = restaurant.phone || restaurant.whatsapp_number;
+    return direct ? (validatePhone(direct) || String(direct)) : null;
+  }
 }
 
 // 🔔 إشعار صاحب النشاط بطلب جديد على واتساب (مع أزرار استلمت / جاهز)
 export function notifyRestaurantNewOrder(order) {
   try {
     const rest = q.get("SELECT * FROM restaurants WHERE id=?", order.restaurant_id);
-    const to = restaurantOwnerPhone(rest);
-    if (!to) { console.log('ORDER_NOTIFY_NO_OWNER_PHONE', order.restaurant_id); return; }
+    const to = ordersPhone(rest?.id);
+    if (!to) { console.log('ORDER_NOTIFY_NO_RECIPIENT', order.restaurant_id); return; }
     let items = [];
     try { items = JSON.parse(order.items_json || '[]'); } catch (e) {}
     const lines = items.map(i => `• ${i.quantity} × ${i.name} — ${money(Number(i.price) * Number(i.quantity))}`).join('\n');

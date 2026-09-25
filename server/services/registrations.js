@@ -88,12 +88,18 @@ export async function approveRegistration(id) {
     const u = q.get("SELECT id FROM restaurant_users WHERE restaurant_id=? AND phone=?", rid, phone);
     if (!u) {
       q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, national_id, password_hash, role) VALUES (?,?,?,?,?,?)",
-        rid, reg.owner_name || reg.business_name || 'المسؤول', phone, reg.owner_id || null, bcrypt.hashSync(pass, 10), 'owner');
+        rid, 'صاحب النشاط (المالك)', phone, reg.owner_id || null, bcrypt.hashSync(pass, 10), 'owner');
     }
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;
   });
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\n🆔 *رقم نشاطك: #${newId}*\n_(أعطه لأي مدير تبي يضيفه بنفسه بكتابة «انضمام مدير»، أو أضفه أنت بكتابة «مدير»)_\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\n🆔 *رقم نشاطك: #${newId}*\n\n🔑 *بيانات لوحتك:*\n👤 صاحب النشاط (المالك) — رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n🔗 ${(config.publicUrl || '')}/restaurant\n\n• أضف *كاشير* (يستلم الطلبات ويتابعها): اكتب *كاشير*\n• أضف *مدير* (يوصله تقرير المبيعات): اكتب *مدير*\n• أو أعطِ رقم نشاطك لمن تريد — يسجّل بنفسه بكتابة *انضمام مدير*`);
+  // 🧾/👤 عرض خيارات الفريق بعد الاعتماد مباشرة
+  try {
+    const { waSend } = await import('./whatsapp.js');
+    await waSend({ phone: phone, restaurantId: newId, type: 'buttons', body: 'تحب نضيف فريقك الحين؟ 👇',
+      buttons: [{ id: 'add_cashier', title: '🧾 إضافة كاشير' }, { id: 'add_manager', title: '👤 إضافة مدير' }] });
+  } catch (e) { console.error('TEAM_PROMPT_FAIL', e.message); }
   return { ok: true, kind: 'business', restaurant_id: newId, name: reg.business_name };
 }
 
