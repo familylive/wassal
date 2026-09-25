@@ -239,7 +239,7 @@ router.get('/simulate/:phone/conversations', (req, res) => {
 
 // تصفير محادثة عميل في المحاكي
 router.post('/simulate/:phone/reset', (req, res) => {
-  const cust = q.get("SELECT id FROM customers WHERE phone=?", req.params.phone);
+  const cust = q.get("SELECT id FROM customers WHERE phone=? OR phone=?", req.params.phone, validatePhone(req.params.phone));
   if (cust) q.run("DELETE FROM conversations WHERE phone=? AND order_id IS NULL", req.params.phone);
   q.run("DELETE FROM whatsapp_sessions WHERE phone=?", req.params.phone);
   res.json({ ok: true });

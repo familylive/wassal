@@ -271,6 +271,17 @@ export async function sendPlatformReport(dateStr, { force = false } = {}) {
   let ok = false;
   try { await waSend({ phone: to, type: 'text', body: text }); ok = true; }
   catch (e) { console.error('PLATFORM_REPORT_SEND_FAIL', e.message); }
+  // 📄 نسخة مختومة بصيغة PDF (ختم المنصة)
+  try {
+    const { buildPlatformReportFiles } = await import('./invoice.js');
+    const f = await buildPlatformReportFiles(dateStr, s);
+    const link = `${String(config.publicUrl || '').replace(/\/$/, '')}/uploads/invoices/${f.base}.pdf`;
+    await waSend({
+      phone: to, type: 'document',
+      body: `📄 *تقرير الإدارة المجمّع ${f.no}*\n${dateStr} — المجموع الختامي: ${money(s.total)} ر.س · حصة المنصة: ${money(s.share)} ر.س`,
+      document: { link, filename: `${f.no}.pdf` }
+    });
+  } catch (e) { console.error('PLATFORM_REPORT_PDF_FAIL', e.message); }
   if (ex) q.run("UPDATE platform_reports SET total=?, orders_count=?, sent_to=?, sent_at=datetime('now') WHERE id=?", s.total, s.orders, to, ex.id);
   else q.run("INSERT INTO platform_reports (date, total, orders_count, sent_to) VALUES (?,?,?,?)", dateStr, s.total, s.orders, to);
   console.log('PLATFORM_REPORT_SENT', { date: dateStr, to, total: s.total, share: s.share });

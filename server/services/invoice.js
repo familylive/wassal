@@ -235,3 +235,122 @@ export async function buildInvoiceFiles(restaurantId, dateStr) {
   try { q.run("UPDATE invoices SET file=?, total=?, orders_count=?, updated_at=datetime('now') WHERE id=?", `${base}.pdf`, out.stats.salesTotal, out.stats.orders, out.invoice.id); } catch { /* */ }
   return { ...out, pdf, pngPath, pdfPath, base };
 }
+
+// ---------- 🏛 تقرير الإدارة المجمّع (مختوم) ----------
+export async function renderPlatformReportPng(dateStr, stats) {
+  const logo = await ensureAssets();
+  const s = stats || (await import('./reporting.js')).platformStats(dateStr);
+  const no = `RPT-${String(dateStr).replace(/-/g, '')}`;
+  const { date: today, hhmm } = localNow();
+
+  const W = 1000, H = 1414;
+  const canvas = createCanvas(W, H);
+  const c = canvas.getContext('2d');
+  const GREEN = '#1FA855', DARK = '#0B2545', GREY = '#5b6b7c', LINE = '#e3e8ee', LIGHT = '#f5f8fa';
+  c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
+  const R = 850;
+  const ar = (text, font, color, y, x = R, align = 'right') => { c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = align; c.fillText(String(text), x, y); };
+  const en = (text, font, color, y, x, align = 'left') => { c.font = font; c.fillStyle = color; c.direction = 'ltr'; c.textAlign = align; c.fillText(String(text), x, y); };
+
+  c.fillStyle = GREEN; c.fillRect(0, 0, W, 12);
+  c.fillStyle = LIGHT; c.fillRect(0, 12, W, 168);
+  const lx = 830, ly = 96, lr = 52;
+  c.save();
+  c.beginPath(); c.arc(lx, ly, lr, 0, Math.PI * 2); c.closePath(); c.fillStyle = '#fff'; c.fill();
+  c.lineWidth = 3; c.strokeStyle = GREEN; c.stroke();
+  if (logo) { c.save(); c.beginPath(); c.arc(lx, ly, lr - 4, 0, Math.PI * 2); c.closePath(); c.clip(); c.drawImage(logo, lx - lr + 4, ly - lr + 4, (lr - 4) * 2, (lr - 4) * 2); c.restore(); }
+  c.restore();
+  ar('واتس هم', 'bold 40px Cairo', DARK, 78, lx - 70);
+  ar('منصة الطلبات والتوصيل', '24px Cairo', GREY, 116, lx - 70);
+  en('Wassal Order', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
+  en('PLATFORM REPORT', 'bold 22px Cairo', GREEN, 62, 60);
+  ar('تقرير الإدارة المجمّع', 'bold 30px Cairo', DARK, 96, 60, 'left');
+  ar(`رقم التقرير: ${no}`, '24px Cairo', GREY, 132, 60, 'left');
+  ar(`التاريخ: ${dateStr} — ${prettyDate(dateStr)}`, '22px Cairo', GREY, 162, 60, 'left');
+
+  let y = 220;
+  c.fillStyle = LIGHT; c.fillRect(50, y, W - 100, 96);
+  c.fillStyle = GREEN; c.fillRect(50, y, 6, 96);
+  ar('ملخص اليوم', 'bold 28px Cairo', DARK, y + 40);
+  ar(`إجمالي الطلبات: ${s.orders}   ·   مكتملة: ${s.delivered}${s.cancelled ? `   ·   ملغاة: ${s.cancelled}` : ''}${s.pickup ? `   ·   استلام: ${s.pickup}` : ''}`, '24px Cairo', GREY, y + 76);
+  y += 130;
+
+  ar('مبيعات الأنشطة', 'bold 27px Cairo', DARK, y + 8);
+  y += 28;
+  c.fillStyle = '#e8f5ee'; c.fillRect(50, y, W - 100, 46);
+  ar('نوع النشاط', 'bold 24px Cairo', DARK, y + 32, W - 80);
+  ar('عدد الطلبات', 'bold 24px Cairo', DARK, y + 32, 330);
+  ar('المبلغ (ر.س)', 'bold 24px Cairo', DARK, y + 32, 150);
+  y += 46;
+  const types = (s.types || []).slice(0, 14);
+  if (!types.length) { ar('لا مبيعات في هذا اليوم', '24px Cairo', GREY, y + 36); y += 60; }
+  for (const t of types) {
+    c.strokeStyle = LINE; c.lineWidth = 1; c.beginPath(); c.moveTo(50, y + 44); c.lineTo(W - 50, y + 44); c.stroke();
+    ar(`${t.icon || '🏬'} ${t.type_name}`, '24px Cairo', '#22303c', y + 30, W - 80);
+    ar(String(t.orders), 'bold 24px Cairo', DARK, y + 30, 330);
+    ar(money(t.total), 'bold 24px Cairo', '#22303c', y + 30, 150);
+    y += 44;
+  }
+  y += 20;
+
+  ar(`💳 شبكة: ${money(s.net)} ر.س   ·   💵 كاش: ${money(s.cash)} ر.س`, '25px Cairo', '#22303c', y + 18); y += 44;
+  if (s.discount) { ar(`🏷 الخصومات: -${money(s.discount)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
+  if (s.fee) { ar(`🛵 رسوم التوصيل: ${money(s.fee)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
+  y += 10;
+  c.fillStyle = GREEN; c.fillRect(50, y, W - 100, 70);
+  ar('المجموع الختامي', 'bold 30px Cairo', '#ffffff', y + 46, W - 80);
+  ar(`${money(s.total)} ر.س`, 'bold 34px Cairo', '#ffffff', y + 47, 120, 'left');
+  y += 70;
+  c.fillStyle = DARK; c.fillRect(50, y, W - 100, 66);
+  ar(`حصة المنصة (${s.sharePercent}%)`, 'bold 28px Cairo', '#ffffff', y + 44, W - 80);
+  ar(`${money(s.share)} ر.س`, 'bold 32px Cairo', '#ffffff', y + 45, 120, 'left');
+  y += 66;
+
+  // الختم
+  const stampW = 400, stampH = 225;
+  const sy = Math.min(Math.max(y + 128, H - 330), H - 128);
+  const sx = 70 + stampW / 2;
+  c.save();
+  c.translate(sx, sy);
+  c.rotate(-13 * Math.PI / 180);
+  c.globalAlpha = 0.68;
+  c.strokeStyle = '#c0392b'; c.lineWidth = 5;
+  const rx = -stampW / 2, ry = -stampH / 2;
+  const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
+  rr(rx, ry, stampW, stampH, 16); c.stroke();
+  c.lineWidth = 2; rr(rx + 10, ry + 10, stampW - 20, stampH - 20, 12); c.stroke();
+  if (logo) {
+    c.save();
+    c.beginPath(); c.arc(rx + 58, ry + 56, 34, 0, Math.PI * 2); c.closePath(); c.fillStyle = '#ffffff'; c.fill();
+    c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.beginPath(); c.arc(rx + 58, ry + 56, 30, 0, Math.PI * 2); c.clip();
+    c.globalAlpha = 1; c.drawImage(logo, rx + 28, ry + 26, 60, 60); c.restore();
+  }
+  c.globalAlpha = 0.85;
+  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
+  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 54);
+  c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 106);
+  c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
+  c.font = 'bold 20px Cairo'; c.fillText('Wassal Order', rx + stampW - 22, ry + 166);
+  c.font = '18px Cairo'; c.fillText(no, rx + stampW - 22, ry + 194);
+  c.font = '17px Cairo'; c.fillText(`${dateStr} — ${hhmm}`, rx + stampW - 22, ry + 217);
+  c.restore();
+  c.globalAlpha = 1;
+
+  c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, H - 150); c.lineTo(W - 50, H - 150); c.stroke();
+  ar(`تقرير إلكتروني صادر من منصة واتس هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
+  ar(`للاستفسار: ${SITE}`, '21px Cairo', GREY, H - 78);
+  ar(`تم الإنشاء آلياً بتاريخ ${today} الساعة ${hhmm} (توقيت السعودية)`, '19px Cairo', '#8a97a4', H - 48);
+
+  return { png: canvas.toBuffer('image/png'), no, stats: s };
+}
+
+// ملفّات تقرير الإدارة (PNG + PDF)
+export async function buildPlatformReportFiles(dateStr, stats) {
+  const out = await renderPlatformReportPng(dateStr, stats);
+  const pdf = await pngToPdf(out.png, out.no);
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const base = `${out.no}`;
+  try { fs.writeFileSync(path.join(OUT_DIR, `${base}.png`), out.png); fs.writeFileSync(path.join(OUT_DIR, `${base}.pdf`), pdf); } catch (e) { console.error('PLATFORM_REPORT_WRITE_FAIL', e.message); }
+  return { ...out, pdf, base };
+}

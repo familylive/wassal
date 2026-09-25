@@ -75,7 +75,7 @@ function cartText(rid, cart, branch = null) {
 }
 // دليل المطاعم: حسب موقع العميل — يعرض فقط المطاعم التي لها فرع ضمن نطاق التوصيل
 function getCustomerLocation(phone) {
-  const c = q.get("SELECT id FROM customers WHERE phone=?", phone);
+  const c = q.get("SELECT id FROM customers WHERE phone=? OR phone=?", phone, validatePhone(phone));
   if (!c) return null;
   return q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", c.id);
 }
@@ -120,7 +120,7 @@ function handleDirectory(phone, p, b, type, lat, lng) {
   // استلام الموقع من العميل (زر إرسال الموقع أو مشاركة موقع)
   if (p === 'send_location' || type === 'location') {
     if (type !== 'location') return send(phone, null, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
-    const customer = q.get("SELECT * FROM customers WHERE phone=?", phone);
+    const customer = q.get("SELECT * FROM customers WHERE phone=? OR phone=?", phone, validatePhone(phone));
     if (!customer) return showRestaurants(phone);
     saveLocation(customer.id, lat, lng, {}, '');
     send(phone, null, null, 'text', `📍 تم استلام موقعك ✅`);
@@ -252,6 +252,13 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     if (b.length < 2) return send(phone, rid, null, 'text', 'عطني اسمك الكريم 🌸 عشان أكمل طلبك');
     q.run("UPDATE customers SET name=? WHERE id=?", b.slice(0, 40), customer.id);
     send(phone, rid, null, 'text', `هلا *${b.slice(0, 40)}* 🌸 الله يحييك ويسعدك!\nعساك طيب؟ 🙌\n\n*أمرني* — وش تبي تطلب اليوم؟ 😋`);
+    // 📍 الموقع مطلوب: نخزّنه من أول مرة (تسجيل العميل) لعرض أقرب الأنشطة وحساب التوصيل
+    const loc = getCustomerLocation(phone);
+    if (!loc || loc.lat == null || loc.lng == null) {
+      saveSession(phone, 'signup_location', {});
+      send(phone, rid, null, 'text', '📍 *خطوة أخيرة يا غالي:* أرسل لنا موقعك الحالي\nعشان نعرض لك *أقرب الأنشطة* لك ونحسب التوصيل بدقة ✅');
+      return send(phone, rid, null, 'buttons', 'في واتساب: زر 📎 ← الموقع 👇', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+    }
     return showRestaurants(phone);
   }
 
@@ -308,6 +315,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'awaiting_payment': return handleAwaitPay(phone, rid, customer, data, p);
     case 'address_pick': return handleAddressPick(phone, rid, customer, data, p);
     case 'location_request': return handleLocation(phone, rid, customer, data, type, lat, lng, p);
+    case 'signup_location': return handleSignupLocation(phone, rid, customer, data, type, lat, lng, p);
     case 'new_location_request': return handleNewLocation(phone, rid, customer, data, type, lat, lng, p);
     case 'address_confirm': return handleAddressConfirm(phone, rid, customer, data, p);
     case 'delivery_time': return handleDeliveryTime(phone, rid, customer, data, p);
@@ -1018,6 +1026,21 @@ function handleAddressConfirm(phone, rid, customer, data, p) {
   send(phone, rid, null, 'text', '📍 نفس العنوان السابق ولا مكان ثاني؟');
   return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'addr_yes', title: '✅ نفس العنوان' }, { id: 'addr_new', title: '🆕 مكان آخر' }] });
 }
+// 📍 حفظ موقع العميل عند التسجيل (أول مرة) ثم عرض أقرب الأنشطة
+function handleSignupLocation(phone, rid, customer, data, type, lat, lng, p) {
+  if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+  const delivery = resolveDelivery(rid, lat, lng);
+  if (!delivery.ok || delivery.reason === 'out_of_range') {
+    send(phone, rid, null, 'text', `🚫 موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nخذ فكرة عن الأنشطة، وأي طلب داخل النطاق يوصلك 😊`);
+    saveSession(phone, 'directory', {});
+    return showRestaurants(phone);
+  }
+  const saved = saveLocation(customer.id, lat, lng, data, p, delivery.branch);
+  send(phone, rid, null, 'text', `✅ حفظت موقعك: ${saved.label}\n${saved.national_address || (lat + ',' + lng)}\n🏪 الفرع المسؤول عن توصيلك: *${delivery.branch.name}* (${Math.round(delivery.distanceKm)} كم)`);
+  saveSession(phone, 'directory', {});
+  return showRestaurants(phone);
+}
+
 function handleNewLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني الموقع الجديد 📍', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
@@ -1631,7 +1654,7 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
 
 // ---------- إلغاء الطلب مع استبيان السبب ----------
 function activeOrderFor(phone) {
-  const cust = q.get("SELECT id FROM customers WHERE phone=?", phone);
+  const cust = q.get("SELECT id FROM customers WHERE phone=? OR phone=?", phone, validatePhone(phone));
   if (!cust) return null;
   return q.get("SELECT * FROM orders WHERE customer_id=? AND status NOT IN ('delivered','cancelled') AND order_no != 'DRAFT' ORDER BY id DESC LIMIT 1", cust.id);
 }
