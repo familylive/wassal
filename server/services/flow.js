@@ -349,7 +349,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_docs', 'preorder_date', 'preorder_time'].includes(state);
+    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_docs', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -411,6 +411,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'mgr_iddoc': return handleMgrIdDoc(phone, rid, session, b, mediaRef);
     case 'cap_iddoc': return handleCapIdDoc(phone, rid, session, b, mediaRef);
     case 'cash_iddoc': return handleCashIdDoc(phone, rid, session, b, mediaRef);
+    case 'final_confirm': return handleFinalConfirm(phone, rid, customer, session, b, p);
     case 'preorder_date': return handlePreorderDate(phone, rid, session, b, p);
     case 'preorder_time': return handlePreorderTime(phone, rid, customer, session, b, p);
     case 'reg_shift': return handleRegShift(phone, rid, session, b, p);
@@ -1348,19 +1349,65 @@ async function handlePreorderTime(phone, rid, customer, session, b, p) {
   if (!t) return send(phone, rid, null, 'text', 'اكتب الوقت: 12:00 أو 5 عصراً أو 8 مساءً');
   const pre = session.data.preorder || {};
   const data = { ...session.data, preorder: { ...pre, time: t } };
-  const cart = session.data.cart || {};
-  // 📅 إنشاء الطلب مسبقاً (بلا مزاد الآن — يُعرض على الكباتن يوم التسليم)
-  const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
-  const totals = cartTotals(rid, cart, data.address?.branch || null);
-  const order = createOrder({
-    restaurant: rest, customer, cart, totals, paymentMethod: data.paymentMethod || 'cash',
-    address: data.address || pickupAddress(rid), estDeliveryMin: 30, branch: data.address?.branch || null,
-    orderType: cart.pickup ? 'pickup' : 'delivery', scheduledFor: pre.date, scheduledTime: t, isPreorder: true
-  });
-  saveSession(phone, 'idle', {});
-  send(phone, rid, order.id, 'text', `✅ *تم تسجيل طلبك المسبق ${order.order_no}* 🗓️\n\n🏠 ${rest.name_ar}\n📅 *${pre.label}* الساعة *${t}*\n💰 الإجمالي: ${rls(totals.total)} ر.س\n\n🔔 نعرض الطلب على الكباتن *يوم التسليم* ونبلغك 👍`);
-  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🏠 طلب مسبق جديد ${order.order_no} — ${rest.name_ar}\n📅 ${pre.label} ${t}` }).catch(() => {});
-  return;
+  return askFinalConfirm(phone, rid, data);
+}
+// 🧾 ملخص نهائي قبل الإرسال + اعتماد العميل
+function buildFinalSummary(phone, rid, data) {
+  const session = getSession(phone);
+  const pruned = pruneCart(phone, rid, session.data.cart);
+  const cart = pruned.cart || { items: [] };
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rid);
+  const branch = data.address?.branch || null;
+  const t = cartTotals(rid, cart, branch);
+  const pre = data.preorder || session.data.preorder || null;
+  const isPickup = !!cart.pickup;
+  let s = `🧾 *ملخص طلبك — راجعه قبل الإرسال*\n\n🏪 *${rest?.name_ar || ''}*\n━━━━━━━━━━━━━━\n`;
+  for (const i of cart.items) s += `• ${i.name} ×${i.quantity} — ${rls(i.price * i.quantity)} ر.س\n`;
+  s += '━━━━━━━━━━━━━━\n';
+  if (t.discount) s += `🎁 الخصم: -${rls(t.discount)} ر.س\n`;
+  s += `🚚 التوصيل: ${isPickup ? 'استلام من النشاط' : (t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني')}\n`;
+  s += `💰 *الإجمالي: ${rls(t.total)} ر.س*\n`;
+  s += `💳 الدفع: ${data.paymentMethod === 'cash' ? '💵 كاش عند الاستلام' : (PAY_METHOD_AR[data.paymentMethod] || data.paymentMethod || '-')}\n`;
+  if (pre?.date) s += `📅 *طلب مسبق:* ${pre.label || pre.date} الساعة *${pre.time || ''}*\n`;
+  else s += `🕐 الوقت: خلال ~${data.estDeliveryMin || 30} دقيقة\n`;
+  if (!isPickup) s += `📍 ${data.address?.national_address || data.address?.label || ''}\n`;
+  s += `\n_اضغط ✅ «إرسال الطلب» وننفذه لك._`;
+  return { text: s, pruned, totals: t, cart };
+}
+function askFinalConfirm(phone, rid, data) {
+  const { text, pruned } = buildFinalSummary(phone, rid, data);
+  if (pruned.notes?.length) send(phone, rid, null, 'text', pruned.notes.join('\n'));
+  saveSession(phone, 'final_confirm', { ...data });
+  return send(phone, rid, null, 'buttons', text.slice(0, 1000), { buttons: [
+    { id: 'fc_send', title: '✅ إرسال الطلب' },
+    { id: 'fc_edit', title: '✏️ تعديل السلة' },
+    { id: 'fc_cancel', title: '❌ إلغاء' }
+  ] });
+}
+async function handleFinalConfirm(phone, rid, customer, session, b, p) {
+  const data = session.data || {};
+  if (p === 'fc_cancel' || /^(الغاء|إلغاء|كنسل)$/.test(String(b || '').trim())) {
+    return handleCancelRequest(phone, rid, customer, data);
+  }
+  if (p === 'fc_edit') { saveSession(phone, 'cart', data); return showCart(phone, rid, customer); }
+  const ok = p === 'fc_send' || /^(ارسال|إرسال|اعتماد|تأكيد|تاكيد|تم|اوكي|أوكي|موافق)$/.test(String(b || '').trim());
+  if (!ok) return askFinalConfirm(phone, rid, data);
+  if (data.preorder?.date) {
+    const pre = data.preorder;
+    const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
+    const cart = getSession(phone).data.cart || { items: [] };
+    const totals = cartTotals(rid, cart, data.address?.branch || null);
+    const order = createOrder({ restaurant: rest, customer, cart, totals, paymentMethod: data.paymentMethod || 'cash',
+      address: data.address || pickupAddress(rid), estDeliveryMin: 30, branch: data.address?.branch || null,
+      orderType: cart.pickup ? 'pickup' : 'delivery', scheduledFor: pre.date, scheduledTime: pre.time, isPreorder: true });
+    saveSession(phone, 'idle', {});
+    send(phone, rid, order.id, 'text', `✅ *تم إرسال طلبك المسبق ${order.order_no}* 🗓️\n\n🏪 ${rest.name_ar}\n📅 *${pre.label || pre.date}* الساعة *${pre.time}*\n💰 الإجمالي: ${rls(totals.total)} ر.س\n\n🔔 نعرض الطلب على الكباتن *يوم التسليم* ونبلغك 👍`);
+    if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🏠 طلب مسبق جديد ${order.order_no} — ${rest.name_ar}\n📅 ${pre.label || pre.date} ${pre.time}` }).catch(() => {});
+    return;
+  }
+  const cart = getSession(phone).data.cart || {};
+  if (cart.pickup) return placeOrder(phone, rid, customer, { ...data, orderType: 'pickup', address: data.address || pickupAddress(rid) });
+  return startDeliveryBidding(phone, rid, customer, data);
 }
 
 function askTime(phone, rid) {
@@ -1370,11 +1417,8 @@ function askTime(phone, rid) {
   ] });
 }
 function handleDeliveryTime(phone, rid, customer, data, p) {
-  const est = p.startsWith('time:') ? Number(p.split(':')[1]) : 30;
-  const session = getSession(phone);
-  const cart = session.data.cart || {};
-  if (cart.pickup) return placeOrder(phone, rid, customer, { ...data, estDeliveryMin: est, orderType: 'pickup', address: data.address || pickupAddress(rid) });
-  return startDeliveryBidding(phone, rid, customer, { ...data, estDeliveryMin: est });
+  const est = String(p || '').startsWith('time:') ? Number(String(p).split(':')[1]) : 30;
+  return askFinalConfirm(phone, rid, { ...data, estDeliveryMin: est });
 }
 
 // ---------- 🚕 مزاد سعر التوصيل ----------
