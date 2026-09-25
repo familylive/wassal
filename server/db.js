@@ -31,6 +31,10 @@ try { db.exec("ALTER TABLE orders ADD COLUMN branch_name TEXT"); } catch {}
 try { db.exec("ALTER TABLE conversations ADD COLUMN phone TEXT"); } catch {}
 try { db.exec("ALTER TABLE conversations ADD COLUMN restaurant_id INTEGER"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_conversations_restaurant ON conversations(restaurant_id)"); } catch {}
+// ترحيل: اربط المحادثات القديمة بالمطعم المختار للرقم حتى تظهر في شاشة المحادثات
+try {
+  db.exec("UPDATE conversations SET restaurant_id = (SELECT s.restaurant_id FROM whatsapp_sessions s WHERE s.phone = conversations.phone) WHERE restaurant_id IS NULL AND EXISTS (SELECT 1 FROM whatsapp_sessions s WHERE s.phone = conversations.phone AND s.restaurant_id > 0)");
+} catch {}
 try { db.exec("ALTER TABLE payments ADD COLUMN restaurant_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE payments ADD COLUMN phone TEXT"); } catch {}
 

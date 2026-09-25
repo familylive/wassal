@@ -422,49 +422,83 @@ function showItemsList(phone, rid, cid) {
     const ex = cart.items.find(x => x.item_id === i.id);
     return { id: 'item:' + i.id, title: (ex ? '✅ ' : '') + i.name, description: rls(i.price) + ' ر.س' + (ex ? ' — في السلة ×' + ex.quantity : '') };
   });
-  saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0 });
+  saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0, viewAll: false });
   for (let i = 0; i < rows.length; i += 10) {
-    send(phone, rid, null, 'list', 'أو اضغط عليه عشان تحدده:', { list: [{ title: cat?.name || '', rows: rows.slice(i, i + 10) }] });
+    send(phone, rid, null, 'list', 'أو اضغط عليه عشان تحدده:', { list: [{ title: (cat?.name || '').slice(0, 24), rows: rows.slice(i, i + 10) }] });
   }
-  return send(phone, rid, null, 'buttons', '', { buttons: [
-    { id: 'send_order', title: '✅ أرسل الطلب' }, { id: 'cart', title: '🛒 السلة' }
+  return sendItemButtons(phone, rid);
+}
+
+// الأزرار الموحدة: اختر الأصناف · أرسل الطلب · السلة
+function sendItemButtons(phone, rid) {
+  return send(phone, rid, null, 'buttons', 'اختر الأصناف أو أرسل طلبك 👇', { buttons: [
+    { id: 'browse_all', title: '🍽 اختر الأصناف' },
+    { id: 'send_order', title: '✅ أرسل الطلب' },
+    { id: 'cart', title: '🛒 السلة' }
   ] });
 }
-// اختيار متعدد بالأرقام
+
+// عرض كل المنيو في رسالة واحدة (أقسام متعددة) — بدون اختيار قسم أول
+function showAllItems(phone, rid) {
+  const cats = q.all("SELECT * FROM categories WHERE restaurant_id=? AND is_active=1 ORDER BY sort_order, id", rid);
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const inCart = (id) => cart.items.find(x => x.item_id === id);
+  const all = [];
+  let txt = '🍽 *كل المنيو* — اضغط على أي صنف ليُوضع عليه علامة ✅ (كل ضغطة تزيد الكمية):\n\n';
+  for (const c of cats) {
+    const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, c.id);
+    if (!items.length) continue;
+    const rows = [];
+    for (const i of items) {
+      const ex = inCart(i.id);
+      all.push(i.id);
+      txt += `${ex ? '✅' : '⬜'} ${all.length}. ${i.name} — ${rls(i.price)} ر.س${ex ? ' (×' + ex.quantity + ')' : ''}\n`;
+      rows.push({ id: 'item:' + i.id, title: (ex ? '✅ ' : '') + i.name, description: rls(i.price) + ' ر.س' + (ex ? ' — في السلة ×' + ex.quantity : '') });
+    }
+    // واتساب: ١٠ صفوف كحد أقصى لكل قسم
+    for (let k = 0; k < rows.length; k += 10) {
+      send(phone, rid, null, 'list', (c.icon || '') + ' ' + c.name, { list: [{ title: (c.name || '').slice(0, 24), rows: rows.slice(k, k + 10) }] });
+    }
+  }
+  if (!all.length) return send(phone, rid, null, 'text', 'المعذرة، المنيو فاضي الحين 🙏');
+  saveSession(phone, 'browse_items', { ...session.data, catItems: all, lastCat: null, viewAll: true, itemIndex: 0 });
+  send(phone, rid, null, 'text', txt.slice(0, 3800));
+  return sendItemButtons(phone, rid);
+}
+// اختيار متعدد بالأرقام — ولو الصنف مضاف مسبقاً تزيد كميته
 function selectByNumbers(phone, rid, data, b) {
   const nums = b.split(/[\s،,]+/).map(n => parseInt(n, 10)).filter(n => !isNaN(n) && n >= 1);
   if (!nums.length) return null;
   const items = (data.catItems || []).map(id => q.get("SELECT * FROM items WHERE id=?", id)).filter(Boolean);
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
-  let added = 0;
+  let added = 0, last = null;
   for (const n of nums) {
     const item = items[n - 1];
     if (!item) continue;
-    if (!cart.items.find(i => i.item_id === item.id)) {
-      cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
-      added++;
-    }
+    const ex = cart.items.find(i => i.item_id === item.id);
+    if (ex) ex.quantity += 1;
+    else cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
+    added++; last = item;
   }
   if (!added) return null;
   saveSession(phone, 'browse_items', { ...session.data, cart });
-  send(phone, rid, null, 'text', `✅ تم تحديد ${added} صنف — تابع وضع العلامات أو اضغط "أرسل الطلب"`);
-  return showItemsList(phone, rid, session.data.lastCat);
+  send(phone, rid, null, 'text', `✅ تم تحديث *${last?.name}* — تابع التحديد أو اضغط "أرسل الطلب"`);
+  return session.data.viewAll ? showAllItems(phone, rid) : showItemsList(phone, rid, session.data.lastCat);
 }
-// تحديد صنف (إضافة فقط — لا يلغي بالضغط مرة ثانية)
+// تحديد صنف — كل ضغطة تزيد الكمية
 function toggleItem(phone, rid, itemId) {
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
-  const ex = cart.items.find(i => i.item_id === itemId);
-  if (ex) {
-    send(phone, rid, null, 'text', `✅ *${ex.name}* موجود في السلة (×${ex.quantity}) — تابع تحديد الباقي.`);
-    return showItemsList(phone, rid, session.data.lastCat);
-  }
   const item = q.get("SELECT * FROM items WHERE id=?", itemId);
-  if (item) cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
-  send(phone, rid, null, 'text', `✅ وُضعت علامة على *${item?.name}* — حدد المزيد أو اضغط "أرسل الطلب"`);
+  if (!item) return sendItemButtons(phone, rid);
+  let ex = cart.items.find(i => i.item_id === itemId);
+  if (ex) ex.quantity += 1;
+  else { cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 }); ex = { quantity: 1 }; }
   saveSession(phone, 'browse_items', { ...session.data, cart });
-  return showItemsList(phone, rid, session.data.lastCat);
+  send(phone, rid, null, 'text', `✅ *${item.name}* — الكمية الآن ×${ex.quantity}`);
+  return session.data.viewAll ? showAllItems(phone, rid) : showItemsList(phone, rid, session.data.lastCat);
 }
 function handleCat(phone, rid, customer, p, b) {
   // اختيار القسم برقم
@@ -489,11 +523,15 @@ function handleItems(phone, rid, customer, p, b) {
   if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
   if (p === 'send_order') return sendOrderReview(phone, rid, customer);
   if (p === 'cart') return showCart(phone, rid, customer);
+  if (p === 'browse_all') return showAllItems(phone, rid);
   if (p === 'add1' || p === 'qty') return handleItemDetail(phone, rid, customer, data, p, '');
+  // رجوع للأقسام بشكل صريح
+  if (/^(اقسام|أقسام|القسم|رجوع|القائمة|menu)$/i.test(String(b || '').trim())) return showCategories(phone, rid, customer);
   // اختيار متعدد بكتابة الأرقام
   const byNums = selectByNumbers(phone, rid, data, b);
   if (byNums) return byNums;
-  return showCategories(phone, rid, customer);
+  // لا نُرجع المستخدم للأقسام — نعرض له الأزرار والقائمة مرة ثانية
+  return sendItemButtons(phone, rid);
 }
 
 function itemDetail(phone, rid, customer, p) {
