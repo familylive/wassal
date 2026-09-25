@@ -37,7 +37,10 @@ export async function notifySupervisor(reg) {
     const sh = (reg.shifts === 2)
       ? `فترتان: ${hr(reg.s1_from)}–${hr(reg.s1_to)} · ${hr(reg.s2_from)}–${hr(reg.s2_to)}`
       : (reg.s1_from || reg.close_hour ? `فترة واحدة: ${hr(reg.s1_from)}–${hr(reg.close_hour)}` : '⚠️ غير محدّد');
-    txt += `🕐 الدوام: ${sh}\n🏛 رخصة البلدية: ${reg.municipal_doc ? '✅' : '⚠️ غير مرفقة'} · 📄 السجل التجاري: ${reg.cr_doc ? '✅' : '⚠️ غير مرفق'}${reg.health_count ? ` · 👨‍🍳 الشهادات الصحية: ${reg.health_count} عامل ${reg.health_docs ? '✅' : '⚠️ غير مرفقة'}` : ''}\n`;
+    txt += `🏷 الكيان: *${reg.entity_type || '-'}*\n`;
+    if (reg.entity_type === 'فرد' || /منتجة/.test(String(typeRow?.name_ar || ''))) txt += `📄 وثيقة العمل الحر: ${reg.freelance_no ? 'رقم ' + reg.freelance_no : '⚠️ بلا رقم'} ${reg.freelance_doc ? '— ✅ مرفقة' : '— ⚠️ غير مرفقة'}\n`;
+    else txt += `🏛 رخصة البلدية: ${reg.municipal_doc ? '✅' : '⚠️ غير مرفقة'} · 📄 السجل التجاري: ${reg.cr_doc ? '✅' : '⚠️ غير مرفق'}\n`;
+    txt += `🕐 الدوام: ${sh}${reg.health_count ? ` · 👨‍🍳 الشهادات الصحية: ${reg.health_count} عامل ${reg.health_docs ? '✅' : '⚠️ غير مرفقة'}` : ''}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -83,12 +86,12 @@ export async function approveRegistration(id) {
     const subPaid = Number(reg.subscription_paid || 0) ? 1 : 0;
     const newRestId = nextRestaurantId();   // 🆔 الترقيم يبدأ من 1001
     q.run(`INSERT INTO restaurants (id, name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at,
-        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, health_count, health_docs)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, entity_type, freelance_no, freelance_doc, health_count, health_docs)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       newRestId, reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
       1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
       reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1, reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null,
-      reg.municipal_doc || null, reg.cr_doc || null, reg.health_count || null, reg.health_docs || null);
+      reg.municipal_doc || null, reg.cr_doc || null, reg.entity_type || null, reg.freelance_no || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
     const rid = newRestId;
     let catId;
     const existingCat = q.get("SELECT id FROM categories WHERE restaurant_id=? AND name=?", rid, 'الأصناف');
