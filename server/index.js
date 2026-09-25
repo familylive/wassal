@@ -80,6 +80,12 @@ import('./services/captainAccount.js').then(({ checkLateDeliveries }) => {
 });
 
 // 📊 تقرير المبيعات اليومي — فحص كل ٥ دقائق (مع تعويض لو كان السيرفر نائماً)
+// 🏠 الطلبات المسبقة (الأسر المنتجة): بث المستحق منها للكباتن
+import('./services/orderService.js').then(({ dispatchDuePreorders }) => {
+  setInterval(() => dispatchDuePreorders().catch(e => console.error('PREORDER_LOOP_FAIL', e.message)), 5 * 60 * 1000);
+  setTimeout(() => dispatchDuePreorders().catch(() => {}), 40000);
+}).catch(() => {});
+
 import('./services/reporting.js').then(({ runDueReports }) => {
   setInterval(() => runDueReports().catch(e => console.error('REPORT_LOOP_FAIL', e.message)), 5 * 60 * 1000);
   setTimeout(() => runDueReports().then(n => { if (n) console.log('REPORTS_CATCHUP', n); }).catch(() => {}), 25000);

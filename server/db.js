@@ -59,6 +59,8 @@ try { db.exec("ALTER TABLE orders ADD COLUMN commission_business INTEGER DEFAULT
 try { db.exec("ALTER TABLE customer_locations ADD COLUMN city TEXT"); } catch {}
 // 🏪 دوام النشاط والفترات + المستندات الرسمية · 🛵 مستندات الكابتن
 for (const [t, c, ty] of [
+  ['items', 'stock_qty', 'INTEGER'],
+  ['orders', 'is_preorder', 'INTEGER'], ['orders', 'scheduled_for', 'TEXT'], ['orders', 'scheduled_time', 'TEXT'], ['orders', 'preorder_dispatched_at', 'TEXT'],
   ['customers', 'national_id', 'TEXT'], ['customers', 'birth_date', 'TEXT'], ['customers', 'activation_code', 'TEXT'], ['customers', 'pledged_at', 'TEXT'],
   ['captains', 'id_doc', 'TEXT'], ['restaurant_users', 'id_doc', 'TEXT'], ['restaurant_users', 'birth_date', 'TEXT'], ['business_registrations', 'id_doc', 'TEXT'],
   ['report_recipients', 'birth_date', 'TEXT'], ['report_recipients', 'id_doc', 'TEXT'],

@@ -30,7 +30,8 @@ export function notifyRestaurantNewOrder(order) {
     try { items = JSON.parse(order.items_json || '[]'); } catch (e) {}
     const lines = items.map(i => `• ${i.quantity} × ${i.name} — ${money(Number(i.price) * Number(i.quantity))}`).join('\n');
     const isPickup = order.order_type === 'pickup';
-    const body = `🛎 *طلب جديد* ${order.order_no}\n🏪 ${rest?.name_ar || ''}\n━━━━━━━━━━━━━━\n🛒 *الطلب:*\n${lines}\n━━━━━━━━━━━━━━\n🍽 المجموع: ${money(order.subtotal)} ر.س`
+    const pre = order.is_preorder ? `\n🗓️ *طلب مسبق* — ${order.scheduled_for || ''} الساعة ${order.scheduled_time || ''}\n` : '';
+    const body = `🛎 *${order.is_preorder ? 'طلب مسبق' : 'طلب جديد'}* ${order.order_no}\n🏪 ${rest?.name_ar || ''}${pre}\n━━━━━━━━━━━━━━\n🛒 *الطلب:*\n${lines}\n━━━━━━━━━━━━━━\n🍽 المجموع: ${money(order.subtotal)} ر.س`
       + (Number(order.discount) ? `\n🎁 الخصم: -${money(order.discount)} ر.س` : '')
       + (isPickup ? '\n🏪 *استلام من النشاط*' : `\n🚚 التوصيل: ${money(order.delivery_fee)} ر.س\n📍 ${order.national_address || order.address_label || ''}`)
       + `\n💰 *الإجمالي: ${money(order.total)} ر.س*\n💳 الدفع: ${PAY_AR[order.payment_method] || order.payment_method || '-'}\n🕐 خلال ~${order.est_delivery_min || 30} دقيقة\n\n_اضغط ✅ «استلمت» ليوصل العميل تأكيد، و📦 «جاهز» لمّا يجهز الطلب._`;
@@ -44,29 +45,49 @@ export function addEvent(orderId, event, message, actorType = 'system', actorId 
     orderId, event, message, actorType, actorId);
 }
 
-export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null, orderType = 'delivery', bidding = false }) {
+export function createOrder({ restaurant, customer, cart, totals, paymentMethod, address, estDeliveryMin, notes = '', branch = null, orderType = 'delivery', bidding = false, scheduledFor = null, scheduledTime = null, isPreorder = false }) {
   const isPickup = orderType === 'pickup';
   const orderNo = nextOrderNo();
   const deliveryCode = String(Math.floor(100000 + Math.random() * 900000));
   const itemsJson = JSON.stringify(cart.items.map(i => ({ item_id: i.item_id, name: i.name, price: i.price, quantity: i.quantity, offer_id: i.offer_id || null })));
   const r = q.run(`INSERT INTO orders (order_no, restaurant_id, customer_id, items_json, subtotal, discount, delivery_fee, total,
-    payment_method, payment_status, status, address_label, national_address, lat, lng, est_delivery_min, branch_id, branch_name, delivery_code, order_type, notes)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    payment_method, payment_status, status, address_label, national_address, lat, lng, est_delivery_min, branch_id, branch_name, delivery_code, order_type, notes,
+    is_preorder, scheduled_for, scheduled_time)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     orderNo, restaurant.id, customer.id, itemsJson, totals.subtotal, totals.discount, totals.delivery_fee, totals.total,
     paymentMethod, 'pending', 'new', address.label, address.national_address, address.lat, address.lng, estDeliveryMin,
-    branch?.id || null, branch?.name || null, deliveryCode, isPickup ? 'pickup' : 'delivery', notes);
+    branch?.id || null, branch?.name || null, deliveryCode, isPickup ? 'pickup' : 'delivery', notes,
+    isPreorder ? 1 : 0, scheduledFor || null, scheduledTime || null);
   const order = q.get("SELECT * FROM orders WHERE id = ?", r.lastInsertRowid);
   addEvent(order.id, 'new', isPickup ? 'طلب استلام من النشاط (بدون توصيل)' : 'تم إنشاء الطلب وانتظار تأكيد المطعم');
   addEvent(order.id, 'payment', `طريقة الدفع: ${paymentMethod}`);
   emitTo(`restaurant:${restaurant.id}`, 'order:new', { orderId: order.id, order });
   emitTo('admin', 'order:new', { orderId: order.id, order });
-  if (bidding) {
+  if (isPreorder) {
+    // 🏠 طلب مسبق: لا مزاد ولا بث الآن — يُعرض على الكباتن يوم التسليم (المجدول)
+    console.log('PREORDER_CREATED', orderNo, scheduledFor, scheduledTime);
+  } else if (bidding) {
     // 🚕 مزاد سعر التوصيل: نفتح نافذة التسعير (البث يتولاه startDeliveryBidding)
     q.run("UPDATE orders SET bid_until=datetime('now','+90 seconds') WHERE id=?", order.id);
     order.bid_until = q.get("SELECT bid_until FROM orders WHERE id=?", order.id)?.bid_until || null;
   } else if (!isPickup) {
     broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
   }
+  // 📦 خصم الكميات المتوفرة (الأسر المنتجة وغيرها) وإخفاء الصنف لو خلص
+  try {
+    for (const it of cart.items) {
+      if (!it.item_id) continue;
+      const row = q.get("SELECT id, name, stock_qty, restaurant_id FROM items WHERE id=?", it.item_id);
+      if (!row || row.stock_qty === null || row.stock_qty === undefined) continue;
+      const left = Math.max(0, Number(row.stock_qty) - Number(it.quantity || 0));
+      q.run("UPDATE items SET stock_qty=?, is_available=? WHERE id=?", left, left > 0 ? 1 : 0, row.id);
+      if (left === 0) {
+        const to = ordersPhone(row.restaurant_id);
+        if (to) waSend({ phone: to, type: 'text', body: `⛔ *${row.name}* خلصت كميته من طلب ${order.order_no} — أخفيناه من القائمة تلقائياً ✅\n_(ترجعه بكتابة *رجّع رقم الصنف*)_` }).catch(() => {});
+      }
+    }
+  } catch (e) { console.error('STOCK_DECREMENT_FAIL', e.message); }
+
   scheduleBackup(); // نسخة احتياطية فورية بعد كل طلب
   notifyRestaurantNewOrder(order);   // 🏪 إشعار صاحب النشاط على واتساب
   return order;
@@ -113,6 +134,31 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
     emitAll('order:delivered', { orderId });
   }
   return { ok: true };
+}
+
+// 🏠 بث الطلبات المسبقة المستحقة (يوم التسليم وقبل الموعد)
+export async function dispatchDuePreorders() {
+  try {
+    const today = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+    const rows = q.all(`SELECT * FROM orders WHERE is_preorder=1 AND preorder_dispatched_at IS NULL
+      AND status IN ('new') AND (scheduled_for IS NULL OR scheduled_for <= ?)`, today);
+    for (const order of rows) {
+      // نبدأ قبل الموعد بـ 90 دقيقة
+      const [h, mi] = String(order.scheduled_time || '12:00').split(':').map(Number);
+      const now = new Date(Date.now() + 3 * 3600 * 1000);
+      const mins = (h * 60 + mi) - (now.getUTCHours() * 60 + now.getUTCMinutes());
+      if (order.scheduled_for === today && mins > 90) continue;
+      q.run("UPDATE orders SET preorder_dispatched_at=datetime('now') WHERE id=?", order.id);
+      if (order.order_type !== 'pickup') {
+        const { broadcastToCaptains } = await import('./dispatch.js');
+        try { broadcastToCaptains(order); } catch (e) { console.error('PREORDER_BROADCAST_FAIL', e.message); }
+      }
+      const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
+      if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text',
+        body: `🔔 *طلبك المسبق ${order.order_no} صار في التنفيذ* — نعرضه الحين على كباتن التوصيل 🛵` }).catch(() => {});
+      console.log('PREORDER_DISPATCHED', order.order_no);
+    }
+  } catch (e) { console.error('PREORDER_LOOP_FAIL', e.message); }
 }
 
 // إغلاق الطلب برمز الاستلام (المندوب يرسله لواتساب المطعم)

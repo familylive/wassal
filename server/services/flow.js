@@ -289,6 +289,12 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (p === 'add_cashier') return startAddCashier(phone, rid, session);
   if (p === 'add_manager') return startAddManager(phone, rid, session);
   if (/^(جاهز|استلمت|تم الاستلام)$/.test(bt) && ownerRestaurantId(phone)) return handleOrderActionFromOwner(phone, rid, null, b);
+  // 🍽 إدارة المنيو من واتساب (صاحب النشاط)
+  if (/^(أصنافي|اصنافي|منيو نشاطي|تحديث المنيو|الموجود|المتوفر)$/.test(bt)) return sendMenuManage(phone, rid);
+  if (ownerRestaurantId(phone)) {
+    const handled = handleMenuManageCommand(phone, rid, bt);
+    if (handled) return handled;
+  }
   // 🆔 رقم النشاط (لصاحب النشاط أو مديره)
   if (/^(رقم النشاط|رقم المطعم|رقم المتجر|رقمي|رقم حسابي|معرف النشاط)$/.test(bt)) return sendBusinessNumber(phone, rid);
   // 🔔 وقت التقرير اليومي
@@ -319,7 +325,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_docs'].includes(state);
+    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_docs', 'preorder_date', 'preorder_time'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -381,6 +387,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'mgr_iddoc': return handleMgrIdDoc(phone, rid, session, b, mediaRef);
     case 'cap_iddoc': return handleCapIdDoc(phone, rid, session, b, mediaRef);
     case 'cash_iddoc': return handleCashIdDoc(phone, rid, session, b, mediaRef);
+    case 'preorder_date': return handlePreorderDate(phone, rid, session, b, p);
+    case 'preorder_time': return handlePreorderTime(phone, rid, customer, session, b, p);
     case 'reg_shift': return handleRegShift(phone, rid, session, b, p);
     case 'reg_s1f': return handleRegShiftTime(phone, rid, session, b, 's1_from', 'reg_s1t', '✅ من {t} — ومتى *يقفل* النشاط؟');
     case 'reg_s1t': {
@@ -618,7 +626,8 @@ function showItemsList(phone, rid, cid) {
   let num = `📂 *${cat?.name || 'الأصناف'}*\n━━━━━━━━━━━━━━━━\n`;
   items.forEach((i, idx) => {
     const ex = cart.items.find(x => x.item_id === i.id);
-    num += `${ex ? '✅' : '▫️'} ${idx + 1}. ${i.name} — ${rls(i.price)} ر.س${ex ? `  (×${ex.quantity})` : ''}\n`;
+    const stk = (i.stock_qty === null || i.stock_qty === undefined) ? '' : ` · متبقي ${i.stock_qty}`;
+    num += `${ex ? '✅' : '▫️'} ${idx + 1}. ${i.name} — ${rls(i.price)} ر.س${stk}${ex ? `  (×${ex.quantity})` : ''}\n`;
   });
   num += '━━━━━━━━━━━━━━━━\n✍️ أرسل `2×3` = صنف ٢ عدد ٣ · أو `2` = واحد · `حذف 2` للحذف';
   send(phone, rid, null, 'text', num);
@@ -678,7 +687,8 @@ function buildMenu(rid, cart = null) {
     for (const i of items) {
       map.push({ id: i.id, name: i.name, price: i.price, cat: c.name });
       const ex = inCart(i.id);
-      t += `${ex ? '✅' : '▫️'} ${map.length}. ${i.name} — ${rls(i.price)} ر.س${ex ? `  (×${ex.quantity})` : ''}\n`;
+      const stk2 = (i.stock_qty === null || i.stock_qty === undefined) ? '' : ` · متبقي ${i.stock_qty}`;
+      t += `${ex ? '✅' : '▫️'} ${map.length}. ${i.name} — ${rls(i.price)} ر.س${stk2}${ex ? `  (×${ex.quantity})` : ''}\n`;
     }
   }
   t += '\n━━━━━━━━━━━━━━━━\n';
@@ -1178,7 +1188,7 @@ function handleAddressPick(phone, rid, customer, data, p) {
     const address = { label: loc.label || 'المنزل', national_address: loc.national_address || (loc.lat + ',' + loc.lng), lat: loc.lat, lng: loc.lng, branch: delivery.branch || null };
     saveSession(phone, 'delivery_time', { ...data, address, newLoc: null });
     send(phone, rid, null, 'text', `📍 تمام — التوصيل على: ${address.label}\n🏪 الفرع: *${delivery.branch?.name || ''}* (${Math.round(delivery.distanceKm)} كم)`);
-    return askTime(phone, rid);
+    return askDeliveryTimeStart(phone, rid);
   }
   return askLocation(phone, rid, customer, data);
 }
@@ -1195,7 +1205,7 @@ function handleLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (Number(prev.c) === 1) {
     saveSession(phone, 'delivery_time', { ...data, address: saved });
     send(phone, rid, null, 'text', `📍 تم حفظ عنوانك: ${saved.label}\n${saved.national_address || (lat + ',' + lng)}\n🏪 سيتولى توصيلك: *${delivery.branch.name}* (${Math.round(delivery.distanceKm)} كم)`);
-    return askTime(phone, rid);
+    return askDeliveryTimeStart(phone, rid);
   }
   saveSession(phone, 'address_confirm', { ...data, address: saved, newLoc: saved });
   const def = q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", customer.id);
@@ -1216,7 +1226,7 @@ function handleAddressConfirm(phone, rid, customer, data, p) {
       def.branch_id = delivery.branch.id; def.branch_name = delivery.branch.name; def.branch = delivery.branch;
     }
     saveSession(phone, 'delivery_time', { ...data, address: def });
-    return askTime(phone, rid);
+    return askDeliveryTimeStart(phone, rid);
   }
   if (p === 'addr_new') {
     saveSession(phone, 'new_location_request', { ...data });
@@ -1252,7 +1262,7 @@ function handleNewLocation(phone, rid, customer, data, type, lat, lng, p) {
   const saved = saveLocation(customer.id, lat, lng, data, p, delivery.branch);
   saveSession(phone, 'delivery_time', { ...data, address: saved });
   send(phone, rid, null, 'text', `📍 تم حفظ العنوان الجديد: ${saved.national_address || (lat + ',' + lng)}\n🏪 الفرع المسؤول: *${delivery.branch.name}*`);
-  return askTime(phone, rid);
+  return askDeliveryTimeStart(phone, rid);
 }
 
 function saveLocation(customerId, lat, lng, data, p, branch = null) {
@@ -1263,6 +1273,60 @@ function saveLocation(customerId, lat, lng, data, p, branch = null) {
   const saved = q.get("SELECT * FROM customer_locations WHERE id=?", r.lastInsertRowid);
   if (branch) { saved.branch_id = branch.id; saved.branch_name = branch.name; saved.branch = branch; }
   return saved;
+}
+
+// 🏠 هل النشاط أسرة منتجة؟ (الطلب المسبق قبلها بيوم)
+function isHomeProducer(rid) {
+  try {
+    const r = q.get("SELECT r.*, b.name_ar AS bt_name FROM restaurants r LEFT JOIN business_types b ON b.id=r.business_type_id WHERE r.id=?", rid);
+    return /منتجة|أسر|منزلي/.test(String(r?.bt_name || '')) || String(r?.entity_type || '') === 'أسرة منتجة';
+  } catch (e) { return false; }
+}
+// 🕐 بداية اختيار الوقت: الأسر المنتجة → تاريخ (بكرة أو بعده) · الباقي → فوري
+function askDeliveryTimeStart(phone, rid) {
+  if (isHomeProducer(rid)) {
+    saveSession(phone, 'preorder_date', { ...(getSession(phone).data || {}) });
+    send(phone, rid, null, 'text', '🏠 *هذا النشاط أُسر منتجة — والطلب مسبق قبلها بيوم* 🗓️\n\nمتى تحب يجهزون طلبك؟');
+    return send(phone, rid, null, 'buttons', 'اختر اليوم 👇', { buttons: [
+      { id: 'pdate:1', title: '🗓️ بكرة' },
+      { id: 'pdate:2', title: '🗓️ بعد بكرة' }
+    ] });
+  }
+  return askDeliveryTimeStart(phone, rid);
+}
+function handlePreorderDate(phone, rid, session, b, p) {
+  const d = String(p || '').startsWith('pdate:') ? Number(String(p).slice(6)) : Number(String(b || '').replace(/[^\d]/g, ''));
+  if (![1, 2, 3].includes(d)) return send(phone, rid, null, 'text', 'اختر *١* بكرة أو *٢* بعد بكرة 🗓️ (أو اكتب 3 لثلاثة أيام)');
+  const t = new Date(Date.now() + 3 * 3600 * 1000 + d * 86400000);
+  const dateStr = t.toISOString().slice(0, 10);
+  const dayAr = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'][t.getUTCDay()];
+  saveSession(phone, 'preorder_time', { ...session.data, preorder: { date: dateStr, label: `${dayAr} ${dateStr}` } });
+  send(phone, rid, null, 'text', `🗓️ *${dayAr} ${dateStr}* ✅`);
+  return send(phone, rid, null, 'buttons', '🕐 متى تحب يوصل؟', { buttons: [
+    { id: 'ptime:12:00', title: '🕛 الظهر 12:00' },
+    { id: 'ptime:17:00', title: '🕔 العصر 5:00' },
+    { id: 'ptime:20:00', title: '🌙 الليل 8:00' }
+  ] });
+}
+async function handlePreorderTime(phone, rid, customer, session, b, p) {
+  const raw = String(p || '').startsWith('ptime:') ? String(p).slice(6) : String(b || '').trim();
+  const t = /^\d{1,2}:\d{2}$/.test(raw) ? raw.padStart(5, '0') : parseReportHour(raw, { morning: true });
+  if (!t) return send(phone, rid, null, 'text', 'اكتب الوقت: 12:00 أو 5 عصراً أو 8 مساءً');
+  const pre = session.data.preorder || {};
+  const data = { ...session.data, preorder: { ...pre, time: t } };
+  const cart = session.data.cart || {};
+  // 📅 إنشاء الطلب مسبقاً (بلا مزاد الآن — يُعرض على الكباتن يوم التسليم)
+  const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
+  const totals = cartTotals(rid, cart, data.address?.branch || null);
+  const order = createOrder({
+    restaurant: rest, customer, cart, totals, paymentMethod: data.paymentMethod || 'cash',
+    address: data.address || pickupAddress(rid), estDeliveryMin: 30, branch: data.address?.branch || null,
+    orderType: cart.pickup ? 'pickup' : 'delivery', scheduledFor: pre.date, scheduledTime: t, isPreorder: true
+  });
+  saveSession(phone, 'idle', {});
+  send(phone, rid, order.id, 'text', `✅ *تم تسجيل طلبك المسبق ${order.order_no}* 🗓️\n\n🏠 ${rest.name_ar}\n📅 *${pre.label}* الساعة *${t}*\n💰 الإجمالي: ${rls(totals.total)} ر.س\n\n🔔 نعرض الطلب على الكباتن *يوم التسليم* ونبلغك 👍`);
+  if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🏠 طلب مسبق جديد ${order.order_no} — ${rest.name_ar}\n📅 ${pre.label} ${t}` }).catch(() => {});
+  return;
 }
 
 function askTime(phone, rid) {
@@ -2471,6 +2535,52 @@ function ordersPhoneLabel(rid) {
   if (c) return `🧾 الكاشير ${c}`;
   const o = ownerPhone(rid);
   return o ? `👤 صاحب النشاط ${o}` : '⚠️ غير محدد';
+}
+
+// 🍽 إدارة المنيو من واتساب (لصاحب النشاط): عرض الأصناف · إيقاف · إرجاع · كمية
+function sendMenuManage(phone, rid) {
+  const rrid = ownerRestaurantId(phone);
+  if (!rrid) return send(phone, rid, null, 'text', '🍽 إدارة المنيو لأصحاب الأنشطة 🌸\n\nسجّل نشاطك بكتابة *انضمام*');
+  const items = q.all("SELECT * FROM items WHERE restaurant_id=? ORDER BY sort_order, id", rrid);
+  if (!items.length) return send(phone, rid, null, 'text', 'ما فيه أصناف بعد 🙏');
+  let t = `🍽 *منيو نشاطك* (${items.length} صنف)\n━━━━━━━━━━━━━━\n`;
+  items.forEach((it, idx) => {
+    const stock = it.stock_qty === null || it.stock_qty === undefined ? '∞' : it.stock_qty;
+    t += `${idx + 1}. ${it.name} — ${rls(it.price)} ر.س ${it.is_available ? `· متوفر (${stock})` : '· ⛔ غير متوفر'}\n`;
+  });
+  t += `\n📋 *أوامر سريعة* (اكتب الرقم):\n• *وقف 3* = خلص صنف ٣ (يختفي من العملاء)\n• *رجّع 3* = رجّعه متوفراً\n• *كمية 3 5* = حدّد المتوفر ٥ فقط`;
+  return send(phone, rid, null, 'text', t);
+}
+function handleMenuManageCommand(phone, rid, b) {
+  const rrid = ownerRestaurantId(phone);
+  if (!rrid) return null;
+  const items = q.all("SELECT * FROM items WHERE restaurant_id=? ORDER BY sort_order, id", rrid);
+  if (!items.length) return null;
+  const pick = (n) => items[Number(n) - 1];
+  let m = b.match(/^(?:وقف|حذف|خلص|انتهى|نفد)\s*(\d{1,3})$/);
+  if (m) {
+    const it = pick(m[1]);
+    if (!it) return send(phone, rid, null, 'text', 'رقم الصنف غير صحيح 🙏');
+    q.run("UPDATE items SET is_available=0, stock_qty=0 WHERE id=?", it.id);
+    if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `⛔ ${q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid)?.name_ar || ''}: أوقف صنف *${it.name}* (خلص)` }).catch(() => {});
+    return send(phone, rid, null, 'text', `⛔ *${it.name}* صار غير متوفر — اختفى من قائمة العملاء ✅\n\n_(اكتب *أصنافي* لعرض المنيو)_`);
+  }
+  m = b.match(/^(?:رجّع|رجع|متوفر)\s*(\d{1,3})$/);
+  if (m) {
+    const it = pick(m[1]);
+    if (!it) return send(phone, rid, null, 'text', 'رقم الصنف غير صحيح 🙏');
+    q.run("UPDATE items SET is_available=1, stock_qty=NULL WHERE id=?", it.id);
+    return send(phone, rid, null, 'text', `✅ *${it.name}* رجع متوفراً (بلا حد) ✅`);
+  }
+  m = b.match(/^كمية\s*(\d{1,3})\s*(\d{1,4})$/);
+  if (m) {
+    const it = pick(m[1]);
+    if (!it) return send(phone, rid, null, 'text', 'رقم الصنف غير صحيح 🙏');
+    const qty = Number(m[2]);
+    q.run("UPDATE items SET stock_qty=?, is_available=? WHERE id=?", qty, qty > 0 ? 1 : 0, it.id);
+    return send(phone, rid, null, 'text', `✅ *${it.name}* — المتوفر الآن: *${qty}* ${qty > 0 ? '' : '(غير متوفر)'}`);
+  }
+  return null;
 }
 
 // 🆔 إرسال رقم النشاط لصاحبه أو مديره (ليعطيه للمدير ليسجّل، أو ليكتبه المدير)

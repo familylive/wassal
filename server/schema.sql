@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS items (
   price INTEGER NOT NULL,
   image TEXT,
   is_available INTEGER DEFAULT 1,
+  stock_qty INTEGER,
   is_popular INTEGER DEFAULT 0,
   prep_time_min INTEGER DEFAULT 15,
   sort_order INTEGER DEFAULT 0
@@ -202,6 +203,10 @@ CREATE TABLE IF NOT EXISTS orders (
   branch_name TEXT,
   delivery_code TEXT,
   order_type TEXT DEFAULT 'delivery',
+  is_preorder INTEGER DEFAULT 0,
+  scheduled_for TEXT,
+  scheduled_time TEXT,
+  preorder_dispatched_at TEXT,
   bid_until TEXT,
   chosen_captain_id INTEGER,
   promised_at TEXT,
