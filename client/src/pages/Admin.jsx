@@ -376,8 +376,56 @@ function CustomerModal({ c, onClose }) {
 function AdsTab({ data, onChange }) {
   const [modal, setModal] = useState(false);
   const [rests, setRests] = useState([]);
-  useEffect(() => { api('/restaurants').then(setRests).catch(() => {}); }, []);
+  const { notify } = useApp();
+  const [reqs, setReqs] = useState([]);
+  const loadReqs = () => api('/ad-requests').then(setReqs).catch(() => {});
+  useEffect(() => { api('/restaurants').then(setRests).catch(() => {}); loadReqs(); }, []);
+  const act = async (r, kind) => {
+    try {
+      if (kind === 'price') {
+        const v = window.prompt('سعر الإعلان بالريال:', r.price ? String(r.price / 100) : '300');
+        if (!v) return;
+        await api(`/ad-requests/${r.id}/price`, { method: 'POST', body: { price: Number(v) } });
+        notify('✅ تم إرسال السعر للنشاط للموافقة');
+      } else if (kind === 'approve') {
+        const d = await api(`/ad-requests/${r.id}/approve`, { method: 'POST', body: {} });
+        notify(`✅ نُشر الإعلان لـ ${d.sent} عميل في ${d.city || 'المدينة'}`);
+      } else {
+        await api(`/ad-requests/${r.id}/reject`, { method: 'POST', body: {} });
+        notify('❌ تم رفض الإعلان');
+      }
+      await loadReqs(); onChange?.();
+    } catch (e) { notify(e.message); }
+  };
+  const statusAr = { requested: '⏳ بانتظار التسعير', priced: '💰 بانتظار موافقة النشاط', paid: '💳 مدفوع — بانتظار النص', content: '✍️ بانتظار النص', pending_approval: '🔎 بانتظار اعتمادك', approved: '✅ منشور', rejected: '❌ مرفوض', declined: '↩️ اعتذر' };
+  const pend = reqs.filter(r => ['requested', 'priced', 'paid', 'content', 'pending_approval'].includes(r.status));
   return (
+    <>
+    {pend.length > 0 && (
+      <Card title={`📣 طلبات إعلانات (${pend.length})`}>
+        <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 8 }}>
+          النشاط يطلب من واتساب بكتابة <b>«إعلان»</b> → أنت تحدّد السعر → يوافق → يدفع → يكتب النص → تعتمده فيُنشر لعملاء مدينته فقط.
+        </div>
+        {pend.map(r => (
+          <div key={r.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--line)' }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <b>🏪 {r.restaurant_name || '-'}</b>
+                <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+                  {statusAr[r.status] || r.status} · 🏙 {r.city || '-'} ({r.cityCustomers} عميل) · 💵 {r.price ? sar(r.price) + ' ر.س' : 'بلا سعر'}
+                </div>
+                {r.content && <div style={{ fontSize: 13, marginTop: 4 }}>✍️ {r.content}</div>}
+              </div>
+              <div className="row" style={{ gap: 4 }}>
+                {r.status === 'requested' && <button className="btn sm" onClick={() => act(r, 'price')}>💰 حدّد السعر</button>}
+                {r.status === 'pending_approval' && <button className="btn sm" onClick={() => act(r, 'approve')}>✅ اعتماد ونشر</button>}
+                {r.status === 'pending_approval' && <button className="btn ghost sm" onClick={() => act(r, 'reject')}>❌ رفض</button>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </Card>
+    )}
     <Card title={`برنامج الإعلانات (${data.length})`} action={<button className="btn sm" onClick={() => setModal(true)}>➕ حملة جديدة</button>}>
       <table>
         <thead><tr><th>الحملة</th><th>المطعم</th><th>الموضع</th><th>الميزانية</th><th>الإنفاق</th><th>مشاهدات</th><th>نقرات</th><th>الحالة</th></tr></thead>
@@ -394,6 +442,7 @@ function AdsTab({ data, onChange }) {
       </table>
       {modal && <AdForm rests={rests} onClose={() => setModal(false)} onSaved={() => { setModal(false); onChange(); }} />}
     </Card>
+    </>
   );
 }
 function AdForm({ rests, onClose, onSaved }) {

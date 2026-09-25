@@ -6,6 +6,7 @@ import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js'
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport } from './reporting.js';
+import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity } from './ads.js';
 import config from '../config.js';
 
 // ---------- session ----------
@@ -213,6 +214,30 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   try {
     const isSupervisor = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone));
     if (isSupervisor && p) {
+      // 💰 تسعير إعلان
+      const am = p.match(/^adprice:(\d+)$/);
+      if (am) {
+        const req = getAdRequest(Number(am[1]));
+        if (!req) return send(phone, rid, null, 'text', 'ما لقيت الطلب 🙏');
+        saveSession(phone, 'ad_price', { adReqId: req.id });
+        return send(phone, rid, null, 'text', `💰 اكتب *سعر الإعلان* بالريال لـ *${q.get("SELECT name_ar FROM restaurants WHERE id=?", req.restaurant_id)?.name_ar || ''}*\nمثال: 300`);
+      }
+      // 📣 اعتماد الإعلان
+      const apm = p.match(/^ad(ok|no):(\d+)$/);
+      if (apm) {
+        const req = getAdRequest(Number(apm[2]));
+        if (!req) return send(phone, rid, null, 'text', 'ما لقيت الإعلان 🙏');
+        if (apm[1] === 'ok') {
+          const r = await publishAd(req);
+          const biz = q.get("SELECT name_ar FROM restaurants WHERE id=?", req.restaurant_id);
+          send(phone, rid, null, 'text', `✅ *تم اعتماد الإعلان ونشره*\n🏪 ${biz?.name_ar || ''}\n🏙 ${r.city || ''}\n📤 أُرسل لـ *${r.sent}* عميل${r.city === '' ? '' : ' في المدينة'}`);
+          try { await waSend({ phone: String(req.phone || '').replace(/^\+/, ''), type: 'text', body: `🎉 *تم نشر إعلانك!*\n🏪 الإدارة اعتمدته وأرسلناه لعملاء مدينة *${r.city || ''}* (${r.sent} عميل) ✅` }); } catch (e) {}
+          return;
+        }
+        setAdStatus(req.id, 'rejected', { supervisor_note: 'رفض من الإدارة' });
+        try { await waSend({ phone: String(req.phone || '').replace(/^\+/, ''), type: 'text', body: 'نعتذر 🙏 — لم يتم اعتماد الإعلان. تقدر تعدّل النص وترسله مرة ثانية.' }); } catch (e) {}
+        return send(phone, rid, null, 'text', '❌ تم رفض الإعلان');
+      }
       const m = p.match(/^(biz|cap|rp)_(ok|no):(\d+)$/);
       if (m) {
         const kind = m[1], act = m[2], id = Number(m[3]);
@@ -230,7 +255,10 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   const bt = String(b || '').trim();
   if (/^تقرير\s+(أمس|امس|البارح)$/.test(bt)) return sendReportNow(phone, rid, true);
   if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
+  if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
+  // 📣 طلب إعلان من النشاط
+  if (/^(عرض|اعلان|إعلان|أعلن|اعلن|أعلن عندكم|طلب اعلان|طلب إعلان)$/.test(bt)) return startAdRequestFlow(phone, rid, session);
 
   // ===== بدء التسجيل الذاتي (نشاط / كابتن) =====
   if (/^تسجيل\s*(كابتن|مندوب)$/.test(b)) return startCaptainReg(phone, rid, session);
@@ -246,7 +274,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -305,6 +333,9 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_deposit_wait': return handleCapDeposit(phone, rid, session, b, p);
     case 'rep_name': return handleRepName(phone, rid, session, b);
     case 'rep_id': return handleRepId(phone, rid, session, b);
+    case 'ad_price': return handleAdPrice(phone, rid, session, b);
+    case 'ad_content': return handleAdContent(phone, rid, session, b);
+    case 'ad_waitpay': return handleAdWaitPay(phone, rid, session, p);
     case 'rep_phone': return handleRepPhone(phone, rid, session, b);
     case 'browse_categories': return handleCat(phone, rid, customer, p, b);
     case 'browse_items': return handleItems(phone, rid, customer, p, b);
@@ -318,6 +349,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'coupon': return handleCoupon(phone, rid, customer, data, b);
     case 'order_type': return handleOrderType(phone, rid, customer, data, p, b);
     case 'choose_captain': return (p && p.startsWith('bid:')) ? handleBidPick(phone, rid, customer, data, p) : null;
+    case 'ad_decision': return handleAdDecision(phone, rid, session, p);
     case 'bidding': return send(phone, rid, data.orderId || null, 'text', '⏳ نجمع لك عروض الكباتن — ثواني وتوصلك العروض لتختار 👌');
     case 'payment_method': return handlePayMethod(phone, rid, customer, data, p);
     case 'awaiting_payment': return handleAwaitPay(phone, rid, customer, data, p);
@@ -1128,8 +1160,8 @@ function handleNewLocation(phone, rid, customer, data, type, lat, lng, p) {
 function saveLocation(customerId, lat, lng, data, p, branch = null) {
   const isDefault = q.get("SELECT COUNT(*) AS c FROM customer_locations WHERE customer_id=?", customerId).c === 0 ? 1 : 0;
   const na = (p && p.startsWith('loc:')) ? p.slice(4) : null;
-  const r = q.run("INSERT INTO customer_locations (customer_id, label, national_address, lat, lng, is_default) VALUES (?,?,?,?,?,?)",
-    customerId, isDefault ? 'المنزل' : (data.nextLabel || 'موقع جديد'), na, lat, lng, isDefault);
+  const r = q.run("INSERT INTO customer_locations (customer_id, label, national_address, lat, lng, is_default, city) VALUES (?,?,?,?,?,?,?)",
+    customerId, isDefault ? 'المنزل' : (data.nextLabel || 'موقع جديد'), na, lat, lng, isDefault, branch?.city || null);
   const saved = q.get("SELECT * FROM customer_locations WHERE id=?", r.lastInsertRowid);
   if (branch) { saved.branch_id = branch.id; saved.branch_name = branch.name; saved.branch = branch; }
   return saved;
@@ -1754,6 +1786,82 @@ async function sendReportNow(phone, rid, yesterday) {
   const target = yesterday ? shiftDate(localNow().date, -1) : localNow().date;
   const txt = buildDailyReport(rrid, target);
   return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
+}
+
+// ---------- 📣 إعلانات الأنشطة ----------
+async function startAdRequestFlow(phone, rid, session) {
+  const rrid = ownerRestaurantId(phone);
+  if (!rrid) return send(phone, rid, null, 'text', '📣 خدمة الإعلانات لأصحاب الأنشطة المسجّلين 🌸\nسجّل نشاطك بكتابة *تسجيل* أولاً.');
+  const rest = q.get("SELECT * FROM restaurants WHERE id=?", rrid);
+  const already = q.get("SELECT * FROM ad_requests WHERE restaurant_id=? AND status IN ('requested','priced','paid','content','pending_approval') ORDER BY id DESC LIMIT 1", rrid);
+  if (already) return send(phone, rid, null, 'text', `📣 عندك طلب إعلان قائم (${adStatusAr(already.status)}) — بنكمل عليه مع الإدارة 🙏`);
+  const req = createAdRequest(rrid, phone, rest?.city || null);
+  saveSession(phone, 'idle', { ...session.data, adReqId: req.id });
+  send(phone, rid, null, 'text', `📣 *طلب إعلان*\n\n🏪 ${rest?.name_ar || ''}\n🏙 سيُرسل لعملاء مدينة: *${req.city || '-'}* (${customersInCity(req.city)} عميل مسجّل)\n\nأرسلنا طلبك للإدارة لتحديد السعر، وبنبلغك بالعرض 💰`);
+  const ok = await notifySupervisorNewAd(req);
+  if (!ok) return send(phone, rid, null, 'text', '⚠️ تعذّر إبلاغ الإدارة — كلّمنا لاحقاً 🙏');
+  return;
+}
+function adStatusAr(s) {
+  return { requested: 'بانتظار التسعير', priced: 'بانتظار موافقتك', paid: 'مدفوع — بانتظار النص', content: 'اكتب النص', pending_approval: 'بانتظار اعتماد الإدارة', approved: 'منشور ✅', rejected: 'مرفوض', declined: 'اعتذرت' }[s] || s;
+}
+// المشرف يحدد السعر
+async function handleAdPrice(phone, rid, session, b) {
+  const req = getAdRequest(session.data.adReqId);
+  const n = Number(String(b || '').replace(/[^\d.]/g, ''));
+  if (!req || !n || n <= 0) return send(phone, rid, null, 'text', 'اكتب السعر بالريال (مثال: 300) 💰');
+  const row = setAdPrice(req.id, Math.round(n * 100));
+  saveSession(phone, 'idle', { ...session.data, adReqId: null });
+  // جهّز جلسة النشاط لاستقبال موافقته
+  const bizPhone = String(row.phone || '').replace(/^\+/, '');
+  const bs = getSession(bizPhone);
+  saveSession(bizPhone, 'ad_decision', { ...bs.data, adReqId: row.id });
+  await sendPriceToBusiness(row);
+  return send(phone, rid, null, 'text', `✅ أرسلنا السعر (${rls(row.price)} ر.س) للنشاط للموافقة\nبنبلغك أول ما يوافق ويدفع 🙏`);
+}
+// النشاط يكتب نص الإعلان
+async function handleAdContent(phone, rid, session, b) {
+  const req = getAdRequest(session.data.adReqId);
+  if (!req) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
+  const text = String(b || '').trim();
+  if (text.length < 5) return send(phone, rid, null, 'text', 'اكتب نص الإعلان (5 أحرف على الأقل) ✍️');
+  const row = setAdStatus(req.id, 'pending_approval', { content: text.slice(0, 600) });
+  saveSession(phone, 'idle', { ...session.data, adReqId: null });
+  await sendToSupervisorForApproval(row);
+  return send(phone, rid, null, 'text', `✅ *وصلنا إعلانك وأرسلناه للإدارة للاعتماد*\n\n✍️ ${text.slice(0, 200)}\n\nبنبلغك أول ما يُنشر لعملاء مدينة *${row.city || ''}* 🙏`);
+}
+// موافقة النشاط على السعر / عدمها
+async function handleAdDecision(phone, rid, session, p) {
+  const req = getAdRequest(session.data.adReqId || q.get("SELECT id FROM ad_requests WHERE phone=? OR phone=? ORDER BY id DESC LIMIT 1", phone, validatePhone(phone))?.id);
+  if (!req) return send(phone, rid, null, 'text', 'ما لقيت طلب الإعلان 🙏 اكتب *إعلان* للبدء من جديد.');
+  if (p === 'ad_no') {
+    setAdStatus(req.id, 'declined', { supervisor_note: 'النشاط لم يوافق على السعر' });
+    saveSession(phone, 'idle', {});
+    if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `❌ النشاط رفض سعر الإعلان (${rls(req.price)} ر.س)` }).catch(() => {});
+    return send(phone, rid, null, 'text', 'تمام 🙏 — أبلغنا الإدارة. تقدر تطلب إعلان مرة ثانية بأي وقت بكتابة *إعلان*.');
+  }
+  // موافقة → الدفع
+  if (config.paymentMode === 'mock') {
+    setAdStatus(req.id, 'paid');
+    saveSession(phone, 'ad_content', { ...session.data, adReqId: req.id });
+    send(phone, rid, null, 'text', `🧪 *وضع تجريبي:* تم دفع ${rls(req.price)} ر.س وهمياً ✅`);
+    return send(phone, rid, null, 'text', '✍️ *اكتب نص إعلانك* (اللي تبيه يوصل للعملاء) وأرسله هنا:');
+  }
+  const { createPayment } = await import('./payments.js');
+  const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", req.restaurant_id);
+  const pay = await createPayment({ total: req.price, order_no: 'AD-' + req.id, restaurant_name: rest?.name_ar || '' }, 'card', { phone, restaurant_id: req.restaurant_id });
+  saveSession(phone, 'ad_waitpay', { ...session.data, adReqId: req.id, paymentId: pay.payment_id || null });
+  send(phone, rid, null, 'text', `💰 *المطلوب لتفعيل إعلانك: ${rls(req.price)} ر.س*\nاضغط الرابط وادفع:`);
+  send(phone, rid, null, 'text', pay.payment_url || '');
+  return send(phone, rid, null, 'buttons', 'بعد الدفع اضغط هنا 👇', { buttons: [{ id: 'ad_paid', title: '✅ تم الدفع' }] });
+}
+// تأكيد دفع الإعلان (الوضع الحقيقي)
+async function handleAdWaitPay(phone, rid, session, p) {
+  const req = getAdRequest(session.data.adReqId);
+  if (!req) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
+  setAdStatus(req.id, 'paid');
+  saveSession(phone, 'ad_content', { ...session.data, adReqId: req.id });
+  return send(phone, rid, null, 'text', '✅ تم الدفع — ✍️ *اكتب نص إعلانك* وأرسله هنا:');
 }
 
 // ---------- أصناف مقروءة من صورة (OCR) ----------

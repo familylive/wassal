@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS customer_locations (
   lat REAL,
   lng REAL,
   is_default INTEGER DEFAULT 0,
+  city TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -371,6 +372,23 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   restaurant_id INTEGER,
   captain_id INTEGER,
   note TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- طلبات الإعلانات: النشاط يطلب → المشرف يسعّر → موافقة → دفع → نص الإعلان → اعتماد → إرسال لعملاء المدينة
+CREATE TABLE IF NOT EXISTS ad_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  restaurant_id INTEGER,
+  phone TEXT,
+  city TEXT,
+  status TEXT DEFAULT 'requested',
+  price INTEGER DEFAULT 0,
+  content TEXT,
+  image TEXT,
+  supervisor_note TEXT,
+  ad_id INTEGER,
+  sent_count INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

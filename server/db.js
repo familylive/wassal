@@ -56,6 +56,7 @@ try { db.exec("ALTER TABLE orders ADD COLUMN promised_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN penalty_quarters INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN penalty_total INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN commission_business INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE customer_locations ADD COLUMN city TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN commission_captain INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN commission_due INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN deposit_balance INTEGER DEFAULT 0"); } catch {}
