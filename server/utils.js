@@ -26,10 +26,12 @@ export function computeTier(points) {
   return t;
 }
 
+export const ORDER_NO_START = 5590;   // 🧾 ترقيم الطلبات يبدأ من 5590
 export function nextOrderNo() {
   // نأخذ أكبر رقم طلب فعلي ونتجاهل أي قيمة غير رقمية (حماية من #NaN)
   const row = q.get("SELECT MAX(CAST(REPLACE(order_no, '#', '') AS INTEGER)) AS m FROM orders WHERE order_no GLOB '#[0-9]*'");
-  const n = Number(row?.m) > 0 ? Number(row.m) + 1 : 1001;
+  const mx = Number(row?.m) || 0;
+  const n = Math.max(ORDER_NO_START, mx + 1);
   return `#${n}`;
 }
 

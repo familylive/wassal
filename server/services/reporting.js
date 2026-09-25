@@ -78,7 +78,7 @@ export function buildDailyReport(restaurantId, dateStr) {
   if (!r) return null;
   const s = dailyStats(restaurantId, dateStr);
   const bt = r.business_type_id ? q.get("SELECT icon FROM business_types WHERE id=?", r.business_type_id) : null;
-  let t = `📊 *تقرير مبيعات ${prettyDate(dateStr)}*\n${bt?.icon || '🏪'} *${r.name_ar}*${r.city ? ' — ' + r.city : ''}\n`;
+  let t = `📊 *تقرير مبيعات ${prettyDate(dateStr)}*\n${bt?.icon || '🏪'} *${r.name_ar}* (#${r.id})${r.city ? ' — ' + r.city : ''}\n`;
   t += '━━━━━━━━━━━━━━━━\n';
   if (!s.orders) {
     t += '📦 لا توجد طلبات في هذا اليوم.\n\n🙏 نتمنى لك يوماً موفقاً';

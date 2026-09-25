@@ -262,6 +262,8 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
   if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
+  // 🆔 رقم النشاط (لصاحب النشاط أو مديره)
+  if (/^(رقم النشاط|رقم المطعم|رقم المتجر|رقمي|رقم حسابي|معرف النشاط)$/.test(bt)) return sendBusinessNumber(phone, rid);
   // 📣 طلب إعلان من النشاط
   if (/^(عرض|اعلان|إعلان|أعلن|اعلن|أعلن عندكم|طلب اعلان|طلب إعلان)$/.test(bt)) return startAdRequestFlow(phone, rid, session);
 
@@ -1882,6 +1884,19 @@ async function sendReportNow(phone, rid, yesterday) {
   const target = yesterday ? shiftDate(localNow().date, -1) : localNow().date;
   const txt = buildDailyReport(rrid, target);
   return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
+}
+
+// 🆔 إرسال رقم النشاط لصاحبه أو مديره (ليعطيه للمدير ليسجّل، أو ليكتبه المدير)
+function sendBusinessNumber(phone, rid) {
+  const rrid = ownerRestaurantId(phone);
+  const rec = findRecipientByPhone(validatePhone(phone));
+  const id = rrid || (rec?.status === 'approved' ? rec.restaurant_id : null);
+  if (!id) return send(phone, rid, null, 'text', '🆔 رقم النشاط يظهر لصاحب النشاط أو مديره المسجّل 🌸\n\n• سجّل نشاطك بكتابة *انضمام*\n• وإذا أنت مدير: *انضمام مدير*');
+  const r = q.get("SELECT id, name_ar, city FROM restaurants WHERE id=?", id);
+  const isManager = !rrid && rec;
+  return send(phone, rid, null, 'text', isManager
+    ? `🆔 *رقم النشاط: #${r.id}*\n🏪 ${r.name_ar}${r.city ? ' — ' + r.city : ''}\n\n✅ أنت مرتبط بهذا النشاط — اكتب *تقرير* ويوصلك تقرير اليوم 📊`
+    : `🆔 *رقم نشاطك: #${r.id}*\n🏪 ${r.name_ar}${r.city ? ' — ' + r.city : ''}\n\n📋 *ارسله لمدير النشاط* ليكتب:\n*انضمام مدير* → اسمه → هويته → رقم النشاط *${r.id}*\n\nوبعد اعتماد الإدارة بيوصله تقرير المبيعات اليومي 📊`);
 }
 
 // ---------- 📣 إعلانات الأنشطة ----------
