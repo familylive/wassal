@@ -34,6 +34,8 @@ export const config = {
   paymentMode: process.env.PAYMENT_MODE || 'mock', // mock | moyasar
   quickOrder: process.env.QUICK_ORDER === 'true', // طلب مبسّط: المنيو ← الاختيار ← رابط الدفع ← الطلب ينتهي
   // رقم المشرف: تجيه إشعارات طلبات التسجيل للاعتماد
-  adminPhone: process.env.ADMIN_PHONE || ''
+  adminPhone: process.env.ADMIN_PHONE || '',
+  supervisorName: process.env.SUPERVISOR_NAME || '',
+  supervisorId: process.env.SUPERVISOR_ID || ''
 };
 export default config;

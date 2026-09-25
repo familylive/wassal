@@ -140,15 +140,16 @@ export function findRecipientByPhone(phone) {
   const norm = validatePhone(phone);
   return q.get("SELECT * FROM report_recipients WHERE phone=? OR phone=? ORDER BY (status='approved') DESC, id DESC LIMIT 1", String(phone || ''), norm);
 }
-export function addRecipient(restaurantId, name, phoneRaw, hour = '23:30') {
+export function addRecipient(restaurantId, name, phoneRaw, hour = '23:30', nationalId = null) {
   const phone = validatePhone(phoneRaw);
+  const nid = nationalId ? String(nationalId).replace(/[^\d]/g, '') : null;
   const dup = q.get("SELECT * FROM report_recipients WHERE restaurant_id=? AND phone=?", restaurantId, phone);
   if (dup) {
-    q.run("UPDATE report_recipients SET name=COALESCE(?,name), status='approved', report_hour=COALESCE(?,report_hour), updated_at=datetime('now') WHERE id=?", name || null, hour || null, dup.id);
+    q.run("UPDATE report_recipients SET name=COALESCE(?,name), national_id=COALESCE(?,national_id), status='approved', report_hour=COALESCE(?,report_hour), updated_at=datetime('now') WHERE id=?", name || null, nid, hour || null, dup.id);
     return q.get("SELECT * FROM report_recipients WHERE id=?", dup.id);
   }
-  const r = q.run("INSERT INTO report_recipients (restaurant_id, name, phone, status, report_hour) VALUES (?,?,?,'pending',?)",
-    restaurantId, name || null, phone, hour || '23:30');
+  const r = q.run("INSERT INTO report_recipients (restaurant_id, name, national_id, phone, status, report_hour) VALUES (?,?,?,?,'pending',?)",
+    restaurantId, name || null, nid, phone, hour || '23:30');
   return q.get("SELECT * FROM report_recipients WHERE id=?", Number(r.lastInsertRowid));
 }
 
@@ -160,6 +161,7 @@ export async function notifySupervisorRecipient(row) {
   const txt = `📊 *طلب إضافة مستلم تقرير مبيعات*\n\n`
     + `🏪 النشاط: *${r?.name_ar || '-'}*\n`
     + `👤 مدير المطعم: ${row.name || '-'}\n`
+    + `🔢 هويته: ${row.national_id || '⚠️ غير مسجّلة'}\n`
     + `📱 جواله: ${row.phone}\n`
     + `⏰ وقت التقرير اليومي: ${row.report_hour || '23:30'}\n\n`
     + 'هل تعتمد إضافته؟ (بيوصله تقرير المبيعات اليومي)';

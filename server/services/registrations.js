@@ -24,11 +24,11 @@ export async function notifySupervisor(reg) {
   const typeRow = reg.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", reg.business_type_id) : null;
   let txt = isCap ? '🛵 *طلب تسجيل كابتن توصيل*\n\n' : '🆕 *طلب تسجيل نشاط جديد*\n\n';
   if (isCap) {
-    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n📱 الجوال: ${reg.phone}\n`;
+    txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n🚗 المركبة: ${reg.vehicle_type || '-'}\n📱 الجوال: ${reg.phone}\n`;
   } else {
     const items = safeItems(reg.items_json);
     txt += `${typeRow ? typeRow.icon + ' ' : ''}النشاط: *${reg.business_name || '-'}*\n`;
-    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
+    txt += `🏷 النوع: ${typeRow?.name_ar || '-'}\n👤 المسؤول: ${reg.owner_name || '-'}${reg.owner_id ? ` — هوية ${reg.owner_id}` : ' — ⚠️ بلا هوية'}\n📍 العنوان: ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ') || '-'}\n📱 جوال المسؤول: ${reg.phone}\n`;
     txt += `🍽 الأصناف: *${items.length}*\n`;
     const sample = items.slice(0, 8).map(i => `• ${i.name}${i.price ? ' — ' + rls(i.price) + ' ر.س' : ' — بلا سعر'}`).join('\n');
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
@@ -54,8 +54,8 @@ export async function approveRegistration(id) {
     let cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", reg.phone, phone);
     const pass = String(reg.phone || '').slice(-6) || '123456';
     if (!cap) {
-      const r = q.run("INSERT INTO captains (name, phone, city, district, vehicle_type, password_hash, status) VALUES (?,?,?,?,?,?,?)",
-        reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.vehicle_type || 'دراجة',
+      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, password_hash, status) VALUES (?,?,?,?,?,?,?,?)",
+        reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.owner_id || reg.national_id || null, reg.vehicle_type || 'دراجة',
         bcrypt.hashSync(pass, 10), 'offline');
       cap = { id: Number(r.lastInsertRowid) };
     }
@@ -84,13 +84,13 @@ export async function approveRegistration(id) {
     }
     const u = q.get("SELECT id FROM restaurant_users WHERE restaurant_id=? AND phone=?", rid, phone);
     if (!u) {
-      q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, password_hash, role) VALUES (?,?,?,?,?)",
-        rid, reg.owner_name || reg.business_name || 'المسؤول', phone, bcrypt.hashSync(pass, 10), 'owner');
+      q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, national_id, password_hash, role) VALUES (?,?,?,?,?,?)",
+        rid, reg.owner_name || reg.business_name || 'المسؤول', phone, reg.owner_id || null, bcrypt.hashSync(pass, 10), 'owner');
     }
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;
   });
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\nللدخول للوحة نشاطك:\n🔗 ${(config.publicUrl || '')}/restaurant\n👤 رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n\nنصيحة: راجع الأصناف والأسعار من اللوحة وأضف صورك 🌟`);
   return { ok: true, kind: 'business', restaurant_id: newId, name: reg.business_name };
 }
 

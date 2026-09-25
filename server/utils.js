@@ -45,6 +45,16 @@ export function validatePhone(p) {
   return s;
 }
 
+// رقم الهوية/الإقامة السعودية: ١٠ أرقام تبدأ بـ ١ (مواطن) أو ٢ (مقيم)
+export function validNationalId(v) {
+  const s = String(v || '').replace(/[^\d]/g, '');
+  return /^[12]\d{9}$/.test(s) ? s : null;
+}
+export function maskId(v) {
+  const s = String(v || '');
+  return s.length === 10 ? s.slice(0, 3) + '****' + s.slice(-2) : (s || '-');
+}
+
 export function humanTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);

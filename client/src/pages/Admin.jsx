@@ -404,6 +404,9 @@ function RegistrationsTab() {
           <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
             {[r.city, r.district, r.postal_code].filter(Boolean).join(' — ') || '-'} · {r.phone} · {label(r.status)}{r.kind === 'business' ? ` · ${(r.items || []).length} صنف` : ` · ${r.vehicle_type || ''}`}
           </div>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+            👤 {r.owner_name || '-'} · 🔢 {r.owner_id || 'بلا هوية'}
+          </div>
         </div>
         <div className="row" style={{ gap: 6 }}>
           {r.status !== 'approved' && <button className="btn sm" disabled={busy} onClick={() => act(r, 'approve')}>✅ اعتماد</button>}
@@ -417,7 +420,7 @@ function RegistrationsTab() {
               <div>الأصناف:</div>
               {(r.items || []).map((it, i) => <div key={i}>• {it.name} {it.price ? `— ${sar(it.price)} ر.س` : '— بلا سعر'}{it.category ? ` (${it.category})` : ''}</div>)}
             </>
-          ) : (<div>المركبة: {r.vehicle_type || '-'} · المدينة: {r.city || '-'}{r.district ? ` · الحي: ${r.district}` : ''}</div>)}
+          ) : (<div>المركبة: {r.vehicle_type || '-'} · المدينة: {r.city || '-'}{r.district ? ` · الحي: ${r.district}` : ''} · الهوية: {r.owner_id || '-'}</div>)}
           <div style={{ marginTop: 4 }}>{r.created_at}</div>
         </div>
       )}
@@ -482,7 +485,7 @@ function ReportsTab() {
         <div>
           <b>👤 {r.name || 'بدون اسم'}</b> <span style={{ fontSize: 12.5, color: 'var(--mut)' }}>— {r.restaurant_name || 'نشاط محذوف'}</span>
           <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
-            📱 {r.phone} · {label(r.status)} · ⏰ التقرير {r.report_hour || '23:30'}{r.last_sent_date ? ` · آخر إرسال ${r.last_sent_date}` : ''}
+            🔢 {r.national_id || 'بلا هوية'} · 📱 {r.phone} · {label(r.status)} · ⏰ التقرير {r.report_hour || '23:30'}{r.last_sent_date ? ` · آخر إرسال ${r.last_sent_date}` : ''}
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>
@@ -591,7 +594,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -613,7 +616,9 @@ function SettingsTab() {
       WHATSAPP_PHONE_NUMBER_ID: d.phoneNumberId || '',
       WHATSAPP_VERIFY_TOKEN: d.verifyToken || '',
       VOICE_REPLIES: d.voiceReplies ? 'true' : 'false',
-      ADMIN_PHONE: d.adminPhone || ''
+      ADMIN_PHONE: d.adminPhone || '',
+      SUPERVISOR_NAME: d.supervisorName || '',
+      SUPERVISOR_ID: d.supervisorId || ''
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -670,6 +675,12 @@ function SettingsTab() {
         </Fld>
         <Fld label="رقم المشرف (إشعارات اعتماد التسجيل)">
           <input value={f.ADMIN_PHONE || ''} onChange={set('ADMIN_PHONE')} placeholder="9665xxxxxxxx" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="اسم المشرف العام">
+          <input value={f.SUPERVISOR_NAME || ''} onChange={set('SUPERVISOR_NAME')} placeholder="الاسم الكامل" />
+        </Fld>
+        <Fld label="رقم هوية المشرف العام">
+          <input value={f.SUPERVISOR_ID || ''} onChange={set('SUPERVISOR_ID')} placeholder="1023456789" style={{ direction: 'ltr' }} />
         </Fld>
       </div>
       <Fld label="توكن واتساب (Access Token) — الصقه كاملاً">

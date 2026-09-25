@@ -11,7 +11,7 @@ const SECRET_KEYS = new Set([
 const ALLOWED = new Set([
   'WHATSAPP_PROVIDER', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_API_URL',
   'STT_API_KEY', 'TTS_API_KEY', 'AZURE_TTS_KEY', 'AZURE_TTS_REGION', 'TTS_VOICE',
-  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'VOICE_REPLIES', 'QUICK_ORDER', 'ADMIN_PHONE'
+  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'VOICE_REPLIES', 'QUICK_ORDER', 'ADMIN_PHONE', 'SUPERVISOR_NAME', 'SUPERVISOR_ID'
 ]);
 
 function storedRows() {
@@ -44,6 +44,8 @@ export function applySettings() {
   if (map.VOICE_REPLIES !== undefined) config.voice.replies = map.VOICE_REPLIES === 'true';
   if (map.QUICK_ORDER !== undefined) config.quickOrder = map.QUICK_ORDER === 'true';
   if (map.ADMIN_PHONE !== undefined) config.adminPhone = map.ADMIN_PHONE;
+  if (map.SUPERVISOR_NAME !== undefined) config.supervisorName = map.SUPERVISOR_NAME;
+  if (map.SUPERVISOR_ID !== undefined) config.supervisorId = map.SUPERVISOR_ID;
   return map;
 }
 
@@ -84,6 +86,8 @@ export function publicSettings() {
     voiceReplies: Boolean(config.voice.replies),
     quickOrder: Boolean(config.quickOrder),
     adminPhone: config.adminPhone || '',
+    supervisorName: config.supervisorName || '',
+    supervisorId: config.supervisorId || '',
     env: {
       provider: process.env.WHATSAPP_PROVIDER || null,
       token: Boolean(process.env.WHATSAPP_TOKEN),

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS restaurant_users (
   email TEXT UNIQUE,
   password_hash TEXT NOT NULL,
   role TEXT DEFAULT 'owner',
+  national_id TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
 );
@@ -131,6 +132,7 @@ CREATE TABLE IF NOT EXISTS captains (
   vehicle_plate TEXT,
   city TEXT,
   district TEXT,
+  national_id TEXT,
   lat REAL,
   lng REAL,
   status TEXT DEFAULT 'offline',
@@ -336,6 +338,8 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   city TEXT,
   district TEXT,
   postal_code TEXT,
+  owner_name TEXT,
+  owner_id TEXT,
   vehicle_type TEXT,
   items_json TEXT,
   status TEXT DEFAULT 'draft',
@@ -364,6 +368,7 @@ CREATE TABLE IF NOT EXISTS report_recipients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   restaurant_id INTEGER NOT NULL,
   name TEXT,
+  national_id TEXT,
   phone TEXT NOT NULL,
   status TEXT DEFAULT 'pending',
   report_hour TEXT DEFAULT '23:30',
