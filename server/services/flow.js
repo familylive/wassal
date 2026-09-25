@@ -58,13 +58,15 @@ function cartTotals(rid, cart, branch = null) {
 }
 function cartText(rid, cart, branch = null) {
   const t = cartTotals(rid, cart, branch);
-  let s = '🛒 *سلة الطلب:*\n';
-  for (const i of cart.items) s += `• ${i.name} ×${i.quantity} — ${rls(i.price * i.quantity)} ر.س\n`;
+  let s = '🛒 *سلتك*\n━━━━━━━━━━━━━━━━\n';
+  cart.items.forEach((i, n) => { s += `${n + 1}. ${i.name} ×${i.quantity} — ${rls(i.price * i.quantity)} ر.س\n`; });
   if (cart.offer) s += `🔥 عرض: ${cart.offer.title}\n`;
-  if (cart.coupon) s += `🏷 كود خصم: ${cart.coupon}\n`;
-  s += `\nالمجموع: ${rls(t.subtotal)} ر.س\n`;
-  if (t.discount) s += `الخصم: -${rls(t.discount)} ر.س\n`;
-  s += `التوصيل: ${t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني ✅'}\n━━━━━━━━━━━━\n*الإجمالي: ${rls(t.total)} ر.س*`;
+  if (cart.coupon) s += `🏷 كود: ${cart.coupon}\n`;
+  s += '━━━━━━━━━━━━━━━━\n';
+  s += `🧾 المجموع: ${rls(t.subtotal)} ر.س\n`;
+  if (t.discount) s += `🏷 الخصم: -${rls(t.discount)} ر.س\n`;
+  s += `🛵 التوصيل: ${t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني ✅'}\n`;
+  s += `💰 *الإجمالي: ${rls(t.total)} ر.س*`;
   return s;
 }
 // دليل المطاعم: حسب موقع العميل — يعرض فقط المطاعم التي لها فرع ضمن نطاق التوصيل
@@ -248,7 +250,10 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (['المطاعم', 'restaurants', 'الدليل'].includes(bLower) || p === 'restaurants') {
     return showRestaurants(phone);
   }
-  if (['القائمة', 'قائمة الطعام', 'المنيو', 'menu', 'ابدأ', 'start', 'رجوع', 'الرئيسية'].includes(bLower) && state !== 'idle' && state !== 'directory') {
+  if (['القائمة', 'قائمة الطعام', 'المنيو', 'menu'].includes(bLower) && !IN_REG_FLOW) {
+    return showMenu(phone, rid);
+  }
+  if (['ابدأ', 'start', 'رجوع', 'الرئيسية'].includes(bLower) && state !== 'idle' && state !== 'directory') {
     saveSession(phone, 'idle', {});
     return mainMenu(phone, rid);
   }
@@ -308,7 +313,7 @@ function handleIdle(phone, rid, customer, p, b) {
     p = opts[n - 1]; b = opts[n - 1];
   }
   const sel = c[p] || c[b.toLowerCase()] || null;
-  if (sel === 'menu') return showCategories(phone, rid, customer);
+  if (sel === 'menu') return showMenu(phone, rid);
   if (sel === 'offers') return showOffers(phone, rid, customer);
   if (sel === 'cart') return showCart(phone, rid, customer);
   if (sel === 'track') return showTracking(phone, rid, customer);
@@ -441,60 +446,140 @@ function showItemsList(phone, rid, cid) {
   const cat = q.get("SELECT name FROM categories WHERE id=?", cid);
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
-  // قائمة بعلامات صح (⬜ = غير محدد، ✅ = محدد) — اضغط على الصنف لتوضع عليه العلامة
-  let num = '☑️ *' + (cat?.name || '') + '* — اضغط على كل صنف تريده لتوضع عليه علامة ✅ (تستطيع اختيار أكثر من صنف):\n\n';
+  let num = `📂 *${cat?.name || 'الأصناف'}*\n━━━━━━━━━━━━━━━━\n`;
   items.forEach((i, idx) => {
     const ex = cart.items.find(x => x.item_id === i.id);
-    num += `${ex ? '✅' : '⬜'} ${idx + 1}. ${i.name} — ${rls(i.price)} ر.س${ex ? ' (×' + ex.quantity + ')' : ''}\n`;
+    num += `${ex ? '✅' : '▫️'} ${idx + 1}. ${i.name} — ${rls(i.price)} ر.س${ex ? `  (×${ex.quantity})` : ''}\n`;
   });
+  num += '━━━━━━━━━━━━━━━━\n✍️ أرسل `2×3` = صنف ٢ عدد ٣ · أو `2` = واحد · `حذف 2` للحذف';
   send(phone, rid, null, 'text', num);
+  // الأرقام المعروضة = المنبو المرقّم لهذا القسم (تنطبق على رسائل العميل)
+  const map = items.map(i => ({ id: i.id, name: i.name, price: i.price, cat: cat?.name || '' }));
   const rows = items.map(i => {
     const ex = cart.items.find(x => x.item_id === i.id);
     return { id: 'item:' + i.id, title: (ex ? '✅ ' : '') + i.name, description: rls(i.price) + ' ر.س' + (ex ? ' — في السلة ×' + ex.quantity : '') };
   });
-  saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), itemIndex: 0, viewAll: false });
+  saveSession(phone, 'browse_items', { ...session.data, lastCat: cid, catItems: items.map(i => i.id), menuMap: map, itemIndex: 0, viewAll: false });
   for (let i = 0; i < rows.length; i += 10) {
-    send(phone, rid, null, 'list', 'أو اضغط عليه عشان تحدده:', { list: [{ title: (cat?.name || '').slice(0, 24), rows: rows.slice(i, i + 10) }] });
+    send(phone, rid, null, 'list', 'أو اضغط عليه عشان تضيفه:', { list: [{ title: (cat?.name || '').slice(0, 24), rows: rows.slice(i, i + 10) }] });
   }
   return sendItemButtons(phone, rid);
 }
 
-// الأزرار الموحدة: اختر الأصناف · أرسل الطلب · السلة
+// الأزرار الموحدة أسفل المنيو: سلتي · إرسال الطلب · المنيو
 function sendItemButtons(phone, rid) {
-  return send(phone, rid, null, 'buttons', 'اختر الأصناف أو أرسل طلبك 👇', { buttons: [
-    { id: 'browse_all', title: '🍽 اختر الأصناف' },
-    { id: 'send_order', title: '✅ أرسل الطلب' },
-    { id: 'cart', title: '🛒 السلة' }
+  return send(phone, rid, null, 'buttons', 'اختر من المنيو أو أرسل طلبك 👇', { buttons: [
+    { id: 'cart', title: '🛒 سلتي' },
+    { id: 'send_order', title: '✅ إرسال الطلب' },
+    { id: 'browse_cats', title: '📂 الأقسام' }
   ] });
 }
 
-// عرض كل المنيو في رسالة واحدة (أقسام متعددة) — بدون اختيار قسم أول
-function showAllItems(phone, rid) {
+// ---------- المنيو المرقّم المنظّم (أساس الطلب) ----------
+function normalizeDigits(s) {
+  return String(s)
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0));
+}
+function chunkText(t, max = 3000) {
+  const out = [];
+  let cur = '';
+  for (const line of String(t).split('\n')) {
+    if (cur && (cur + line).length > max) { out.push(cur.trimEnd()); cur = ''; }
+    cur += line + '\n';
+  }
+  if (cur.trim()) out.push(cur.trimEnd());
+  return out;
+}
+
+// يبني المنيو كامل مرقّم + خريطة الأرقام (أرقام ثابتة ما تتغيّر)
+function buildMenu(rid, cart = null) {
+  const r = q.get("SELECT * FROM restaurants WHERE id=?", rid);
+  const bt = r?.business_type_id ? q.get("SELECT * FROM business_types WHERE id=?", r.business_type_id) : null;
   const cats = q.all("SELECT * FROM categories WHERE restaurant_id=? AND is_active=1 ORDER BY sort_order, id", rid);
-  const session = getSession(phone);
-  const cart = session.data.cart || { items: [] };
-  const inCart = (id) => cart.items.find(x => x.item_id === id);
-  const all = [];
-  let txt = '🍽 *كل المنيو* — اضغط على أي صنف ليُوضع عليه علامة ✅ (كل ضغطة تزيد الكمية):\n\n';
+  const map = [];
+  const inCart = (id) => (cart?.items || []).find(x => x.item_id === id);
+  let t = `${bt?.icon || '🍽'} *${r?.name_ar || 'المنيو'}*\n`;
+  if (r?.city) t += `📍 ${r.city}\n`;
+  t += '━━━━━━━━━━━━━━━━\n';
   for (const c of cats) {
     const items = q.all("SELECT * FROM items WHERE restaurant_id=? AND category_id=? AND is_available=1 ORDER BY is_popular DESC, sort_order, id", rid, c.id);
     if (!items.length) continue;
-    const rows = [];
+    t += `\n${c.icon || '▪️'} *${c.name}*\n`;
     for (const i of items) {
+      map.push({ id: i.id, name: i.name, price: i.price, cat: c.name });
       const ex = inCart(i.id);
-      all.push(i.id);
-      txt += `${ex ? '✅' : '⬜'} ${all.length}. ${i.name} — ${rls(i.price)} ر.س${ex ? ' (×' + ex.quantity + ')' : ''}\n`;
-      rows.push({ id: 'item:' + i.id, title: (ex ? '✅ ' : '') + i.name, description: rls(i.price) + ' ر.س' + (ex ? ' — في السلة ×' + ex.quantity : '') });
-    }
-    // واتساب: ١٠ صفوف كحد أقصى لكل قسم
-    for (let k = 0; k < rows.length; k += 10) {
-      send(phone, rid, null, 'list', (c.icon || '') + ' ' + c.name, { list: [{ title: (c.name || '').slice(0, 24), rows: rows.slice(k, k + 10) }] });
+      t += `${ex ? '✅' : '▫️'} ${map.length}. ${i.name} — ${rls(i.price)} ر.س${ex ? `  (×${ex.quantity})` : ''}\n`;
     }
   }
-  if (!all.length) return send(phone, rid, null, 'text', 'المعذرة، المنيو فاضي الحين 🙏');
-  saveSession(phone, 'browse_items', { ...session.data, catItems: all, lastCat: null, viewAll: true, itemIndex: 0 });
-  send(phone, rid, null, 'text', txt.slice(0, 3800));
+  t += '\n━━━━━━━━━━━━━━━━\n';
+  t += '✍️ *طريقة الطلب*\n';
+  t += 'أرسل رقم الصنف والكمية مع بعض:\n';
+  t += '▪️ `1×2` = صنف ١ عدد ٢\n';
+  t += '▪️ `5` = صنف ٥ عدد ١\n';
+  t += '▪️ عدة أصناف مرة واحدة: `1×2 4 7×3`\n';
+  t += '▪️ للحذف: `حذف 4`\n';
+  t += 'سلتك تتراكم، وترسل الطلب كامل مرة واحدة ✅';
+  return { text: t, map };
+}
+
+// عرض المنيو كامل بترتيب مرقّم
+function showMenu(phone, rid) {
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  const { text, map } = buildMenu(rid, cart);
+  if (!map.length) return send(phone, rid, null, 'text', 'المعذرة، المنيو فاضي الحين 🙏');
+  saveSession(phone, 'browse_items', { ...session.data, menuMap: map, catItems: map.map(m => m.id), viewAll: true, lastCat: null, itemIndex: 0 });
+  for (const part of chunkText(text, 3000)) send(phone, rid, null, 'text', part);
   return sendItemButtons(phone, rid);
+}
+function showAllItems(phone, rid) { return showMenu(phone, rid); }
+
+// خريطة الأرقام: آخر منيو معروض، وإلا المنيو كامل
+function menuFor(data, rid) {
+  if (data?.menuMap?.length) return data.menuMap;
+  if (data?.catItems?.length) {
+    const items = data.catItems.map(id => q.get("SELECT * FROM items WHERE id=?", id)).filter(Boolean);
+    if (items.length) return items.map(i => ({ id: i.id, name: i.name, price: i.price }));
+  }
+  return buildMenu(rid).map;
+}
+
+// إدخال الطلب بالأرقام والكميات: `1×2` · `5` · `1×2 4 7×3` · `حذف 4`
+function applyOrderEntry(phone, rid, data, b) {
+  const raw = normalizeDigits(String(b || '')).replace(/[،,؛;+]+/g, ' ').trim();
+  if (!raw || !/\d/.test(raw)) return null;
+  const menu = menuFor(data, rid);
+  if (!menu.length) return null;
+  const isDel = /^(حذف|احذف|أحذف|شيل|امسح|إلغاء|الغاء|remove|del)(?=\s|$)/.test(raw);
+  const body = raw.replace(/^(حذف|احذف|أحذف|شيل|امسح|إلغاء|الغاء|remove|del)\s*/, '');
+  const session = getSession(phone);
+  const cart = session.data.cart || { items: [] };
+  let changed = 0;
+  const notes = [];
+  for (const tk of body.split(/\s+/).filter(Boolean)) {
+    const m = tk.match(/^(\d{1,3})(?:[×x*:=\-]|عدد)?(\d{1,3})?$/i);
+    if (!m) continue;
+    const item = menu[parseInt(m[1], 10) - 1];
+    if (!item) continue;
+    const explicit = m[2] !== undefined;
+    const qty = isDel ? 0 : (explicit ? parseInt(m[2], 10) : 1);
+    const ex = cart.items.find(i => i.item_id === item.id);
+    if (qty <= 0) {
+      if (!ex) continue;
+      cart.items = cart.items.filter(i => i.item_id !== item.id);
+      notes.push(`🗑 ${item.name}`); changed++;
+      continue;
+    }
+    if (ex) { ex.quantity = explicit ? qty : ex.quantity + qty; notes.push(`✅ ${item.name} ×${ex.quantity}`); }
+    else { cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: qty }); notes.push(`✅ ${item.name} ×${qty}`); }
+    changed++;
+  }
+  if (!changed) return null;
+  cart.offer = cart.offer || null;
+  saveSession(phone, 'cart', { ...session.data, cart });
+  send(phone, rid, null, 'text', notes.join('\n'));
+  return showCart(phone, rid, null);
 }
 // اختيار متعدد بالأرقام — ولو الصنف مضاف مسبقاً تزيد كميته
 function selectByNumbers(phone, rid, data, b) {
@@ -517,18 +602,18 @@ function selectByNumbers(phone, rid, data, b) {
   send(phone, rid, null, 'text', `✅ تم تحديث *${last?.name}* — تابع التحديد أو اضغط "أرسل الطلب"`);
   return session.data.viewAll ? showAllItems(phone, rid) : showItemsList(phone, rid, session.data.lastCat);
 }
-// تحديد صنف — كل ضغطة تزيد الكمية
+// تحديد صنف — كل ضغطة تزيد الكمية وتعرض السلة
 function toggleItem(phone, rid, itemId) {
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
   const item = q.get("SELECT * FROM items WHERE id=?", itemId);
   if (!item) return sendItemButtons(phone, rid);
-  let ex = cart.items.find(i => i.item_id === itemId);
-  if (ex) ex.quantity += 1;
-  else { cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 }); ex = { quantity: 1 }; }
-  saveSession(phone, 'browse_items', { ...session.data, cart });
-  send(phone, rid, null, 'text', `✅ *${item.name}* — الكمية الآن ×${ex.quantity}`);
-  return session.data.viewAll ? showAllItems(phone, rid) : showItemsList(phone, rid, session.data.lastCat);
+  const ex = cart.items.find(i => i.item_id === itemId);
+  if (ex) ex.quantity += 1; else cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
+  cart.offer = cart.offer || null;
+  saveSession(phone, 'cart', { ...session.data, cart });
+  send(phone, rid, null, 'text', `✅ *${item.name}* — الكمية الآن ×${(cart.items.find(i => i.item_id === itemId) || {}).quantity}`);
+  return showCart(phone, rid, null);
 }
 function handleCat(phone, rid, customer, p, b) {
   // اختيار القسم برقم
@@ -553,14 +638,15 @@ function handleItems(phone, rid, customer, p, b) {
   if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
   if (p === 'send_order') return sendOrderReview(phone, rid, customer);
   if (p === 'cart') return showCart(phone, rid, customer);
-  if (p === 'browse_all') return showAllItems(phone, rid);
+  if (p === 'menu' || p === 'browse_all') return showMenu(phone, rid);
+  if (p === 'browse_cats' || p === 'cats') return showCategories(phone, rid, customer);
+  if (p.startsWith('cat:')) return showItemsList(phone, rid, Number(p.split(':')[1]));
   if (p === 'add1' || p === 'qty') return handleItemDetail(phone, rid, customer, data, p, '');
   // رجوع للأقسام بشكل صريح
-  if (/^(اقسام|أقسام|القسم|رجوع|القائمة|menu)$/i.test(String(b || '').trim())) return showCategories(phone, rid, customer);
-  // اختيار متعدد بكتابة الأرقام
-  const byNums = selectByNumbers(phone, rid, data, b);
+  if (/^(اقسام|أقسام|القسم|رجوع)$/i.test(String(b || '').trim())) return showCategories(phone, rid, customer);
+  // الطلب بالأرقام والكميات (1×2 ...) — السلة تتراكم
+  const byNums = applyOrderEntry(phone, rid, data, b);
   if (byNums) return byNums;
-  // لا نُرجع المستخدم للأقسام — نعرض له الأزرار والقائمة مرة ثانية
   return sendItemButtons(phone, rid);
 }
 
@@ -613,8 +699,8 @@ function showCart(phone, rid, customer) {
   }
   saveSession(phone, 'cart', session.data);
   send(phone, rid, null, 'text', cartText(rid, cart));
-  return send(phone, rid, null, 'buttons', 'وش تحب؟', { buttons: [
-    { id: 'checkout', title: '✅ إتمام الطلب' }, { id: 'manage', title: '🔢 تعديل الكميات' }, { id: 'coupon', title: '🏷 كود خصم' }
+  return send(phone, rid, null, 'buttons', 'نكمل أو نرسل الطلب؟ 👇', { buttons: [
+    { id: 'checkout', title: '✅ إرسال الطلب' }, { id: 'menu', title: '📂 المنيو' }, { id: 'manage', title: '🔢 تعديل الكميات' }
   ] });
 }
 // تعديل السلة: قائمة الأصناف لتعديل كل واحد
@@ -676,14 +762,21 @@ function handleOrderReview(phone, rid, customer, data, p, b) {
   return sendOrderReview(phone, rid, customer);
 }
 function handleCart(phone, rid, customer, data, p, b) {
-  if (p === 'checkout') return sendOrderReview(phone, rid, customer);
+  if (p === 'checkout' || p === 'send_order') return sendOrderReview(phone, rid, customer);
   if (p === 'manage') return showCartManage(phone, rid, customer);
   if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
-  if (p === 'menu' || p === 'clear') {
+  if (p === 'clear') {
     const d = { ...data }; d.cart = { items: [] }; delete d.cart.offer;
     saveSession(phone, 'idle', d);
     return mainMenu(phone, rid);
   }
+  if (p === 'menu' || p === 'browse_all') return showMenu(phone, rid);
+  if (p === 'browse_cats' || p === 'cats') return showCategories(phone, rid, customer);
+  // لمس صنف من قائمة قديمة يزيد كميته حتى ونحن في السلة
+  if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
+  // تعديل الطلب بالأرقام مباشرة من السلة: 1×3 أو حذف 2
+  const byNums = applyOrderEntry(phone, rid, data, b);
+  if (byNums) return byNums;
   return showCart(phone, rid, customer);
 }
 function handleCoupon(phone, rid, customer, data, b) {
