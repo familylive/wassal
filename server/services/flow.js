@@ -53,6 +53,30 @@ function menuData(rid) {
 function activeOffers(rid) {
   return q.all("SELECT * FROM offers WHERE restaurant_id=? AND is_active=1 AND (ends_at IS NULL OR ends_at >= datetime('now')) ORDER BY id DESC", rid);
 }
+// 🧹 إزالة الأصناف اللي خلصت (أو تعديل كميتها للمتوفر) — يُنادى قبل المراجعة/الدفع
+function pruneCart(phone, rid, cart) {
+  if (!cart || !cart.items?.length) return { cart, notes: [] };
+  const notes = [];
+  const kept = [];
+  for (const i of cart.items) {
+    if (!i.item_id) { kept.push(i); continue; }
+    const row = q.get("SELECT id, name, price, is_available, stock_qty FROM items WHERE id=?", i.item_id);
+    if (!row || !row.is_available || row.stock_qty === 0) { notes.push(`⛔ *${i.name}* خلص — شلناه من طلبك`); continue; }
+    if (row.stock_qty !== null && row.stock_qty !== undefined && Number(row.stock_qty) < Number(i.quantity)) {
+      notes.push(`⚠️ *${i.name}* المتوفر ${row.stock_qty} فقط — عدّلنا الكمية`);
+      kept.push({ ...i, price: row.price ?? i.price, quantity: Number(row.stock_qty) });
+      continue;
+    }
+    kept.push({ ...i, price: row.price ?? i.price });
+  }
+  const newCart = { ...cart, items: kept };
+  if (notes.length) {
+    const session = getSession(phone);
+    saveSession(phone, session.state, { ...session.data, cart: newCart });
+  }
+  return { cart: newCart, notes };
+}
+
 function cartTotals(rid, cart, branch = null) {
   const r = q.get("SELECT delivery_fee, min_order FROM restaurants WHERE id=?", rid);
   const fee = branch ? branch.delivery_fee : r.delivery_fee;
@@ -787,7 +811,15 @@ function toggleItem(phone, rid, itemId) {
   const cart = session.data.cart || { items: [] };
   const item = q.get("SELECT * FROM items WHERE id=?", itemId);
   if (!item) return sendItemButtons(phone, rid);
+  // ⛔ الصنف خلص؟ ما نضيفه
+  if (!item.is_available || item.stock_qty === 0) {
+    return send(phone, rid, null, 'text', `⛔ نعتذر — *${item.name}* خلص حالياً 🙏\nاختر صنف ثاني أو اسأل النشاط عن البديل.`);
+  }
   const ex = cart.items.find(i => i.item_id === itemId);
+  const wanted = (ex ? ex.quantity : 0) + 1;
+  if (item.stock_qty !== null && item.stock_qty !== undefined && wanted > Number(item.stock_qty)) {
+    return send(phone, rid, null, 'text', `⚠️ المتوفر من *${item.name}* ${item.stock_qty} فقط — ما نقدر نزيد 🙏`);
+  }
   if (ex) ex.quantity += 1; else cart.items.push({ item_id: item.id, name: item.name, price: item.price, quantity: 1 });
   cart.offer = cart.offer || null;
   saveSession(phone, 'cart', { ...session.data, cart });
@@ -918,7 +950,9 @@ function handleCartItem(phone, rid, customer, data, p) {
 }
 function sendOrderReview(phone, rid, customer) {
   const session = getSession(phone);
-  const cart = session.data.cart;
+  const pruned = pruneCart(phone, rid, session.data.cart);
+  if (pruned.notes?.length) send(phone, rid, null, 'text', pruned.notes.join('\n'));
+  const cart = pruned.cart;
   if (!cart || !cart.items.length) return showCart(phone, rid, customer);
   const t = cartTotals(rid, cart);
   let s = '🧾 *مراجعة طلبك الكامل*\n\n';
@@ -1350,7 +1384,9 @@ const vehicleAr = (v) => v === 'سيارة' ? '🚗 سيارة' : v === 'شاح�
 // العميل أكمل بياناته → ننشئ الطلب ونعرضه على الكباتن لتحديد السعر
 async function startDeliveryBidding(phone, rid, customer, data) {
   const session = getSession(phone);
-  const cart = session.data.cart;
+  const pruned = pruneCart(phone, rid, session.data.cart);
+  if (pruned.notes?.length) send(phone, rid, null, 'text', pruned.notes.join('\n'));
+  const cart = pruned.cart;
   if (!cart || !cart.items.length) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
   const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
   const branch = data.address?.branch || null;
@@ -1448,7 +1484,9 @@ function pickupAddress(rid) {
 
 function placeOrder(phone, rid, customer, data) {
   const session = getSession(phone);
-  const cart = session.data.cart;
+  const pruned0 = pruneCart(phone, rid, session.data.cart);
+  if (pruned0.notes?.length) send(phone, rid, null, 'text', pruned0.notes.join('\n'));
+  const cart = pruned0.cart;
   if (!cart || !cart.items.length) { saveSession(phone, 'idle', {}); return mainMenu(phone, rid); }
   const rest = q.get("SELECT * FROM restaurants WHERE id=?", rid);
   const branch = data.address?.branch || null;

@@ -116,7 +116,8 @@ export async function approveRegistration(id) {
     q.run("UPDATE report_recipients SET status='approved', updated_at=datetime('now') WHERE id=?", ownerRec.id);
   } catch (e) { console.error('OWNER_REPORT_ADD_FAIL', e.message); }
 
-  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\n🆔 *رقم نشاطك: #${newId}*\n\n🔑 *بيانات لوحتك:*\n👤 صاحب النشاط (المالك) — رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n🔗 ${(config.publicUrl || '')}/restaurant\n\n• أضف *كاشير* (يستلم الطلبات ويتابعها): اكتب *كاشير*\n• أضف *مدير* (يوصله تقرير المبيعات): اكتب *مدير*\n📊 *وأنت كذلك يوصلك تقرير المبيعات اليومي* على هذا الرقم الساعة ١١:٣٠ م — غيّر وقته بكتابة *وقت التقرير*\n• أو أعطِ رقم نشاطك لمن تريد — يسجّل بنفسه بكتابة *انضمام مدير*`);
+  await notifyApplicant(reg, `🎉 *تم اعتماد نشاطك!*\n\n🍽 ${reg.business_name}\n👤 ${reg.owner_name || ''}\n📍 ${[reg.city, reg.district, reg.postal_code].filter(Boolean).join(' — ')}\n🍽 الأصناف: ${items.length}\n\nصار نشاطك ظاهر للعملاء ✅\n\n🆔 *رقم نشاطك: #${newId}*\n\n🔑 *بيانات لوحتك:*\n👤 صاحب النشاط (المالك) — رقمك: ${reg.phone}\n🔑 كلمة المرور: ${pass}\n🔗 ${(config.publicUrl || '')}/restaurant\n\n• 🍽 *تحديث المنيو*: اكتب *أصنافي* → «وقف رقم الصنف» لو خلص (يختفي من العملاء) · «كمية رقم كمية» للمتوفر
+• أضف *كاشير* (يستلم الطلبات ويتابعها): اكتب *كاشير*\n• أضف *مدير* (يوصله تقرير المبيعات): اكتب *مدير*\n📊 *وأنت كذلك يوصلك تقرير المبيعات اليومي* على هذا الرقم الساعة ١١:٣٠ م — غيّر وقته بكتابة *وقت التقرير*\n• أو أعطِ رقم نشاطك لمن تريد — يسجّل بنفسه بكتابة *انضمام مدير*`);
   // 🧾/👤 عرض خيارات الفريق بعد الاعتماد مباشرة
   try {
     const { waSend } = await import('./whatsapp.js');

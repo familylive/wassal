@@ -37,6 +37,8 @@ export function notifyRestaurantNewOrder(order) {
       + `\n💰 *الإجمالي: ${money(order.total)} ر.س*\n💳 الدفع: ${PAY_AR[order.payment_method] || order.payment_method || '-'}\n🕐 خلال ~${order.est_delivery_min || 30} دقيقة\n\n_اضغط ✅ «استلمت» ليوصل العميل تأكيد، و📦 «جاهز» لمّا يجهز الطلب._`;
     waSend({ phone: to, restaurantId: order.restaurant_id, orderId: order.id, type: 'buttons', body,
       buttons: [{ id: `ordok:${order.id}`, title: '✅ استلمت الطلب' }, { id: `ordready:${order.id}`, title: '📦 الطلب جاهز' }] }).catch(() => {});
+    // 🍽 تذكير بإدارة المنيو (بعد إشعار الطلب)
+    setTimeout(() => { try { waSend({ phone: to, type: 'text', body: '🍽 خلص صنف؟ اكتب *أصنافي* ثم *وقف رقم الصنف* — يختفي من قائمة العملاء فوراً ✅' }).catch(() => {}); } catch (e) {} }, 1500);
   } catch (e) { console.error('ORDER_NOTIFY_FAIL', e.message); }
 }
 
