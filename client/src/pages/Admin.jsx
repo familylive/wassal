@@ -705,7 +705,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -733,7 +733,8 @@ function SettingsTab() {
       COMMISSION_BUSINESS_PERCENT: d.commissionBusinessPercent != null ? String(d.commissionBusinessPercent) : '',
       COMMISSION_CAPTAIN_PERCENT: d.commissionCaptainPercent != null ? String(d.commissionCaptainPercent) : '',
       BUSINESS_SUBSCRIPTION: d.businessSubscription != null ? String(d.businessSubscription / 100) : '',
-      CAPTAIN_DEPOSIT: d.captainDeposit != null ? String(d.captainDeposit / 100) : ''
+      CAPTAIN_DEPOSIT: d.captainDeposit != null ? String(d.captainDeposit / 100) : '',
+      PAYMENT_MODE: d.paymentMode || 'mock'
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -793,6 +794,12 @@ function SettingsTab() {
         </Fld>
         <Fld label="اسم المشرف العام">
           <input value={f.SUPERVISOR_NAME || ''} onChange={set('SUPERVISOR_NAME')} placeholder="الاسم الكامل" />
+        </Fld>
+        <Fld label="وضع الدفع">
+          <select value={f.PAYMENT_MODE} onChange={set('PAYMENT_MODE')}>
+            <option value="mock">🧪 تجريبي (دفع وهمي يُحتسب مدفوعاً)</option>
+            <option value="moyasar">💳 حقيقي (Moyasar — مدى/Apple Pay)</option>
+          </select>
         </Fld>
         <Fld label="نسبة المنصة من النشاط %">
           <input value={f.COMMISSION_BUSINESS_PERCENT || ''} onChange={set('COMMISSION_BUSINESS_PERCENT')} placeholder="15" style={{ direction: 'ltr' }} />

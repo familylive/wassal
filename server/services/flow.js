@@ -34,6 +34,7 @@ const send = (phone, rid, orderId, type, body, extra = {}) => waSend({ phone, re
 // مفتاح الجلسة دائماً بصيغة الوارد من واتساب (أرقام بلا +) حتى لا تتفرّع الجلسات
 const sessPhone = (p) => String(p || '').replace(/^\+/, '');
 const rls = (h) => (h / 100).toFixed(2);
+const PAY_METHOD_AR = { applepay: '🍎 Apple Pay', mada: '💳 مدى', card: '💳 بطاقة', cash: '💵 كاش' };
 // نص خطوة الأصناف (بعد اكتمال بيانات المسؤول)
 const ITEMS_PROMPT = (pre = '') => `${pre}الحين أرسل *أصنافك* — كل صنف في سطر والسعر بعده:\n\nنفر حاشي كبسة 60\nبيبسي 5\nملوخية 9\n\nوإذا تبي أقسام، اكتب اسم القسم ثم نقطتين:\n\n*مشروبات:*\nبيبسي 5\nماء 2\n\n📷 أو *ارفع صورة واضحة للأصناف* وأنا أقرأها لك وأسجّلها تلقائياً.\n🎙 أو أرسلها *رسالة صوتية* وأنا أفرّغها لك.`;
 
@@ -905,6 +906,18 @@ async function handlePayMethod(phone, rid, customer, data, p) {
   const method = p.replace('pay:', '');
   if (!['applepay', 'mada', 'card', 'cash'].includes(method)) return choosePayment(phone, rid, customer);
   if (data.payForOrderId) return payForExistingOrder(phone, rid, customer, data, method);
+  // 🧪 وضع تجريبي: الدفع الإلكتروني يُحتسب مدفوعاً فوراً
+  if (method !== 'cash' && config.paymentMode === 'mock') {
+    const cart = getSession(phone).data.cart;
+    if (!cart || !cart.items.length) return showCart(phone, rid, customer);
+    const totals = cartTotals(rid, cart);
+    const { mockPayNow } = await import('./payments.js');
+    mockPayNow(totals.total, method, { phone, restaurant_id: rid });
+    send(phone, rid, null, 'text', `🧪 *وضع تجريبي:* تم الدفع وهمياً ✅ (${PAY_METHOD_AR[method] || method}) — المبلغ ${rls(totals.total)} ر.س`);
+    const d = { ...getSession(phone).data, paymentMethod: method, paid: true };
+    if (cart.pickup) return placeOrder(phone, rid, customer, { ...d, orderType: 'pickup', address: pickupAddress(rid), estDeliveryMin: 20 });
+    return askLocation(phone, rid, customer, d);
+  }
   const session = getSession(phone);
   const cart = session.data.cart;
   if (!cart || !cart.items.length) return showCart(phone, rid, customer);
@@ -933,6 +946,16 @@ async function payForExistingOrder(phone, rid, customer, data, method) {
     restaurantTransfer(order.id, cap.id);
     send(phone, rid, order.id, 'text', `💵 تمام — *كاش ${rls(order.total)} ر.س* عند التسليم للكابتن.`);
     return send(phone, rid, order.id, 'buttons', 'بخليك على علم بكل مرحلة 👇', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
+  }
+  // 🧪 وضع تجريبي: ننجح الدفع فوراً ونحوّل الطلب للكابتن
+  if (config.paymentMode === 'mock') {
+    const { mockPayNow } = await import('./payments.js');
+    mockPayNow(order.total, method, { phone, restaurant_id: order.restaurant_id, order_id: order.id });
+    q.run("UPDATE orders SET payment_method=?, payment_status='paid', updated_at=datetime('now') WHERE id=?", method, order.id);
+    send(phone, rid, order.id, 'text', `🧪 *وضع تجريبي:* تم الدفع وهمياً ✅ (${PAY_METHOD_AR[method] || method}) — ${rls(order.total)} ر.س`);
+    restaurantTransfer(order.id, cap.id);
+    saveSession(phone, 'tracking', { ...data, orderId: order.id });
+    return send(phone, rid, order.id, 'buttons', '🛵 حوّلنا طلبك للكابتن — بخليك على علم بكل مرحلة 👇', { buttons: [{ id: 'track', title: '📦 حالة الطلب' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
   }
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id);
   const pay = await createPayment({ total: order.total, order_no: order.order_no, restaurant_name: rest?.name_ar || '' }, method, { phone, restaurant_id: order.restaurant_id });
@@ -1564,6 +1587,10 @@ async function handleRegSubscribe(phone, rid, session, b, p) {
   const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
   if (p === 'sub_later') return submitBusinessReg(phone, rid, session, { subscriptionPaid: false });
   if (p === 'sub_paid') return submitBusinessReg(phone, rid, session, { subscriptionPaid: false, claimed: true });
+  if (p === 'sub_pay' && config.paymentMode === 'mock') {
+    send(phone, rid, null, 'text', `🧪 *وضع تجريبي:* تم دفع الاشتراك وهمياً ✅ — ${sub.toFixed(2)} ر.س`);
+    return submitBusinessReg(phone, rid, session, { subscriptionPaid: true });
+  }
   if (p === 'sub_pay') {
     send(phone, rid, null, 'text', `💳 *اشتراك النشاط ${sub.toFixed(2)} ر.س*\n\nحوّل المبلغ لحساب المنصة، وبعد التحويل اضغط *✅ تم التحويل*.`);
     if (config.adminPhone) send(phone, rid, null, 'text', `📱 للتحويل أو الاستفسار: الإدارة على الرقم ${config.adminPhone}`);
@@ -1649,6 +1676,11 @@ async function handleCapDeposit(phone, rid, session, b, p) {
   const reg = session.data.reg || {};
   if (p === 'dep_later') return submitCaptainReg(phone, rid, session, { depositPaid: false });
   if (p === 'dep_paid') return submitCaptainReg(phone, rid, session, { depositPaid: false, claimed: true });
+  if (p === 'dep_pay' && config.paymentMode === 'mock') {
+    const amt = rls(Number(config.captainDeposit || 50000));
+    send(phone, rid, null, 'text', `🧪 *وضع تجريبي:* تم دفع التأمين وهمياً ✅ — ${amt} ر.س`);
+    return submitCaptainReg(phone, rid, session, { depositPaid: true });
+  }
   if (p === 'dep_pay') {
     saveSession(phone, 'cap_deposit_wait', { ...session.data, reg });
     send(phone, rid, null, 'text', `💳 *تأمين الحساب ٥٠٠.٠٠ ر.س*\n\nحوّل المبلغ على حساب المنصة، وبعد التحويل اضغط *✅ تم التحويل* وأرفق الإيصال للإدارة.`);

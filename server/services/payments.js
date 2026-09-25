@@ -34,6 +34,15 @@ export async function createPayment(order, method, ctx = {}) {
   return { gateway: 'mock', payment_id: pid, status: 'pending', payment_url: null };
 }
 
+// 🧪 دفع وهمي فوري (وقت التجارب) — يُسجّل دفعة مدفوعة ويرجع نجاحاً
+export function mockPayNow(amount, method = 'applepay', ctx = {}) {
+  const p = q.run("INSERT INTO payments (order_id, restaurant_id, phone, gateway, transaction_id, amount, status, method) VALUES (?,?,?,?,?,?,?,?)",
+    ctx.order_id ?? null, ctx.restaurant_id || null, ctx.phone || null, 'mock', 'mocknow_' + Date.now(), Number(amount) || 0, 'paid', method);
+  const pid = Number(p.lastInsertRowid);
+  if (ctx.order_id) q.run("UPDATE orders SET payment_status='paid', updated_at=datetime('now') WHERE id=?", ctx.order_id);
+  return { gateway: 'mock', payment_id: pid, status: 'paid', amount: Number(amount) || 0 };
+}
+
 export function getPaymentByTxn(txnId) {
   return q.get("SELECT * FROM payments WHERE transaction_id=? ORDER BY id DESC LIMIT 1", txnId);
 }
