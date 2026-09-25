@@ -353,6 +353,16 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- تقارير الإدارة المجمعة اليومية (لمنع التكرار)
+CREATE TABLE IF NOT EXISTS platform_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT UNIQUE,
+  total INTEGER DEFAULT 0,
+  orders_count INTEGER DEFAULT 0,
+  sent_to TEXT,
+  sent_at TEXT DEFAULT (datetime('now'))
+);
+
 -- تقييمات العملاء (من الكباتن/المطاعم) — أساس نسبة العميل من ١٠٠٠
 CREATE TABLE IF NOT EXISTS customer_ratings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

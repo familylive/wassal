@@ -496,6 +496,21 @@ function RegistrationsTab() {
 function ReportsTab() {
   const { notify } = useApp();
   const [rows, setRows] = useState([]);
+  const [plat, setPlat] = useState(null);
+  const [platBusy, setPlatBusy] = useState(false);
+  const loadPlatform = async (preview = true) => {
+    try {
+      if (preview) {
+        const d = await api('/report-recipients/platform/send?preview=1&which=yesterday', { method: 'POST', body: {} });
+        setPlat(d);
+      } else {
+        setPlatBusy(true);
+        const d = await api('/report-recipients/platform/send?which=yesterday', { method: 'POST', body: {} });
+        notify(d.ok ? '✅ تم إرسال تقرير الإدارة لجوال المشرف' : '⚠️ تعذر الإرسال — تأكد من رقم المشرف');
+        await loadPlatform(true);
+      }
+    } catch (e) { notify(e.message); } finally { setPlatBusy(false); }
+  };
   const [rests, setRests] = useState([]);
   const [busy, setBusy] = useState(false);
   const [f, setF] = useState({ restaurant_id: '', name: '', phone: '', report_hour: '23:30' });
@@ -552,6 +567,22 @@ function ReportsTab() {
     </div>
   );
   return (
+    <>
+    <Card title="🏛 تقرير الإدارة المجمّع">
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 10 }}>
+        📅 يرسل تلقائياً كل يوم <b>١٢ منتصف الليل</b> على جوال المشرف — مبيعات كل نوع نشاط · المجموع الختامي · <b>حصة المنصة</b>.
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <button className="btn ghost sm" onClick={() => loadPlatform(true)}>👁 معاينة تقرير أمس</button>
+        <button className="btn" disabled={platBusy} onClick={() => loadPlatform(false)}>{platBusy ? '…' : '📤 أرسل لجوالي الآن'}</button>
+      </div>
+      {plat && (
+        <div style={{ background: 'var(--bg2, #f7f9fb)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--mut)', marginBottom: 6 }}>تقرير يوم {plat.date} — يُرسل الساعة {plat.hour}</div>
+          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.9, margin: 0 }}>{plat.text}</pre>
+        </div>
+      )}
+    </Card>
     <Card title={`📊 مستلمو تقارير المبيعات${pending.length ? ` (${pending.length} بانتظار)` : ''}`}>
       <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 12 }}>
         👤 <b>مدير المطعم</b> يضيف نفسه من واتساب بكتابة <b>«مدير»</b> → يوصلك إشعار للاعتماد هنا أو على واتساب.
@@ -580,6 +611,7 @@ function ReportsTab() {
         <button className="btn" disabled={busy} onClick={add}>➕ إضافة واعتماد</button>
       </div>
     </Card>
+    </>
   );
 }
 

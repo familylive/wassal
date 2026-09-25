@@ -6,6 +6,7 @@ import { waSend } from './whatsapp.js';
 import { validatePhone } from '../utils.js';
 
 const rls = (h) => (Number(h || 0) / 100).toFixed(2);
+const money = (h) => Number(h || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const n = (v) => Number(v || 0);
 
 // الرياض = UTC+3 (قابل للتغيير عبر REPORT_TZ_OFFSET_MIN)
@@ -198,9 +199,99 @@ export async function rejectRecipient(id, note = '') {
   return { ok: true, name: row.name };
 }
 
+// ---------- 🏛 تقرير الإدارة المجمّع لكل العمليات ----------
+export const PLATFORM_SHARE_PERCENT = Number(process.env.PLATFORM_SHARE_PERCENT || 10);
+
+// مبيعات يوم واحد مجمّعة حسب نوع النشاط
+export function platformStats(dateStr) {
+  const rows = q.all(`SELECT COALESCE(b.id, 0) AS type_id, COALESCE(b.name_ar, 'غير مصنّف') AS type_name, COALESCE(b.icon, '🏬') AS icon,
+      COUNT(*) AS orders, COALESCE(SUM(o.total),0) AS total
+    FROM orders o
+    LEFT JOIN restaurants r ON r.id = o.restaurant_id
+    LEFT JOIN business_types b ON b.id = r.business_type_id
+    WHERE date(o.created_at)=? AND o.status!='cancelled'
+    GROUP BY type_id ORDER BY total DESC`, dateStr);
+  const all = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=?", dateStr);
+  const delivered = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status='delivered'", dateStr);
+  const cancelled = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status='cancelled'", dateStr);
+  const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc,
+      COALESCE(SUM(CASE WHEN payment_method='cash' THEN total ELSE 0 END),0) cash,
+      COALESCE(SUM(CASE WHEN payment_method!='cash' THEN total ELSE 0 END),0) net
+    FROM orders WHERE date(created_at)=? AND status!='cancelled'`, dateStr);
+  const pickup = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status!='cancelled' AND order_type='pickup'", dateStr);
+  const types = rows.map(r => ({ ...r, orders: Number(r.orders) || 0, total: Number(r.total) || 0 }));
+  const total = Number(agg.total) || 0;
+  return {
+    dateStr, types,
+    orders: Number(all.c) || 0,
+    delivered: Number(delivered.c) || 0,
+    cancelled: Number(cancelled.c) || 0,
+    salesCount: Number(agg.c) || 0,
+    total, fee: Number(agg.fee) || 0, discount: Number(agg.disc) || 0,
+    cash: Number(agg.cash) || 0, net: Number(agg.net) || 0,
+    pickup: Number(pickup?.c) || 0,
+    share: Math.round(total * PLATFORM_SHARE_PERCENT / 100),
+    sharePercent: PLATFORM_SHARE_PERCENT
+  };
+}
+
+export function buildPlatformReport(dateStr) {
+  const s = platformStats(dateStr);
+  let t = `🏛 *تقرير الإدارة المجمّع*\n📅 ${prettyDate(dateStr)}\n━━━━━━━━━━━━━━━━\n`;
+  if (!s.salesCount && !s.orders) {
+    t += '📦 لا توجد عمليات في هذا اليوم.';
+    return t;
+  }
+  t += '📊 *مبيعات الأنشطة*\n';
+  for (const x of s.types) t += `${x.icon} ${x.type_name} — ${x.orders} طلب · *${money(x.total)}* ر.س\n`;
+  if (!s.types.length) t += '_لا مبيعات_\n';
+  t += '━━━━━━━━━━━━━━━━\n';
+  t += `📦 إجمالي الطلبات: *${s.orders}*\n`;
+  t += `✅ مكتملة: ${s.delivered}`;
+  if (s.cancelled) t += ` · ❌ ملغاة: ${s.cancelled}`;
+  t += '\n';
+  if (s.pickup) t += `🏪 استلام من الفرع: ${s.pickup} طلب\n`;
+  t += `💳 شبكة: ${money(s.net)} ر.س · 💵 كاش: ${money(s.cash)} ر.س\n`;
+  if (s.discount) t += `🏷 الخصومات: -${money(s.discount)} ر.س\n`;
+  if (s.fee) t += `🛵 رسوم التوصيل: ${money(s.fee)} ر.س\n`;
+  t += '━━━━━━━━━━━━━━━━\n';
+  t += `💰 *المجموع الختامي: ${money(s.total)} ر.س*\n`;
+  t += `🏛 *حصة المنصة (${s.sharePercent}%): ${money(s.share)} ر.س*`;
+  return t;
+}
+
+// إرسال تقرير الإدارة (مرة واحدة لكل يوم)
+export async function sendPlatformReport(dateStr, { force = false } = {}) {
+  const to = config.adminPhone || '';
+  if (!to) { console.log('PLATFORM_REPORT_SKIP_NO_ADMIN_PHONE'); return { error: 'رقم المشرف غير مضبوط' }; }
+  const ex = q.get("SELECT * FROM platform_reports WHERE date=?", dateStr);
+  if (ex && !force) return { skipped: true, date: dateStr };
+  const s = platformStats(dateStr);
+  const text = buildPlatformReport(dateStr);
+  let ok = false;
+  try { await waSend({ phone: to, type: 'text', body: text }); ok = true; }
+  catch (e) { console.error('PLATFORM_REPORT_SEND_FAIL', e.message); }
+  if (ex) q.run("UPDATE platform_reports SET total=?, orders_count=?, sent_to=?, sent_at=datetime('now') WHERE id=?", s.total, s.orders, to, ex.id);
+  else q.run("INSERT INTO platform_reports (date, total, orders_count, sent_to) VALUES (?,?,?,?)", dateStr, s.total, s.orders, to);
+  console.log('PLATFORM_REPORT_SENT', { date: dateStr, to, total: s.total, share: s.share });
+  return { ok, date: dateStr, stats: s, text };
+}
+
+// ساعة تقرير الإدارة (افتراضي 12 منتصف الليل)
+export const PLATFORM_REPORT_HOUR = String(process.env.PLATFORM_REPORT_HOUR || '00:00').slice(0, 5);
+
 // ---------- الإرسال المجدول (مع تعويض لو كان السيرفر نائماً) ----------
 export async function runDueReports() {
   const { date, hhmm } = localNow();
+  // 🏛 تقرير الإدارة المجمّع
+  try {
+    const hour = PLATFORM_REPORT_HOUR;
+    if (hhmm >= hour) {
+      const target = hour >= '12:00' ? date : shiftDate(date, -1);
+      const already = q.get("SELECT id FROM platform_reports WHERE date=?", target);
+      if (!already) await sendPlatformReport(target);
+    }
+  } catch (e) { console.error('PLATFORM_REPORT_LOOP_FAIL', e.message); }
   const rows = q.all("SELECT * FROM report_recipients WHERE status='approved' ORDER BY id");
   let sent = 0;
   for (const row of rows) {

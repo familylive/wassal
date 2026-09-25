@@ -54,6 +54,22 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
+// 🏛 تقرير الإدارة المجمّع (كل الأنشطة + حصة المنصة) — إرسال/معاينة
+router.post('/platform/send', requireRole('admin'), async (req, res) => {
+  const { localNow, shiftDate, sendPlatformReport, buildPlatformReport, platformStats, PLATFORM_REPORT_HOUR, PLATFORM_SHARE_PERCENT } = await import('../services/reporting.js');
+  const { date } = localNow();
+  const which = String(req.query.which || req.body?.which || 'yesterday');
+  const target = which === 'today' ? date : shiftDate(date, -1);
+  const preview = String(req.query.preview || '') === '1' || req.body?.preview;
+  if (preview) {
+    return res.json({ date: target, hour: PLATFORM_REPORT_HOUR, sharePercent: PLATFORM_SHARE_PERCENT, text: buildPlatformReport(target), stats: platformStats(target) });
+  }
+  try {
+    const r = await sendPlatformReport(target, { force: true });
+    res.json({ ok: r.ok, date: target, to: r.to || null, share: r.stats?.share });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 📄 معاينة الفاتورة المختومة (PDF) — للإدارة
 router.get('/:id/invoice', requireRole('admin'), async (req, res) => {
   const row = q.get("SELECT * FROM report_recipients WHERE id=?", Number(req.params.id));
