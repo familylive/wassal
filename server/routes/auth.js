@@ -62,4 +62,18 @@ router.post('/register-branch-user', requireAuth, (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => res.json({ user: req.user }));
+
+// تغيير كلمة المرور للحساب الحالي (مهم: كلمة مرور المدير الافتراضية معروفة للجميع)
+const PW_TABLES = { admin: 'admins', restaurant: 'restaurant_users', owner: 'restaurant_users', manager: 'restaurant_users', supervisor: 'restaurant_users', quality: 'restaurant_users', cashier: 'restaurant_users', captain: 'captains' };
+router.post('/change-password', requireAuth, (req, res) => {
+  const cur = req.body?.current, next = req.body?.next;
+  if (!cur || !next) return res.status(400).json({ error: 'كلمة المرور الحالية والجديدة مطلوبتان' });
+  if (String(next).length < 6) return res.status(400).json({ error: 'كلمة المرور الجديدة قصيرة — 6 أحرف على الأقل' });
+  const table = PW_TABLES[req.user.role];
+  if (!table) return res.status(403).json({ error: 'غير مدعوم لهذا الدور' });
+  const row = q.get(`SELECT * FROM ${table} WHERE id=?`, req.user.id);
+  if (!row || !bcrypt.compareSync(String(cur), row.password_hash)) return res.status(400).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+  q.run(`UPDATE ${table} SET password_hash=? WHERE id=?`, bcrypt.hashSync(String(next), 10), req.user.id);
+  res.json({ ok: true });
+});
 export default router;

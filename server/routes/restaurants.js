@@ -72,7 +72,7 @@ router.get('/:id/branch-users', (req, res) => {
 router.get('/:id/conversations', (req, res) => {
   const bf = req.query.branch_id ? 'AND o.branch_id=' + Number(req.query.branch_id) : '';
   const rows = q.all(`SELECT c.*, o.order_no FROM conversations c LEFT JOIN orders o ON o.id=c.order_id
-    WHERE o.restaurant_id=? ${bf} ORDER BY c.id DESC LIMIT 300`, req.params.id);
+    WHERE (o.restaurant_id=? OR c.restaurant_id=?) ${bf} ORDER BY c.id DESC LIMIT 300`, req.params.id, req.params.id);
   res.json(rows);
 });
 

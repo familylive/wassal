@@ -294,3 +294,17 @@ CREATE TABLE IF NOT EXISTS webhook_log (
   raw TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- إعدادات المنصة القابلة للتعديل من اللوحة (بديل متغيرات البيئة)
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- آخر مطعم تعرّف عليه النظام لكل رقم (يظهر محادثات الرقم فوراً قبل اختيار المطعم)
+CREATE TABLE IF NOT EXISTS wa_phone_restaurant (
+  phone TEXT PRIMARY KEY,
+  restaurant_id INTEGER,
+  updated_at TEXT DEFAULT (datetime('now'))
+);

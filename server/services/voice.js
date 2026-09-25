@@ -4,17 +4,19 @@ import axios from 'axios';
 import config from '../config.js';
 import { waSend } from './whatsapp.js';
 
-const { token, phoneNumberId, apiUrl } = config.whatsapp;
-const { sttApiKey, ttsApiKey, ttsVoice, replies } = config.voice;
+// ملاحظة: نقرأ config داخل الدوال (لا نلتقطه في متغير ثابت) حتى تُطبَّق
+// إعدادات لوحة التحكم فوراً دون إعادة تشغيل السيرفر.
 
 // 1) الحصول على رابط الملف الصوتي من Meta
 async function getMediaUrl(mediaId) {
+  const { token, apiUrl } = config.whatsapp;
   const r = await axios.get(`${apiUrl}/${mediaId}`, { headers: { Authorization: `Bearer ${token}` } });
   return r.data?.url || null;
 }
 
 // 2) تحويل صوت مباشر (ملف) → نص عبر Groq Whisper
 export async function groqTranscribe(audioBuffer, mimeType = 'audio/mpeg') {
+  const { sttApiKey } = config.voice;
   if (!sttApiKey || !audioBuffer) return null;
   const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('ogg') ? 'ogg' : 'mpeg';
   const fd = new FormData();
@@ -30,7 +32,8 @@ export async function groqTranscribe(audioBuffer, mimeType = 'audio/mpeg') {
 
 // 2ب) تحويل صوت قادم من Meta (media_id) → نص
 export async function transcribeVoice(mediaId) {
-  if (!sttApiKey) return null;
+  const { token } = config.whatsapp;
+  if (!config.voice.sttApiKey) return null;
   const url = await getMediaUrl(mediaId);
   if (!url) return null;
   const audio = await axios.get(`${url}?access_token=${token}`, { responseType: 'arraybuffer' });
@@ -110,6 +113,7 @@ async function sendOneChunk(phone, text) {
     audio = r.data;
   }
   if (!audio) return false;
+  const { apiUrl, phoneNumberId, token } = config.whatsapp;
   const fd = new FormData();
   fd.append('messaging_product', 'whatsapp');
   fd.append('type', 'audio/mpeg');
@@ -138,7 +142,7 @@ export async function sendVoiceNote(phone, text) {
 // 4) إرسال رد كتابي + صوتي (اختياري حسب الإعدادات)
 export async function waSendWithVoice({ phone, type = 'text', body = null, buttons = null, list = null, image = null, restaurantId = null, orderId = null, participant = 'customer', channel = null }) {
   const result = await waSend({ phone, restaurantId, orderId, type, body, buttons, list, image, participant, channel });
-  if (replies && type === 'text' && body) {
+  if (config.voice.replies && type === 'text' && body) {
     // أرسل الصوتية بدون انتظار (لا تعطّل الرد الكتابي)
     sendVoiceNote(phone, body).catch(() => {});
   }

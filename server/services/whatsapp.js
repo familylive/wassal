@@ -60,10 +60,43 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
 }
 
 // ---------- log + deliver ----------
+// تحديد المطعم: من الوسيط، وإلا من جلسة الرقم، وإلا من آخر مطعم معروف للرقم
+function resolveRestaurantId(phone, restaurantId) {
+  if (restaurantId) return Number(restaurantId);
+  try {
+    const s = q.get("SELECT restaurant_id, data_json FROM whatsapp_sessions WHERE phone=?", phone);
+    if (s) {
+      if (s.restaurant_id) return Number(s.restaurant_id);
+      // المطعم الحالي محفوظ داخل بيانات الجلسة (currentRestaurantId)
+      const d = JSON.parse(s.data_json || '{}');
+      if (d.currentRestaurantId) return Number(d.currentRestaurantId);
+    }
+  } catch (e) {}
+  try {
+    const h = q.get("SELECT restaurant_id FROM wa_phone_restaurant WHERE phone=?", phone);
+    if (h && h.restaurant_id) return Number(h.restaurant_id);
+  } catch (e) {}
+  return null;
+}
+
+// المطعم المعروف لرقم العميل (من الجلسة أو من خرائط الأرقام)
+export function restaurantForPhone(phone) {
+  return resolveRestaurantId(phone, null);
+}
+
+// يُسجَّل من مسار الويب هوك عند معرفة المطعم من رقم النشاط
+// حتى تظهر رسائل العميل في شاشة المحادثات قبل أن يختار مطعماً بنفسه
+export function rememberPhoneRestaurant(phone, restaurantId) {
+  if (!phone || !restaurantId) return;
+  try {
+    q.run("INSERT INTO wa_phone_restaurant (phone, restaurant_id, updated_at) VALUES (?,?,datetime('now')) ON CONFLICT(phone) DO UPDATE SET restaurant_id=excluded.restaurant_id, updated_at=datetime('now')", String(phone), Number(restaurantId));
+  } catch (e) {}
+}
+
 export async function waSend({ phone, restaurantId, orderId = null, type = 'text', body = null, buttons = null, list = null, image = null, participant = 'customer', channel = null }) {
   const payload = JSON.stringify({ buttons, list, image });
-  q.run("INSERT INTO conversations (order_id, phone, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?)",
-    orderId, phone || null, participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
+  q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
+    orderId, phone || null, resolveRestaurantId(phone, restaurantId), participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
   if (['cloud', '360dialog', 'letsbot'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try {
       if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
@@ -83,6 +116,6 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
 
 // ---------- log inbound ----------
 export function waLogIn({ orderId = null, phone = null, participant = 'customer', type = 'text', body = null, payload = null, channel = null }) {
-  q.run("INSERT INTO conversations (order_id, phone, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?)",
-    orderId, phone || null, participant, 'in', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, JSON.stringify(payload || {}));
+  q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
+    orderId, phone || null, resolveRestaurantId(phone, null), participant, 'in', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, JSON.stringify(payload || {}));
 }

@@ -142,6 +142,12 @@ function selectRestaurant(phone, rid) {
   if (!rest) return showRestaurants(phone);
   const session = getSession(phone);
   saveSession(phone, 'idle', { ...session.data, currentRestaurantId: rid });
+  // تثبيت المطعم على الجلسة وعلى رسائل الرقم غير المرتبطة بمطعم —
+  // حتى تظهر المحادثة كاملة في شاشة محادثات المطعم المختار
+  try {
+    q.run("UPDATE whatsapp_sessions SET restaurant_id=? WHERE phone=?", rid, phone);
+    q.run("UPDATE conversations SET restaurant_id=? WHERE phone=? AND restaurant_id IS NULL", rid, phone);
+  } catch (e) {}
   send(phone, rid, null, 'text', `✅ تم اختيار *${rest.name_ar}* 🍽️`);
   return mainMenu(phone, rid);
 }

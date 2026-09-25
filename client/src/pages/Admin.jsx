@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { api, sar, statusAr } from '../api.js';
+import { api, sar, statusAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
 import { Card, Stat, Modal, Fld, Badge, Money, Pay } from '../components/ui.jsx';
 
-const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats'];
-const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات' };
+const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'ads', 'loyalty', 'chats', 'settings'];
+const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', settings: '⚙️ إعدادات واتساب' };
 
 export default function Admin() {
   const { user, socket, logout, notify } = useApp();
@@ -59,6 +59,7 @@ export default function Admin() {
         {tab === 'ads' && <AdsTab data={ads} onChange={load} />}
         {tab === 'loyalty' && <LoyaltyTab />}
         {tab === 'chats' && <ChatsTab restaurants={restaurants} />}
+        {tab === 'settings' && <SettingsTab />}
         {sel && <OrderModal o={sel} onClose={() => setSel(null)} refresh={load} />}
       </div>
     </>
@@ -364,6 +365,122 @@ function ChatsTab({ restaurants }) {
           </div>
         ))}
         {!rows.length && <div className="empty">لا توجد محادثات</div>}
+      </div>
+    </Card>
+  );
+}
+
+function SettingsTab() {
+  const { notify } = useApp();
+  const [s, setS] = useState(null);
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '' });
+  const [raw, setRaw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [testPhone, setTestPhone] = useState('');
+  const [testRes, setTestRes] = useState(null);
+  const [pw, setPw] = useState({ cur: '', next: '' });
+  const load = () => api('/settings').then(d => {
+    setS(d);
+    setF(x => ({
+      ...x,
+      WHATSAPP_PROVIDER: d.provider || 'simulator',
+      WHATSAPP_PHONE_NUMBER_ID: d.phoneNumberId || '',
+      WHATSAPP_VERIFY_TOKEN: d.verifyToken || '',
+      VOICE_REPLIES: d.voiceReplies ? 'true' : 'false'
+    }));
+  }).catch(e => notify(e.message));
+  useEffect(() => { load(); }, []);
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  const save = async (body) => {
+    setBusy(true);
+    try { await api('/settings', { method: 'PUT', body }); notify('✅ تم الحفظ والتطبيق فوراً'); setRaw(''); await load(); }
+    catch (e) { notify(e.message); } finally { setBusy(false); }
+  };
+  const runTest = async () => {
+    setTestRes(null); setBusy(true);
+    try {
+      const r = await fetch('/api/settings/test-whatsapp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + getToken() }, body: JSON.stringify({ phone: testPhone }) });
+      const d = await r.json().catch(() => ({}));
+      setTestRes(d);
+    } catch (e) { setTestRes({ ok: false, error: e.message }); } finally { setBusy(false); }
+  };
+  const onSave = () => {
+    const body = {};
+    for (const [k, v] of Object.entries(f)) if (v !== '' && v !== undefined) body[k] = v;
+    if (!Object.keys(body).length) return notify('لا توجد قيم');
+    save(body);
+  };
+  if (!s) return <div className="empty">تحميل…</div>;
+  const okBadge = v => <span className={`badge ${v ? 'b-green' : 'b-gray'}`}>{v ? '✅ مضبوط' : '⛔ ناقص'}</span>;
+  return (
+    <Card title="⚙️ إعدادات واتساب والصوت">
+      <div className="grid g3" style={{ marginBottom: 10 }}>
+        <div className="stat"><div className="n" style={{ fontSize: 18 }}>{s.provider}</div><div className="l">مزوّد الإرسال</div></div>
+        <div className="stat"><div className="n" style={{ fontSize: 18 }}>{okBadge(s.tokenSet)}</div><div className="l">توكن واتساب {s.tokenMask ? `(${s.tokenMask})` : ''}</div></div>
+        <div className="stat"><div className="n" style={{ fontSize: 18 }}>{okBadge(s.sttSet)}</div><div className="l">مفتاح تفريغ الصوت</div></div>
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 12 }}>
+        💡 هذي الإعدادات تُحفظ في قاعدة بياناتك وتُطبّق فوراً بدون إعادة نشر. التوكن لا يظهر كاملاً بعد الحفظ (يُقنّع).
+      </div>
+      <div className="grid g2">
+        <Fld label="مزود واتساب">
+          <select value={f.WHATSAPP_PROVIDER} onChange={set('WHATSAPP_PROVIDER')}>
+            <option value="simulator">simulator (محاكي — لا يرسل فعلياً)</option>
+            <option value="cloud">cloud (واتساب الأعمال — Meta)</option>
+          </select>
+        </Fld>
+        <Fld label="Phone Number ID">
+          <input value={f.WHATSAPP_PHONE_NUMBER_ID} onChange={set('WHATSAPP_PHONE_NUMBER_ID')} placeholder="1328717473658833" />
+        </Fld>
+        <Fld label="Verify Token">
+          <input value={f.WHATSAPP_VERIFY_TOKEN} onChange={set('WHATSAPP_VERIFY_TOKEN')} placeholder="wassal-verify-2026" />
+        </Fld>
+        <Fld label="ردود صوتية للعميل">
+          <select value={f.VOICE_REPLIES} onChange={set('VOICE_REPLIES')}>
+            <option value="false">لا — كتابي فقط</option>
+            <option value="true">نعم — كتابي + صوتي</option>
+          </select>
+        </Fld>
+      </div>
+      <Fld label="توكن واتساب (Access Token) — الصقه كاملاً">
+        <textarea value={f.WHATSAPP_TOKEN} onChange={set('WHATSAPP_TOKEN')} rows={4} placeholder={s.tokenSet ? 'مضبوط — اتركه فارغاً للإبقاء عليه، أو الصق توكن جديد للتغيير' : 'EAA...'} style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
+      </Fld>
+      <Fld label="مفتاح تفريغ الصوت (Groq STT_API_KEY) — لتفعيل الطلبات الصوتية">
+        <textarea value={f.STT_API_KEY} onChange={set('STT_API_KEY')} rows={2} placeholder="gsk_..." style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
+      </Fld>
+      <div className="row" style={{ marginTop: 8 }}>
+        <button className="btn" disabled={busy} onClick={onSave}>{busy ? '…' : '💾 حفظ وتطبيق'}</button>
+      </div>
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>🧪 اختبار الإرسال (يتأكد أن التوكن يعمل فعلاً)</div>
+        <div className="row">
+          <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="9665xxxxxxxx" style={{ direction: 'ltr', flex: 1, minWidth: 160 }} />
+          <button className="btn ghost" disabled={busy || !testPhone.trim()} onClick={runTest}>📤 إرسال رسالة اختبار</button>
+        </div>
+        {testRes && (
+          <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.8, color: testRes.ok ? '#0a7' : '#c33' }}>
+            {testRes.ok ? '✅ تم الإرسال فعلاً — شيك واتساب جوالك.' : '⛔ ' + (testRes.error || 'فشل')}
+          </div>
+        )}
+      </div>
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>🔐 تغيير كلمة مرور المدير</div>
+        <div className="grid g2">
+          <Fld label="كلمة المرور الحالية"><input type="password" value={pw.cur} onChange={e => setPw({ ...pw, cur: e.target.value })} style={{ width: '100%' }} /></Fld>
+          <Fld label="كلمة المرور الجديدة (6 أحرف على الأقل)"><input type="password" value={pw.next} onChange={e => setPw({ ...pw, next: e.target.value })} style={{ width: '100%' }} /></Fld>
+        </div>
+        <button className="btn ghost sm" disabled={busy || !pw.cur || !pw.next} onClick={async () => {
+          try { await api('/auth/change-password', { method: 'POST', body: { current: pw.cur, next: pw.next } }); notify('✅ تم تغيير كلمة المرور — احفظها في مكان آمن'); setPw({ cur: '', next: '' }); }
+          catch (e) { notify(e.message); }
+        }}>💾 تغيير كلمة المرور</button>
+      </div>
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <Fld label="أو الصق الإعدادات كنص (KEY=VALUE)">
+          <textarea value={raw} onChange={e => setRaw(e.target.value)} rows={5}
+            placeholder={'WHATSAPP_PROVIDER=cloud\nWHATSAPP_TOKEN=EAA...\nWHATSAPP_PHONE_NUMBER_ID=1328717473658833\nSTT_API_KEY=gsk_...'}
+            style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
+        </Fld>
+        <button className="btn ghost sm" disabled={busy || !raw.trim()} onClick={() => save({ raw })}>📥 قراءة النص وتطبيقه</button>
       </div>
     </Card>
   );

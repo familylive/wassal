@@ -6,6 +6,7 @@ import { setStatus, closeOrderWithCode } from '../services/orderService.js';
 import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
 import { transcribeVoice } from '../services/voice.js';
+import { rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
 
 const router = Router();
 
@@ -71,7 +72,6 @@ router.post('/webhook', async (req, res) => {
       for (const change of entry.changes || []) {
         for (const msg of change.value?.messages || []) {
           const phone = msg.from;
-          const rid = Number(change.value.metadata?.phone_number_id) || null;
           if (msg.type === 'text' && isCaptainPhone(phone)) {
             await handleCaptainIncoming({ phone, body: msg.text?.body });
             continue;
@@ -79,10 +79,12 @@ router.post('/webhook', async (req, res) => {
           const metaNumber = String(change.value.metadata?.display_phone_number || '').replace(/[^\d]/g, '');
           let rest = null;
           if (metaNumber) {
-            rest = q.get("SELECT id FROM restaurants WHERE whatsapp_number LIKE ? LIMIT 1", '%' + metaNumber.slice(-9) + '%')
-                || q.get("SELECT id FROM restaurants ORDER BY id LIMIT 1");
+            // رقم موحد لكل المطاعم: لا نخمّن المطعم من رقم النشاط —
+            // التوجيه يصير من المحادثة نفسها (اختيار العميل) عبر currentRestaurantId
+            rest = q.get("SELECT id FROM restaurants WHERE whatsapp_number LIKE ? LIMIT 1", '%' + metaNumber.slice(-9) + '%') || null;
           }
-          const targetRid = rest ? rest.id : rid;
+          const targetRid = rest ? rest.id : (restaurantForPhone(phone) || null); // null = يقرره تدفق المحادثة
+          if (rest) rememberPhoneRestaurant(phone, rest.id);
           if (msg.type === 'text') await handleIncoming({ phone, restaurantId: targetRid, body: msg.text?.body, type: 'text' });
           else if (msg.type === 'location') await handleIncoming({ phone, restaurantId: targetRid, type: 'location', lat: msg.location?.latitude, lng: msg.location?.longitude });
           else if (msg.type === 'audio' || msg.type === 'voice') {

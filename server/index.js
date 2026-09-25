@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import config from './config.js';
 import { initRealtime } from './services/realtime.js';
 import apiRouter from './routes/index.js';
+import { applySettings } from './services/settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -18,6 +19,13 @@ app.use('/api', apiRouter);
 const server = http.createServer(app);
 initRealtime(server);
 
+// إعدادات لوحة التحكم (توكن واتساب، مفاتيح الصوت) تُطبّق فوق متغيرات البيئة
+let settingsApplied = 0;
+try {
+  const applied = applySettings();
+  settingsApplied = Object.keys(applied).length;
+} catch (e) { console.error('applySettings failed', e.message); }
+
 // production: serve client build
 const clientDist = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDist));
@@ -27,7 +35,7 @@ app.get(/^\/(?!api|sim|uploads).*/, (req, res) => {
   });
 });
 
-server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider})`));
+server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
 
 // نسخ احتياطي دوري كل 4 دقائق (إضافة للنسخ الفوري بعد الطلبات)
 import('./services/backup.js').then(({ scheduleBackup }) => {
