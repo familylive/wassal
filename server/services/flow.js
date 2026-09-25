@@ -6,10 +6,14 @@ import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js'
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
 import { addRecipient, notifySupervisorRecipient, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport } from './reporting.js';
-import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity } from './ads.js';
+import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
 
 // ---------- session ----------
+export function getSessionState(phone) {
+  try { return getSession(phone)?.state || 'idle'; } catch (e) { return 'idle'; }
+}
+
 export function getSession(phone) {
   let s = q.get("SELECT * FROM whatsapp_sessions WHERE phone=?", phone);
   if (!s) {
@@ -199,7 +203,7 @@ function mainMenu(phone, rid) {
 }
 
 // ---------- main dispatcher ----------
-export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null }) {
+export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null }) {
   const customer = ensureCustomer(phone);
   const session = getSession(phone);
   const { state, data } = session;
@@ -255,6 +259,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   const bt = String(b || '').trim();
   if (/^تقرير\s+(أمس|امس|البارح)$/.test(bt)) return sendReportNow(phone, rid, true);
   if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
+  if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
   if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
   // 📣 طلب إعلان من النشاط
@@ -274,7 +279,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
-  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay'].includes(state);
+  const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة طلبات المطاعم 🍽️\nأطلب لك من مطاعم كثيرة وأوصله لبابك 🛵\n\nوش *اسمك الكريم*؟`);
@@ -336,6 +341,9 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'ad_price': return handleAdPrice(phone, rid, session, b);
     case 'ad_content': return handleAdContent(phone, rid, session, b);
     case 'ad_waitpay': return handleAdWaitPay(phone, rid, session, p);
+    case 'pad_content': return handlePlatformAdContent(phone, rid, session, b, imageUrl);
+    case 'pad_audience': return handlePlatformAdAudience(phone, rid, session, p);
+    case 'pad_city': return handlePlatformAdCity(phone, rid, session, b);
     case 'rep_phone': return handleRepPhone(phone, rid, session, b);
     case 'browse_categories': return handleCat(phone, rid, customer, p, b);
     case 'browse_items': return handleItems(phone, rid, customer, p, b);
@@ -1790,6 +1798,12 @@ async function sendReportNow(phone, rid, yesterday) {
 
 // ---------- 📣 إعلانات الأنشطة ----------
 async function startAdRequestFlow(phone, rid, session) {
+  // 📣 إعلان باسم المنصة من جوال الإدارة
+  if (config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone))) {
+    saveSession(phone, 'pad_content', { ...session.data, padImage: null });
+    send(phone, rid, null, 'text', `📣 *إعلان المنصة*\n\nاكتب نص الإعلان اللي يوصل للعملاء ✍️\n(أو *أرسل صورة* وأنا أستخدمها مع نصك)`);
+    return send(phone, rid, null, 'text', 'مثال: 🎉 خصم 20% لأول 100 طلب من كل المطاعم — اطلب الآن!');
+  }
   const rrid = ownerRestaurantId(phone);
   if (!rrid) return send(phone, rid, null, 'text', '📣 خدمة الإعلانات لأصحاب الأنشطة المسجّلين 🌸\nسجّل نشاطك بكتابة *تسجيل* أولاً.');
   const rest = q.get("SELECT * FROM restaurants WHERE id=?", rrid);
@@ -1805,6 +1819,44 @@ async function startAdRequestFlow(phone, rid, session) {
 function adStatusAr(s) {
   return { requested: 'بانتظار التسعير', priced: 'بانتظار موافقتك', paid: 'مدفوع — بانتظار النص', content: 'اكتب النص', pending_approval: 'بانتظار اعتماد الإدارة', approved: 'منشور ✅', rejected: 'مرفوض', declined: 'اعتذرت' }[s] || s;
 }
+// 📣 الإدارة: نص إعلان المنصة (أو صورته)
+async function handlePlatformAdContent(phone, rid, session, b, imageUrl = null) {
+  if (imageUrl) {
+    saveSession(phone, 'pad_content', { ...session.data, padImage: imageUrl });
+    return send(phone, rid, null, 'text', '✅ وصلتني الصورة 📷\nالحين اكتب *نص الإعلان* اللي يطلع معها:');
+  }
+  const text = String(b || '').trim();
+  if (text.length < 3) return send(phone, rid, null, 'text', 'اكتب نص الإعلان ✍️');
+  saveSession(phone, 'pad_audience', { ...session.data, padText: text });
+  return send(phone, rid, null, 'buttons', `📣 *جاهز للنشر*\n\n${text.slice(0, 300)}\n\nلمين نرسله؟`, { buttons: [
+    { id: 'pad_all', title: '🌍 كل العملاء' }, { id: 'pad_city', title: '🏙 مدينة معينة' }
+  ] });
+}
+async function handlePlatformAdAudience(phone, rid, session, p) {
+  const data = session.data || {};
+  if (p !== 'pad_all' && p !== 'pad_city') return null;
+  if (p === 'pad_city') {
+    saveSession(phone, 'pad_city', { ...data });
+    return send(phone, rid, null, 'text', '🏙 اكتب اسم المدينة اللي نرسل لها (مثال: أبها) — أو اكتب *كل* للجميع');
+  }
+  return publishPlatformAd(phone, rid, { ...data, city: null });
+}
+async function handlePlatformAdCity(phone, rid, session, b) {
+  const city = String(b || '').trim();
+  if (!city) return send(phone, rid, null, 'text', 'اكتب اسم المدينة 🏙');
+  if (/^(كل|الكل|الجميع|الجميع)$/.test(city)) return publishPlatformAd(phone, rid, { ...session.data, city: null });
+  const n = customersInCity(city);
+  if (n === 0) return send(phone, rid, null, 'text', `⚠️ ما فيه عملاء مسجّلين في *${city}* حالياً.\nاكتب *كل* لإرساله لكل العملاء، أو اكتب مدينة ثانية.`);
+  return publishPlatformAd(phone, rid, { ...session.data, city });
+}
+async function publishPlatformAd(phone, rid, data) {
+  const req = createPlatformAd({ phone, content: data.padText || '', image: data.padImage || null, city: data.city || null });
+  saveSession(phone, 'idle', {});
+  const r = await publishAd(req);
+  const who = r.city ? `عملاء مدينة *${r.city}*` : 'كل العملاء';
+  return send(phone, rid, null, 'text', `✅ *تم نشر الإعلان* إلى ${who}\n📤 أُرسل لـ *${r.sent}* عميل\n\n💰 لتسجيل سعر الإعلان: الكنترول → 📣 الإعلانات → «سجّل السعر».`);
+}
+
 // المشرف يحدد السعر
 async function handleAdPrice(phone, rid, session, b) {
   const req = getAdRequest(session.data.adReqId);

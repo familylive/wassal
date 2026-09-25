@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import config from '../config.js';
 import { q } from '../db.js';
-import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating } from '../services/flow.js';
+import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating, getSessionState } from '../services/flow.js';
+import { saveAdImage } from '../services/ads.js';
 import { setStatus, closeOrderWithCode } from '../services/orderService.js';
 import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
@@ -117,6 +118,11 @@ router.post('/webhook', async (req, res) => {
               } else {
                 await waSend({ phone, type: 'text', body: '📷 ' + (r.error || 'تعذر استلام الصورة') });
               }
+            } else if (getSessionState(phone) === 'pad_content') {
+              // 📣 صورة إعلان من جوال الإدارة
+              const url = mediaId ? await saveAdImage(mediaId) : null;
+              logHit('ad-image', phone + ':' + (url || 'فشل'));
+              await handleIncoming({ phone, restaurantId: targetRid, type: 'text', body: '', imageUrl: url });
             } else if (!mediaId) {
               await handlePhotoItems(phone, targetRid, []);   // مستند غير مدعوم — نوضح للمستخدم
             } else {

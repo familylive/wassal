@@ -399,8 +399,27 @@ function AdsTab({ data, onChange }) {
   };
   const statusAr = { requested: '⏳ بانتظار التسعير', priced: '💰 بانتظار موافقة النشاط', paid: '💳 مدفوع — بانتظار النص', content: '✍️ بانتظار النص', pending_approval: '🔎 بانتظار اعتمادك', approved: '✅ منشور', rejected: '❌ مرفوض', declined: '↩️ اعتذر' };
   const pend = reqs.filter(r => ['requested', 'priced', 'paid', 'content', 'pending_approval'].includes(r.status));
+  const platform = reqs.filter(r => !r.restaurant_id).slice(0, 6);
   return (
     <>
+    {platform.length > 0 && (
+      <Card title="📣 إعلانات المنصة">
+        <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 8 }}>
+          تُنشَأ من جوالك: اكتب <b>«إعلان»</b> على واتساب → النص (أو صورة) → الجمهور (كل العملاء / مدينة) → يُنشر فوراً. وهنا تسجّل سعرها للدفتر.
+        </div>
+        {platform.map(r => (
+          <div key={r.id} className="row" style={{ justifyContent: 'space-between', padding: '9px 2px', borderBottom: '1px solid var(--line)' }}>
+            <div>
+              <b>{r.image ? '📷 ' : ''}{r.content ? r.content.slice(0, 70) : '(بلا نص)'}</b>
+              <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+                {statusAr[r.status] || r.status} · 🏙 {r.city || 'كل العملاء'} · 📤 {r.sent_count || 0} عميل · 💵 {r.price ? sar(r.price) + ' ر.س' : 'بلا سعر'}
+              </div>
+            </div>
+            <button className="btn ghost sm" onClick={() => act(r, 'price')}>💰 سجّل السعر</button>
+          </div>
+        ))}
+      </Card>
+    )}
     {pend.length > 0 && (
       <Card title={`📣 طلبات إعلانات (${pend.length})`}>
         <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 8 }}>
