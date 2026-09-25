@@ -204,3 +204,119 @@ export function scheduleUploadsBackup() {
   setInterval(() => { backupUploads().catch(() => {}); }, 30 * 60 * 1000);
   setTimeout(() => { backupUploads().catch(() => {}); }, 120 * 1000);
 }
+
+// ================= 📦 النسخة الأسبوعية الكاملة (كل جمعة 12:00 منتصف الليل بتوقيت السعودية) =================
+// تجمع: الكود + قاعدة البيانات + الملفات المرفوعة + ملفات الشرح → ضغط واحد → المستودع الخاص
+const SNAP_DIR = 'snapshots';
+const CRON_API = (name) => `https://api.github.com/repos/${OWNER}/${REPO}/contents/${SNAP_DIR}/${name}`;
+const SNAP_KEEP = 8;   // نحتفظ بآخر ٨ نسخ أسبوعية
+
+function riyadhNow() { return new Date(Date.now() + 3 * 3600 * 1000); }
+
+// هل اليوم جمعة والساعة صفر (أو فاتنا الموعد اليوم)؟
+function isFridayMidnight() {
+  const d = riyadhNow();
+  return d.getUTCDay() === 5;   // 5 = الجمعة
+}
+
+async function apiGet(url) {
+  try { const r = await axios.get(url, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 20000 }); return r.data; }
+  catch (e) { return null; }
+}
+async function apiPut(url, body) {
+  await axios.put(url, body, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 120000 });
+}
+async function apiDelete(url, sha, message) {
+  try { await axios.delete(url, { data: { message, sha }, headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 30000 }); return true; }
+  catch (e) { return false; }
+}
+
+// بناء ملف النسخة الكاملة (zip إن توفر، وإلا tar.gz)
+function buildSnapshotArchive(tag) {
+  const root = process.cwd();
+  const work = path.join(root, 'snapshot-tmp');
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(work, { recursive: true });
+  // ١) الكود (بدون node_modules و uploads و قاعدة البيانات)
+  execSync(`mkdir -p ${work}/١-الكود && tar czf ${work}/١-الكود/wassal-code.tar.gz --exclude='*/node_modules' --exclude='*/.git' --exclude='*/uploads' --exclude='*/dist' --exclude='*.db' --exclude='*.db-shm' --exclude='*.db-wal' --exclude='snapshot-tmp' --exclude='*.tar.gz' --exclude='*.zip' -C ${root} .`, { stdio: 'ignore' });
+  // ٢) قاعدة البيانات
+  try { q.exec?.('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
+  try { fs.mkdirSync(`${work}/٢-قاعدة-البيانات`, { recursive: true }); fs.copyFileSync(config.dbPath, `${work}/٢-قاعدة-البيانات/wassal-db.db`); } catch (e) { console.error('SNAP_DB_FAIL', e.message); }
+  // ٣) الملفات المرفوعة
+  try {
+    const sig = uploadsSignature();
+    if (sig.count) { fs.mkdirSync(`${work}/٣-الملفات-المرفوعة`, { recursive: true }); execSync(`tar czf ${work}/٣-الملفات-المرفوعة/uploads.tar.gz -C ${path.dirname(UPLOADS_DIR)} uploads`, { stdio: 'ignore' }); }
+  } catch (e) { console.error('SNAP_UPLOADS_FAIL', e.message); }
+  // ٤) ملفات الشرح
+  fs.writeFileSync(`${work}/اقرأني.txt`, `نسخة كاملة من منصة واتس هم\nالتاريخ: ${tag}\n\n١-الكود/: كل ملفات المنصة البرمجية\n٢-قاعدة-البيانات/: قاعدة البيانات كاملة\n٣-الملفات-المرفوعة/: صور الهويات والرخص والفواتير\n\nللاستعادة: راجع مستند «دليل حفظ المشروع» أو اتبع الخطوات:\n  tar xzf ١-الكود/wassal-code.tar.gz && cd wassal && npm install\n  ضع ٢-قاعدة-البيانات/wassal-db.db في wassal/server/wassal.db\n  tar xzf ٣-الملفات-المرفوعة/uploads.tar.gz -C wassal/server\n`, 'utf8');
+  // ٥) الضغط النهائي
+  const out = path.join(root, `wassal-full-${tag}.zip`);
+  let ok = true;
+  try { execSync(`cd ${work} && zip -r -q ${out} .`, { stdio: 'ignore' }); }
+  catch (e) { ok = false; }
+  if (!ok) { execSync(`tar czf ${out}.tar.gz -C ${work} .`, { stdio: 'ignore' }); }
+  const finalPath = ok ? out : `${out}.tar.gz`;
+  const size = statSync(finalPath).size;
+  fs.rmSync(work, { recursive: true, force: true });
+  return { file: finalPath, name: path.basename(finalPath), size };
+}
+
+export async function runWeeklySnapshot(force = false) {
+  if (!TOKEN) return false;
+  const d = riyadhNow();
+  const tag = d.toISOString().slice(0, 10);
+  try {
+    const lastRun = getSigKey('weekly_snapshot_date');
+    if (!force) {
+      if (!isFridayMidnight()) return false;
+      if (lastRun === tag) return false;   // سويناها اليوم
+    }
+    console.log('WEEKLY_SNAPSHOT_START', tag);
+    const snap = buildSnapshotArchive(tag);
+    const content = readFileSync(snap.file).toString('base64');
+    const name = `wassal-full-${tag}.tar.gz`.replace('.tar.gz', snap.name.endsWith('.zip') ? '.zip' : '.tar.gz');
+    const url = CRON_API(name);
+    const existing = await apiGet(url);
+    const body = { message: `نسخة أسبوعية كاملة ${tag} (${Math.round(snap.size / 1024)}KB)`, content };
+    if (existing?.sha) body.sha = existing.sha;
+    await apiPut(url, body);
+    setSigKey('weekly_snapshot_date', tag);
+    setSigKey('weekly_snapshot_name', name);
+    fs.rmSync(snap.file, { force: true });
+    console.log('WEEKLY_SNAPSHOT_OK', name, snap.size);
+    await pruneSnapshots();
+    // إشعار المشرف على واتساب
+    try {
+      const { waSend } = await import('./whatsapp.js');
+      if (config.adminPhone) await waSend({ phone: config.adminPhone, type: 'text',
+        body: `📦 *النسخة الأسبوعية الكاملة جاهزة* ✅\n\n📅 ${tag}\n🗄 الكود + قاعدة البيانات + الملفات المرفوعة\n📦 الحجم: ${(snap.size / 1048576).toFixed(1)} ميجا\n🔒 محفوظة في المستودع الخاص: github.com/${OWNER}/${REPO}/${SNAP_DIR}/\n\n_(النسخ التلقائية: البيانات كل دقيقتين · الملفات كل 30 دقيقة)_` });
+    } catch (e) { console.error('SNAP_NOTIFY_FAIL', e.message); }
+    return { ok: true, name, size: snap.size };
+  } catch (e) { console.error('WEEKLY_SNAPSHOT_FAIL', e.message); return false; }
+}
+
+// نحتفظ بآخر ٨ نسخ فقط
+async function pruneSnapshots() {
+  try {
+    const list = await apiGet(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${SNAP_DIR}`);
+    if (!Array.isArray(list) || list.length <= SNAP_KEEP) return;
+    const sorted = list.filter(x => x.name.startsWith('wassal-full-')).sort((a, b) => a.name.localeCompare(b.name));
+    for (const old of sorted.slice(0, sorted.length - SNAP_KEEP)) {
+      await apiDelete(old.url, old.sha, `حذف نسخة قديمة ${old.name}`);
+      console.log('SNAPSHOT_PRUNED', old.name);
+    }
+  } catch (e) { /* لا مشكلة */ }
+}
+
+function getSigKey(key) {
+  try { return sigDb().prepare("SELECT value FROM app_settings WHERE key=?").get(key)?.value || null; } catch (e) { return null; }
+}
+function setSigKey(key, value) {
+  try { sigDb().prepare("INSERT INTO app_settings (key,value,updated_at) VALUES (?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')").run(key, String(value)); } catch (e) {}
+}
+
+// فحص كل 30 دقيقة (مع تعويض لو كان السيرفر نائماً)
+export function scheduleWeeklySnapshot() {
+  setInterval(() => { runWeeklySnapshot().catch(() => {}); }, 30 * 60 * 1000);
+  setTimeout(() => { runWeeklySnapshot().catch(() => {}); }, 3 * 60 * 1000);
+}
