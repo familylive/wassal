@@ -165,6 +165,8 @@ CREATE TABLE IF NOT EXISTS orders (
   branch_id INTEGER,
   branch_name TEXT,
   delivery_code TEXT,
+  delivery_photo TEXT,
+  delivery_photo_at TEXT,
   cancel_reason TEXT,
   cancel_note TEXT,
   cancel_requested_at TEXT,
@@ -348,6 +350,18 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- تقييمات العملاء (من الكباتن/المطاعم) — أساس نسبة العميل من ١٠٠٠
+CREATE TABLE IF NOT EXISTS customer_ratings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER,
+  customer_id INTEGER,
+  rater_type TEXT DEFAULT 'captain',
+  rater_id INTEGER,
+  score INTEGER DEFAULT 0,
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- فواتير/تقارير المبيعات المرسومة (لكل نشاط ويوم رقم ثابت)

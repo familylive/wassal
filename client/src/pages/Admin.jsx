@@ -258,11 +258,15 @@ function CustomersTab({ data }) {
   return (
     <Card title={`العملاء (${data.length})`}>
       <table>
-        <thead><tr><th>الاسم</th><th>الجوال</th><th>المستوى</th><th>النقاط</th><th>الطلبات</th><th>الإنفاق</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>الجوال</th><th>التقييم</th><th>المستوى</th><th>النقاط</th><th>الطلبات</th><th>الإنفاق</th></tr></thead>
         <tbody>
           {data.map(c => (
             <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => setSel(c)}>
               <td><b>{c.name || '—'}</b></td><td>{c.phone}</td>
+              <td>{c.score?.isNew
+                ? <span className="badge b-gray">🆕 جديد</span>
+                : <span className={`badge ${c.score?.tier === 'excellent' || c.score?.tier === 'very_good' ? 'b-green' : c.score?.tier === 'weak' ? 'b-red' : 'b-amber'}`}
+                    title={c.score?.advice}>{c.score?.label} · {c.score?.score}/1000</span>}</td>
               <td><span className="badge b-amber">{c.tier}</span></td>
               <td>{c.points_balance}</td><td>{c.total_orders}</td><td>{sar(c.total_spent)} ر.س</td>
             </tr>

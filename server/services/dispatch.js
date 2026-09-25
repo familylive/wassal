@@ -2,6 +2,7 @@ import { q, tx } from '../db.js';
 import { emitTo } from './realtime.js';
 import { waSend } from './whatsapp.js';
 import { addEvent } from './orderService.js';
+import { customerScoreLine } from './ratings.js';
 
 // إرسال الطلب لكل الكباتن المتاحين (بدون طلبات نشطة)
 export function broadcastToCaptains(order) {
@@ -15,7 +16,7 @@ export function broadcastToCaptains(order) {
       restaurant: restaurant.name_ar, total: order.total, est: order.est_delivery_min, address: order.national_address
     });
     waSend({ phone: c.phone, restaurantId: order.restaurant_id, orderId: order.id, participant: 'captain', type: 'text',
-      body: `🛵 طلب جديد متاح للتوصيل!\n📦 ${order.order_no} — ${restaurant.name_ar}\n💰 ${(order.total / 100).toFixed(2)} ر.س\n📍 ${order.national_address || ''}\n\n✅ رد على هذا الرقم بكلمة: *اقبل*  (أو *رفض*)` });
+      body: `🛵 طلب جديد متاح للتوصيل!\n📦 ${order.order_no} — ${restaurant.name_ar}\n💰 ${(order.total / 100).toFixed(2)} ر.س\n📍 ${order.national_address || ''}\n\n${customerScoreLine(order.customer_id)}\n\n✅ رد على هذا الرقم بكلمة: *اقبل*  (أو *رفض*)` });
   }
   if (captains.length) {
     q.run("UPDATE orders SET status='offered', updated_at=datetime('now') WHERE id=?", order.id);

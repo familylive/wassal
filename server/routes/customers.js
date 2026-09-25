@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { customerScore } from '../services/ratings.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -8,7 +9,7 @@ router.use(requireAuth);
 router.get('/', (req, res) => {
   const s = req.query.search;
   const rows = q.all("SELECT * FROM customers WHERE (? IS NULL OR name LIKE ? OR phone LIKE ?) ORDER BY id DESC LIMIT 200", s ? '%' + s + '%' : null, s ? '%' + s + '%' : null, s ? '%' + s + '%' : null);
-  res.json(rows);
+  res.json(rows.map(c => ({ ...c, score: customerScore(c.id) })));
 });
 router.get('/:id', (req, res) => {
   const c = q.get("SELECT * FROM customers WHERE id=?", req.params.id);
@@ -16,7 +17,7 @@ router.get('/:id', (req, res) => {
   const locations = q.all("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC", c.id);
   const orders = q.all("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 50", c.id);
   const loyalty = q.all("SELECT * FROM loyalty_transactions WHERE customer_id=? ORDER BY id DESC LIMIT 50", c.id);
-  res.json({ ...c, locations, orders, loyalty });
+  res.json({ ...c, locations, orders, loyalty, score: customerScore(c.id) });
 });
 router.put('/:id', (req, res) => {
   const b = req.body || {};

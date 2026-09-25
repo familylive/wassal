@@ -7,6 +7,7 @@ import { markPaid } from '../services/payments.js';
 import { validatePhone } from '../utils.js';
 import { transcribeVoice } from '../services/voice.js';
 import { readItemsFromImage } from '../services/vision.js';
+import { saveDeliveryPhoto } from '../services/delivery.js';
 import { rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
 
 const router = Router();
@@ -105,7 +106,18 @@ router.post('/webhook', async (req, res) => {
           else if (msg.type === 'image' || msg.type === 'document') {
             // 📷 صورة أصناف/منيو (أو مستند صورة): نقرأها بالذكاء
             const mediaId = msg.image?.id || (String(msg.document?.mime_type || '').startsWith('image/') ? msg.document?.id : null);
-            if (!mediaId) {
+            if (isCaptainPhone(phone)) {
+              // 🛵 صورة من كابتن = صورة تسليم (شرط إغلاق الطلب)
+              const r = await saveDeliveryPhoto(phone, mediaId);
+              if (r.ok) {
+                logHit('delivery-photo', phone + ':' + (r.order?.order_no || ''));
+                await handleCaptainIncoming({ phone, body: '', payload: null });
+                await waSend({ phone, restaurantId: r.order.restaurant_id, orderId: r.order.id, type: 'text', participant: 'captain',
+                  body: `✅ وصلتني *صورة التسليم* لطلبك ${r.order.order_no || ''} 📷\n\nالحين خذ *رمز الاستلام* من العميل وأرسله هنا وأنا أغلق الطلب 🔐` });
+              } else {
+                await waSend({ phone, type: 'text', body: '📷 ' + (r.error || 'تعذر استلام الصورة') });
+              }
+            } else if (!mediaId) {
               await handlePhotoItems(phone, targetRid, []);   // مستند غير مدعوم — نوضح للمستخدم
             } else {
               try {

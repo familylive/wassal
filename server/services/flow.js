@@ -1499,6 +1499,19 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
   const rid = q.get("SELECT id FROM branches WHERE id IN (SELECT id FROM branches) LIMIT 1")?.id; // غير مستخدم
   const { captainAccept } = await import('./dispatch.js');
 
+  // 0) تقييم الكابتن للعميل (بعد الإغلاق)
+  if (p.startsWith('crate:')) {
+    const { handleCaptainCustomerRating } = await import('./ratings.js');
+    const msg = await handleCaptainCustomerRating(p, captain);
+    if (msg) return send(captain.phone, null, null, 'text', msg);
+  }
+  if (/^(صورة|صوره|الصورة|ارسلت صورة|تم التسليم)$/.test(b)) {
+    const { activeOrderForCaptain } = await import('./delivery.js');
+    const act = activeOrderForCaptain(captain.id);
+    if (!act) return send(captain.phone, null, null, 'text', 'لا يوجد طلب نشط لك حالياً 📭');
+    return send(captain.phone, null, act.id, 'text', '📷 أرسل *صورة التسليم* هنا (صوّر الطلب عند باب العميل)، وبعدها أرسل رمز الاستلام.');
+  }
+
   // 1) رمز الاستلام: يغلق الطلب
   const codeMatch = cmd.match(/(رمز|كود|code)\s*[:：]?\s*(\d{4,8})/i);
   if (codeMatch) {
@@ -1541,7 +1554,7 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     if (!activeQ) return send(captain.phone, null, null, 'text', 'لا يوجد طلب نشط لك حالياً.');
     const r = setStatus(activeQ.id, 'arrived', 'captain', captain.id);
     if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
-    return send(captain.phone, null, activeQ.id, 'text', '📍 تم إبلاغ العميل بوصولك!\n🔐 اطلب منه رمز الاستلام ثم أرسله هنا: رمز XXXXXX');
+    return send(captain.phone, null, activeQ.id, 'text', '📍 تم إبلاغ العميل بوصولك!\n\n📷 *الخطوة ١:* صوّر الطلب عند باب العميل وأرسل *الصورة* هنا (إلزامية لإغلاق الطلب).\n🔐 *الخطوة ٢:* خذ رمز الاستلام من العميل وأرسله هنا، وأنا أغلق الطلب.');
   }
   // 5) الحالة: طلباتي النشطة
   if (['حالة', 'status', 'طلباتي'].includes(b)) {

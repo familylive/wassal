@@ -69,12 +69,22 @@ export async function closeOrderWithCode(code, senderPhone, actorType = 'captain
   const captain = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", senderPhone, validatePhone(senderPhone));
   let order = orders.find(o => captain && o.captain_id === captain.id);
   if (!order) return { error: 'الرمز لا يخص طلباً لديك' };
+  // 📷 صورة التسليم شرط لإغلاق الطلب
+  if (!order.delivery_photo && !order.delivery_photo_at) {
+    return { error: 'لازم ترسل *صورة التسليم* أول 📷\nصوّر الطلب عند باب العميل وأرسلها هنا، وبعدها أرسل رمز الاستلام.' };
+  }
   const r = setStatus(order.id, 'delivered', actorType, captain?.id);
   if (r.error) return r;
   addEvent(order.id, 'delivered', 'تم إغلاق الطلب برمز الاستلام 🔐');
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text', body: '🔐 تم التحقق من رمز الاستلام وإغلاق طلبك بنجاح! 🎉' });
   try { const { triggerRating } = await import('./flow.js'); triggerRating(q.get("SELECT * FROM orders WHERE id=?", order.id)); } catch (e) {}
+  // تقييم الكابتن للعميل (بعد الإغلاق)
+  try {
+    const { askCaptainToRateCustomer } = await import('./ratings.js');
+    const ord = q.get("SELECT * FROM orders WHERE id=?", order.id);
+    if (captain) await askCaptainToRateCustomer(captain.phone, ord, captain.id);
+  } catch (e) { console.error('ASK_CAPTAIN_RATE_FAIL', e.message); }
   emitAll('order:delivered', { orderId: order.id });
   return { ok: true, order: q.get("SELECT * FROM orders WHERE id=?", order.id) };
 }
