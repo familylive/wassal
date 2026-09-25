@@ -52,7 +52,7 @@ export default function Admin() {
         </div>
         {menuOpen && <div className="backdrop" onClick={() => setMenuOpen(false)} />}
         <button className="btn red logout-float" onClick={logout}>🚪 تسجيل الخروج</button>
-        {tab === 'dashboard' && <Dashboard stats={stats} orders={orders} onOpen={setSel} />}
+        {tab === 'dashboard' && <Dashboard stats={stats} orders={orders} captains={captains} onOpen={setSel} onChange={load} />}
         {tab === 'restaurants' && <RestTab data={restaurants} onChange={load} />}
         {tab === 'captains' && <CaptainsTab data={captains} onChange={load} />}
         {tab === 'customers' && <CustomersTab data={customers} />}
@@ -69,7 +69,30 @@ export default function Admin() {
   );
 }
 
-function Dashboard({ stats, orders, onOpen }) {
+function AssignCaptain({ order, captains, onChange }) {
+  const { notify } = useApp();
+  const [cid, setCid] = useState(order.captain_id || '');
+  const [busy, setBusy] = useState(false);
+  const open = ['new', 'confirmed', 'preparing', 'ready', 'offered', 'accepted'].includes(order.status);
+  if (!open) return null;
+  const go = async () => {
+    if (!cid) return notify('اختر كابتن');
+    setBusy(true);
+    try { await api(`/orders/${order.id}/assign`, { method: 'POST', body: { captain_id: Number(cid) } }); notify('✅ تم تحويل الطلب للكابتن'); onChange(); }
+    catch (e) { notify(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="row" style={{ gap: 4 }}>
+      <select value={cid} onChange={e => setCid(e.target.value)} style={{ maxWidth: 130, fontSize: 12 }}>
+        <option value="">— كابتن —</option>
+        {captains.map(c => <option key={c.id} value={c.id}>{c.name}{c.status === 'available' ? ' ✅' : ''}</option>)}
+      </select>
+      <button className="btn sm" disabled={busy} onClick={go} title="حوّل الطلب لهذا الكابتن">🚀</button>
+    </div>
+  );
+}
+
+function Dashboard({ stats, orders, captains = [], onOpen, onChange }) {
   if (!stats) return <div className="empty">تحميل…</div>;
   return (
     <>
@@ -86,7 +109,11 @@ function Dashboard({ stats, orders, onOpen }) {
           {stats.openOrders.map(o => (
             <div key={o.id} className="row" style={{ justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
               <div><b>{o.order_no}</b> — {o.name_ar}<br /><small style={{ color: 'var(--mut)' }}>{o.created_at?.slice(0, 16)}</small></div>
-              <div className="row"><Badge s={o.status} /><button className="btn ghost sm" onClick={() => onOpen(o)}>عرض</button></div>
+              <div className="row" style={{ gap: 6 }}>
+                <Badge s={o.status} />
+                <AssignCaptain order={o} captains={captains} onChange={onChange} />
+                <button className="btn ghost sm" onClick={() => onOpen(o)}>عرض</button>
+              </div>
             </div>
           ))}
           {!stats.openOrders.length && <div className="empty">لا توجد طلبات مفتوحة</div>}
@@ -216,17 +243,29 @@ function BranchForm({ rid, onClose, onSaved }) {
 }
 
 function CaptainsTab({ data, onChange }) {
+  const { notify } = useApp();
   const [modal, setModal] = useState(false);
+  const setStatus = async (c, status) => {
+    try { await api(`/captains/${c.id}/status`, { method: 'POST', body: { status } }); notify('✅ تم تحديث حالة الكابتن'); onChange(); }
+    catch (e) { notify(e.message); }
+  };
   return (
     <Card title={`الكباتن (${data.length})`} action={<button className="btn sm" onClick={() => setModal(true)}>➕ كابتن جديد</button>}>
       <table>
-        <thead><tr><th>الكابتن</th><th>الجوال</th><th>المركبة</th><th>الحالة</th><th>التقييم</th><th>التوصيلات</th></tr></thead>
+        <thead><tr><th>الكابتن</th><th>الجوال</th><th>الهوية</th><th>المركبة</th><th>الحالة</th><th>التقييم</th><th>التوصيلات</th><th>تغيير الحالة</th></tr></thead>
         <tbody>
           {data.map(c => (
             <tr key={c.id}>
-              <td><b>{c.name}</b></td><td>{c.phone}</td><td>{c.vehicle_type} {c.vehicle_plate}</td>
+              <td><b>{c.name}</b></td><td>{c.phone}</td><td>{c.national_id || '—'}</td><td>{c.vehicle_type} {c.vehicle_plate}</td>
               <td>{c.status === 'available' ? <span className="badge b-green">متاح</span> : c.status === 'busy' ? <span className="badge b-amber">مشغول</span> : <span className="badge b-gray">غير متصل</span>}</td>
-              <td>{c.rating_avg ? '⭐ ' + c.rating_avg : '-'}</td><td>{c.deliveries_count}</td>
+              <td>{c.rating_count ? `⭐ ${c.rating_avg}/5 (${c.rating_count})` : <span className="badge b-gray">🆕 جديد</span>}</td><td>{c.deliveries_count}</td>
+              <td>
+                <div className="row" style={{ gap: 4 }}>
+                  <button className="btn ghost sm" disabled={c.status === 'available'} onClick={() => setStatus(c, 'available')}>✅ متاح</button>
+                  <button className="btn ghost sm" disabled={c.status === 'busy'} onClick={() => setStatus(c, 'busy')}>⏳ مشغول</button>
+                  <button className="btn ghost sm" disabled={c.status === 'offline'} onClick={() => setStatus(c, 'offline')}>⛔ إيقاف</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
