@@ -262,6 +262,9 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
   if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
   if (/^(مدير|مدير المطعم|أضف مدير|اضف مدير|إضافة مدير|اضافة مدير)$/.test(bt)) return startAddManager(phone, rid, session);
+  // 🏪 أزرار إشعار الطلب (استلمت / جاهز) + كلماتها
+  if (p && /^ord(ok|ready):\d+$/.test(String(p))) return handleOrderActionFromOwner(phone, rid, p);
+  if (/^(جاهز|استلمت|تم الاستلام)$/.test(bt) && ownerRestaurantId(phone)) return handleOrderActionFromOwner(phone, rid, null, b);
   // 🆔 رقم النشاط (لصاحب النشاط أو مديره)
   if (/^(رقم النشاط|رقم المطعم|رقم المتجر|رقمي|رقم حسابي|معرف النشاط)$/.test(bt)) return sendBusinessNumber(phone, rid);
   // 🔔 وقت التقرير اليومي
@@ -1979,6 +1982,29 @@ function sendBusinessNumber(phone, rid) {
   return send(phone, rid, null, 'text', isManager
     ? `🆔 *رقم النشاط: #${r.id}*\n🏪 ${r.name_ar}${r.city ? ' — ' + r.city : ''}\n\n✅ أنت مرتبط بهذا النشاط — اكتب *تقرير* ويوصلك تقرير اليوم 📊`
     : `🆔 *رقم نشاطك: #${r.id}*\n🏪 ${r.name_ar}${r.city ? ' — ' + r.city : ''}\n\n📋 *ارسله لمدير النشاط* ليكتب:\n*انضمام مدير* → اسمه → هويته → رقم النشاط *${r.id}*\n\nوبعد اعتماد الإدارة بيوصله تقرير المبيعات اليومي 📊`);
+}
+
+// 🏪 صاحب النشاط: تأكيد الطلب / الطلب جاهز من أزرار إشعار الطلب
+async function handleOrderActionFromOwner(phone, rid, p, b = '') {
+  const m = String(p || '').match(/^ord(ok|ready):(\d+)$/);
+  let orderId = m ? Number(m[2]) : null;
+  const mine = ownerRestaurantId(phone);
+  if (!mine) return send(phone, rid, null, 'text', 'هذي الخدمة لأصحاب الأنشطة المسجّلين 🌸');
+  if (!orderId && /^(جاهز|استلمت|تم الاستلام)$/.test(String(b || '').trim())) {
+    const o = q.get("SELECT id, status FROM orders WHERE restaurant_id=? AND status IN ('new','confirmed','preparing') ORDER BY id DESC LIMIT 1", mine);
+    if (!o) return send(phone, rid, null, 'text', 'ما فيه طلب نشط حالياً 📭');
+    orderId = o.id;
+  }
+  if (!orderId) return null;
+  const order = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, mine);
+  if (!order) return send(phone, rid, null, 'text', 'ما لقيت طلبك 🙏');
+  const { setStatus } = await import('./orderService.js');
+  const want = (m?.[1] === 'ready') || /^(جاهز)$/.test(String(b || '').trim()) ? 'ready' : 'confirmed';
+  const r = setStatus(order.id, want, 'restaurant');
+  if (r?.error) return send(phone, rid, null, 'text', r.error);
+  return send(phone, rid, null, 'text', want === 'ready'
+    ? `📦 *تم* — بلّغنا العميل أن الطلب ${order.order_no} جاهز ✅`
+    : `✅ *تم* — بلّغنا العميل أنك استلمت الطلب ${order.order_no} وجاري التحضير 👨‍🍳`);
 }
 
 // ---------- 📣 إعلانات الأنشطة ----------

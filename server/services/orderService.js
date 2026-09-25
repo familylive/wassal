@@ -6,6 +6,37 @@ import { broadcastToCaptains } from './dispatch.js';
 import { awardPoints } from './loyalty.js';
 import { scheduleBackup } from './backup.js';
 
+const money = (h) => (Number(h || 0) / 100).toFixed(2);
+const PAY_AR = { applepay: '🍎 Apple Pay', mada: '💳 مدى', card: '💳 بطاقة', cash: '💵 كاش عند الاستلام' };
+
+// 🏪 جوال صاحب النشاط (يستلم الطلبات)
+export function restaurantOwnerPhone(restaurant) {
+  if (!restaurant) return null;
+  const direct = restaurant.phone || restaurant.whatsapp_number;
+  if (direct) return validatePhone(direct) || String(direct);
+  const u = q.get("SELECT phone FROM restaurant_users WHERE restaurant_id=? ORDER BY (role='owner') DESC, id LIMIT 1", restaurant.id);
+  return u?.phone ? (validatePhone(u.phone) || u.phone) : null;
+}
+
+// 🔔 إشعار صاحب النشاط بطلب جديد على واتساب (مع أزرار استلمت / جاهز)
+export function notifyRestaurantNewOrder(order) {
+  try {
+    const rest = q.get("SELECT * FROM restaurants WHERE id=?", order.restaurant_id);
+    const to = restaurantOwnerPhone(rest);
+    if (!to) { console.log('ORDER_NOTIFY_NO_OWNER_PHONE', order.restaurant_id); return; }
+    let items = [];
+    try { items = JSON.parse(order.items_json || '[]'); } catch (e) {}
+    const lines = items.map(i => `• ${i.quantity} × ${i.name} — ${money(Number(i.price) * Number(i.quantity))}`).join('\n');
+    const isPickup = order.order_type === 'pickup';
+    const body = `🛎 *طلب جديد* ${order.order_no}\n🏪 ${rest?.name_ar || ''}\n━━━━━━━━━━━━━━\n🛒 *الطلب:*\n${lines}\n━━━━━━━━━━━━━━\n🍽 المجموع: ${money(order.subtotal)} ر.س`
+      + (Number(order.discount) ? `\n🎁 الخصم: -${money(order.discount)} ر.س` : '')
+      + (isPickup ? '\n🏪 *استلام من النشاط*' : `\n🚚 التوصيل: ${money(order.delivery_fee)} ر.س\n📍 ${order.national_address || order.address_label || ''}`)
+      + `\n💰 *الإجمالي: ${money(order.total)} ر.س*\n💳 الدفع: ${PAY_AR[order.payment_method] || order.payment_method || '-'}\n🕐 خلال ~${order.est_delivery_min || 30} دقيقة\n\n_اضغط ✅ «استلمت» ليوصل العميل تأكيد، و📦 «جاهز» لمّا يجهز الطلب._`;
+    waSend({ phone: to, restaurantId: order.restaurant_id, orderId: order.id, type: 'buttons', body,
+      buttons: [{ id: `ordok:${order.id}`, title: '✅ استلمت الطلب' }, { id: `ordready:${order.id}`, title: '📦 الطلب جاهز' }] }).catch(() => {});
+  } catch (e) { console.error('ORDER_NOTIFY_FAIL', e.message); }
+}
+
 export function addEvent(orderId, event, message, actorType = 'system', actorId = null) {
   q.run("INSERT INTO order_events (order_id, event, message, actor_type, actor_id) VALUES (?,?,?,?,?)",
     orderId, event, message, actorType, actorId);
@@ -35,6 +66,7 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
     broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
   }
   scheduleBackup(); // نسخة احتياطية فورية بعد كل طلب
+  notifyRestaurantNewOrder(order);   // 🏪 إشعار صاحب النشاط على واتساب
   return order;
 }
 
