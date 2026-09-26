@@ -220,7 +220,16 @@ function RestTab({ data, onChange }) {
                     try { await api('/restaurants/' + r.id + '/subscription', { method: 'POST', body: {} }); notify('✅ تم تسجيل الاشتراك'); onChange(); }
                     catch (e) { notify(e.message); }
                   }}>💳 استلمت</button>}</td>
-              <td className="row"><button className="btn ghost sm" onClick={() => setOpen(r)}>إدارة</button><button className="btn red sm" onClick={async () => { if (confirm('حذف المطعم؟')) { await api('/restaurants/' + r.id, { method: 'DELETE' }); onChange(); } }}>🗑</button></td>
+              <td className="row">
+                <button className="btn ghost sm" onClick={() => setOpen(r)}>إدارة</button>
+                <button className="btn ghost sm" onClick={async () => {
+                  const off = !!r.is_active;
+                  if (!window.confirm((off ? 'إيقاف' : 'تشغيل') + ' ' + r.name_ar + '؟' + (off ? '\n\nسيختفي من العملاء ولا يستقبل طلبات جديدة.' : '\n\nسيظهر للعملاء من جديد.'))) return;
+                  try { await api('/restaurants/' + r.id, { method: 'PUT', body: { is_active: off ? 0 : 1 } }); notify(off ? '⏸ تم الإيقاف — اختفى من العملاء' : '▶️ تم التشغيل — ظهر للعملاء'); onChange(); }
+                  catch (e) { notify(e.message); }
+                }}>{r.is_active ? '⏸ إيقاف' : '▶️ تشغيل'}</button>
+                <button className="btn red sm" onClick={async () => { if (confirm('حذف المطعم؟')) { await api('/restaurants/' + r.id, { method: 'DELETE' }); onChange(); } }}>🗑</button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -263,6 +272,13 @@ function RestForm({ r, onClose, onSaved }) {
         <Fld label="وقت التحضير (د)"><input type="number" value={f.avg_prep_time_min} onChange={set('avg_prep_time_min')} /></Fld>
         <Fld label="خط العرض"><input value={f.lat || ''} onChange={set('lat')} /></Fld>
         <Fld label="خط الطول"><input value={f.lng || ''} onChange={set('lng')} /></Fld>
+        <Fld label="حالة النشاط">
+          <select value={(f.is_active === 0 || f.is_active === false) ? '0' : '1'}
+            onChange={e => setF({ ...f, is_active: Number(e.target.value) })}>
+            <option value="1">✅ نشط — يظهر للعملاء</option>
+            <option value="0">⏸ موقوف — مخفي عن العملاء</option>
+          </select>
+        </Fld>
       </div>
       <div className="row" style={{ marginTop: 16 }}><button className="btn" onClick={save}>حفظ</button><button className="btn ghost" onClick={onClose}>إلغاء</button></div>
     </Modal>
