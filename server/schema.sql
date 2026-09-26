@@ -380,8 +380,14 @@ CREATE TABLE IF NOT EXISTS business_types (
 INSERT OR IGNORE INTO business_types (id, name_ar, icon, sort_order, is_active) VALUES
   (1, 'مطاعم', '🍽', 1, 1),
   (2, 'سوبر ماركت', '🏪', 2, 1),
-  (3, 'صيدلية', '💊', 3, 1),
+  -- «صيدلية» غير مفعّلة: نشاط غير مسموح في سياسة واتساب (أدوية الوصفات والأجهزة الطبية)
+  (3, 'صيدلية', '💊', 3, 0),
   (4, 'أسر منتجة', '🏠', 4, 1);
+
+-- تثبيت إيقاف «صيدلية» على قواعد البيانات القائمة أيضًا:
+-- «INSERT OR IGNORE» لا يحدّث صفًا موجودًا، فهذا السطر يضمن الإيقاف عند كل تشغيل.
+-- لإلغاء هذا القيد لاحقًا: احذف السطر التالي فقط.
+UPDATE business_types SET is_active = 0 WHERE name_ar = 'صيدلية';
 
 -- تسجيلات الأنشطة والكباتن الذاتية (مسودة عبر واتساب حتى اعتماد الإدارة)
 CREATE TABLE IF NOT EXISTS business_registrations (
