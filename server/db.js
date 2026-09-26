@@ -43,6 +43,9 @@ try { db.exec("ALTER TABLE business_registrations ADD COLUMN municipal_issued_at
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN cr_no TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN cr_issued_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN freelance_issued_at TEXT"); } catch {}
+// 📍 إحداثيات النشاط (من رسالة الموقع أثناء التسجيل) — أساس ظهوره للعملاء
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN lat REAL"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN lng REAL"); } catch {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN municipal_no TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN municipal_issued_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN cr_no TEXT"); } catch {}

@@ -379,7 +379,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
+    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -433,6 +433,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'reg_city': return handleRegCity(phone, rid, session, b);
     case 'reg_district': return handleRegDistrict(phone, rid, session, b);
     case 'reg_postal': return handleRegPostal(phone, rid, session, b);
+    case 'reg_location': return handleRegLocation(phone, rid, session, b, type, lat, lng);
     case 'reg_owner': return handleRegOwner(phone, rid, session, b);
     case 'reg_owner_id': return handleRegOwnerId(phone, rid, session, b);
     case 'reg_items': return handleRegItems(phone, rid, session, b);
@@ -1818,8 +1819,27 @@ function handleRegPostal(phone, rid, session, b) {
   if (!skip && !/^[A-Z0-9]{4,12}$/.test(code)) {
     return send(phone, rid, null, 'text', 'اكتب الرمز بصيغة صحيحة — مثال: *AKMF0000* (أو اكتب *تخطى*)');
   }
-  saveSession(phone, 'reg_owner', { ...session.data, reg: { ...session.data.reg, postal: code ? code.slice(0, 12) : null } });
-  return send(phone, rid, null, 'text', `${code ? '🔢 ' + code + '\n\n' : ''}👤 وش *اسم المسؤول* عن النشاط؟ (الاسم الكامل)`);
+  saveSession(phone, 'reg_location', { ...session.data, reg: { ...session.data.reg, postal: code ? code.slice(0, 12) : null } });
+  send(phone, rid, null, 'text', `${code ? '🔢 ' + code + '\n\n' : ''}📍 *أرسل موقع النشاط* — بدون موقع ما يظهر نشاطك للعملاء القريبين منك.\n(في واتساب: زر 📎 ← الموقع)\n\n_(أو اكتب *تخطى* — ويكون النشاط مخفيًا حتى تحدد الإحداثيات من لوحة التحكم)_`);
+  return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'send_location_reg', title: '📍 إرسال موقع النشاط' }] });
+}
+
+// 📍 موقع النشاط (إحداثيات) — أساس ظهور النشاط للعملاء القريبين
+function handleRegLocation(phone, rid, session, b, type, lat, lng) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  const askOwner = () => send(phone, rid, null, 'text', '👤 وش *اسم المسؤول* عن النشاط؟ (الاسم الكامل)');
+  if (type === 'location' && lat != null && lng != null) {
+    reg.lat = Number(lat); reg.lng = Number(lng);
+    saveSession(phone, 'reg_owner', { ...session.data, reg });
+    send(phone, rid, null, 'text', `📍 تم استلام موقع النشاط ✅\n(${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)})`);
+    return askOwner();
+  }
+  if (DOC_SKIP.test(String(b || '').trim())) {
+    saveSession(phone, 'reg_owner', { ...session.data, reg });
+    return askOwner();
+  }
+  return send(phone, rid, null, 'buttons', '📍 أرسل موقع النشاط عشان يطلع للعملاء القريبين منك.\n(في واتساب: زر 📎 ← الموقع)', { buttons: [{ id: 'send_location_reg', title: '📍 إرسال موقع النشاط' }] });
 }
 
 // اسم المسؤول → رقم الهوية
@@ -2107,13 +2127,14 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
     const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status,
         open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, entity_type,
         municipal_no, municipal_issued_at, cr_no, cr_issued_at, freelance_no, freelance_issued_at,
-        municipal_doc, cr_doc, freelance_doc, health_count, health_docs)
-      VALUES ('business', ?,?,?,?,?,?,?,?,?,?,?, 'pending_review', ?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?)`,
+        municipal_doc, cr_doc, freelance_doc, health_count, health_docs, lat, lng)
+      VALUES ('business', ?,?,?,?,?,?,?,?,?,?,?, 'pending_review', ?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?)`,
       phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null,
       reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1,
       reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null, reg.entity_type || null,
       reg.municipal_no || null, reg.municipal_issued_at || null, reg.cr_no || null, reg.cr_issued_at || null, reg.freelance_no || null, reg.freelance_issued_at || null,
-      reg.municipal_doc || null, reg.cr_doc || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
+      reg.municipal_doc || null, reg.cr_doc || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null,
+      reg.lat || null, reg.lng || null);
     const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
     saveSession(phone, 'idle', { ...session.data, reg: null });
     const ok = await notifySupervisor(row);
