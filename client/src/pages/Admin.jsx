@@ -621,10 +621,9 @@ function RegistrationsTab() {
             <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
               🏷 {r.entity_type || '—'} · 🕐 {r.shifts === 2 ? `فترتان: ${hh(r.s1_from)}–${hh(r.s1_to)} · ${hh(r.s2_from)}–${hh(r.s2_to)}` : (r.s1_from || r.close_hour ? `فترة: ${hh(r.s1_from)}–${hh(r.close_hour)}` : 'دوام غير محدد')}
               {(r.entity_type === 'فرد')
-                ? <>{' · '}📄 {r.freelance_no ? `وثيقة العمل الحر ${r.freelance_no}` : 'وثيقة ⚠️'} {r.freelance_doc ? <a href={r.freelance_doc} target="_blank" rel="noreferrer">✅</a> : '⚠️'}</>
-                : <>{' · '}🏛 {r.municipal_doc ? <a href={r.municipal_doc} target="_blank" rel="noreferrer">الرخصة ✅</a> : 'رخصة ⚠️'}
-                  {' · '}📄 {r.cr_doc ? <a href={r.cr_doc} target="_blank" rel="noreferrer">السجل ✅</a> : 'سجل ⚠️'}</>}
-              {r.health_count ? ` · 👨‍🍳 ${r.health_count} عامل ${r.health_docs ? <a href={r.health_docs} target="_blank" rel="noreferrer">✅</a> : '⚠️'}` : ''}
+                ? <>{' · '}📄 {r.freelance_no ? `وثيقة العمل الحر ${r.freelance_no}` : 'وثيقة ⚠️'}{r.freelance_issued_at ? ` · 📅 إصدار ${r.freelance_issued_at}` : ''}</>
+                : <>{' · '}🏛 {r.municipal_no ? `رخصة ${r.municipal_no}` : 'رخصة ⚠️'}{r.municipal_issued_at ? ` · 📅 ${r.municipal_issued_at}` : ''}
+                  {' · '}📄 {r.cr_no ? `سجل ${r.cr_no}` : 'سجل ⚠️'}{r.cr_issued_at ? ` · 📅 ${r.cr_issued_at}` : ''}</>}
             </div>
           )}
           {r.kind === 'captain' && (

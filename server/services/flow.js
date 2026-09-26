@@ -349,7 +349,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_docs', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
+    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'cash_iddoc', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name') {
     saveSession(phone, 'ask_name', { ...data, pendingState: 'directory' });
     return send(phone, rid, null, 'text', `السلام عليكم ورحمة الله 🌸\nكيف حالك؟ عساك طيب 😊\n\nأنا *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵\nأطلب لك من أنشطة كثيرة وأوصله لبابك\n\nوش *اسمك الكريم*؟\n\n_(🏪 عندك نشاط؟ أرسل *انضمام* · 🛵 كابتن توصيل؟ أرسل *انضمام كابتن* · 👤 مدير نشاط؟ أرسل *انضمام مدير*)_`);
@@ -421,18 +421,22 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
       const indiv = isIndividual(session.data.reg || {});
       return handleRegShiftTime(phone, rid, session, b, two ? 's1_to' : 'close_hour', two ? 'reg_s2f' : (indiv ? 'reg_flno' : 'reg_lic'),
         two ? '✅ الفترة الأولى تنتهي {t}\n\n🕐 *الفترة الثانية* — متى تبدأ؟'
-            : '✅ يقفل {t}\n\n' + (indiv ? '📄 *وثيقة العمل الحر* _(لأن النشاط فرد)_ — أو تخطى' : '🏛 *رخصة البلدية* — أرسل صورة/PDF _(أو تخطى)_'));
+            : '✅ يقفل {t}\n\n' + (indiv ? '📄 *وثيقة العمل الحر* _(لأن النشاط فرد)_ — اكتب *رقم الوثيقة*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*'));
     }
     case 'reg_s2f': return handleRegShiftTime(phone, rid, session, b, 's2_from', 'reg_s2t', '✅ تبدأ {t} — ومتى *تنتهي الفترة الثانية*؟');
-    case 'reg_s2t': return handleRegShiftTime(phone, rid, session, b, 's2_to', isIndividual(session.data.reg || {}) ? 'reg_flno' : 'reg_lic', '✅ تنتهي {t}\n\n' + (isIndividual(session.data.reg || {}) ? '📄 *وثيقة العمل الحر* — نطلبها لأن النشاط *فرد* _(أو تخطى)_' : '🏛 *رخصة البلدية* — أرسل صورة/PDF _(أو تخطى)_'));
+    case 'reg_s2t': return handleRegShiftTime(phone, rid, session, b, 's2_to', isIndividual(session.data.reg || {}) ? 'reg_flno' : 'reg_lic', '✅ تنتهي {t}\n\n' + (isIndividual(session.data.reg || {}) ? '📄 *وثيقة العمل الحر* — نطلبها لأن النشاط *فرد*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*'));
     case 'reg_entity': return handleRegEntity(phone, rid, session, b, p);
-    case 'reg_flno': return handleRegFreelanceNo(phone, rid, session, b, mediaRef);
-    case 'reg_fldoc': return handleRegFreelanceDoc(phone, rid, session, b, mediaRef);
+    case 'reg_flno': return handleRegFreelanceNo(phone, rid, session, b);
+    case 'reg_fldate': return handleRegFreelanceDate(phone, rid, session, b);
     case 'reg_docs': return handleRegDocsStart(phone, rid, session);
-    case 'reg_lic': return handleRegMunicipal(phone, rid, session, b, mediaRef);
-    case 'reg_cr': return handleRegCR(phone, rid, session, b, mediaRef);
-    case 'reg_health': return handleRegHealth(phone, rid, session, b);
-    case 'reg_hdoc': return handleRegHealthDoc(phone, rid, session, b, mediaRef);
+    case 'reg_lic': return handleRegMunicipal(phone, rid, session, b);
+    case 'reg_licdate': return handleRegMunicipalDate(phone, rid, session, b);
+    case 'reg_cr': return handleRegCR(phone, rid, session, b);
+    case 'reg_crdate': return handleRegCRDate(phone, rid, session, b);
+    // بقايا جلسات قديمة (قبل إزالة رفع الملفات): نكملها بدل ما تعلق
+    case 'reg_fldoc': return handleRegFreelanceDate(phone, rid, session, b);
+    case 'reg_health': return sendRegReview(phone, rid, session.data);
+    case 'reg_hdoc': return sendRegReview(phone, rid, session.data);
     case 'reg_prices': return handleRegPrices(phone, rid, session, b);
     case 'reg_review': return handleRegReview(phone, rid, session, b, p);
     case 'reg_subscribe': return handleRegSubscribe(phone, rid, session, b, p);
@@ -1877,81 +1881,93 @@ function handleRegShiftTime(phone, rid, session, b, key, nextState, question) {
   const h = parseReportHour(b, { morning: true });
   if (!h) return send(phone, rid, null, 'text', 'اكتب الوقت بصيغة مثل: 8 صباحاً · 9:00 · 16:30 🙏');
   const reg = { ...(session.data.reg || {}), [key]: h };
-  saveSession(phone, nextState, { ...session.data, reg });
-  return send(phone, rid, null, 'text', question.replace('{t}', fmtH(h)));
+// 🔢 رقم مستند: ٤ خانات على الأقل ويحتوي رقمين على الأقل
+const DOC_NO_OK = (s) => { const t = String(s || '').trim(); return t.length >= 4 && (t.match(/\d/g) || []).length >= 2; };
+// 📅 تاريخ إصدار مستند: يقبل 2025-03-15 · 15/3/2025 · 15-03-2025
+function parseDocDate(x) {
+  const t = String(x || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).trim();
+  let m = t.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}`;
+  m = t.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})$/);
+  if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`; }
+  return null;
 }
-const DOC_SKIP = /^(تخطى|تخطي|بدون|لا يوجد|ما عندي|لاحقاً|لاحقا|بعدين|موجود)$/;
-async function handleRegMunicipal(phone, rid, session, b, mediaRef) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.municipal_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF لرخصة البلدية، أو اكتب *تخطى* 🙏');
-  saveSession(phone, 'reg_cr', { ...session.data, reg });
-  return send(phone, rid, null, 'text', '📄 *السجل التجاري*\n\n📎 أرسل صورة أو PDF\n_(أو *تخطى*)_');
+// 📅 قراءة تاريخ الإصدار -> { skip } أو { date } أو { err }
+function readDocDate(b) {
+  const raw = String(b || '').trim();
+  if (DOC_SKIP.test(raw)) return { skip: true, date: null };
+  const d = parseDocDate(raw);
+  return d ? { skip: false, date: d } : { err: true };
 }
-// 🚪 بداية مرحلة المستندات: فرد → وثيقة العمل الحر · مؤسسة/شركة → رخصة بلدية + سجل تجاري
+const DOC_DATE_HINT = 'اكتب تاريخ الإصدار بصيغة *2025-03-15* أو *15/3/2025* 🙏 (أو *تخطى*)';
+
+// 🚪 بداية مرحلة بيانات المستندات (رقم + تاريخ إصدار — بدون رفع ملفات):
+// فرد/أسر منتجة -> رقم وثيقة العمل الحر · مؤسسة/شركة -> رقم رخصة البلدية + رقم السجل التجاري
 function handleRegDocsStart(phone, rid, session) {
   const reg = { ...(session.data.reg || {}) };
   if (isIndividual(reg)) return askFreelance(phone, rid, session);
   saveSession(phone, 'reg_lic', { ...session.data });
-  return send(phone, rid, null, 'text', '🏛 *رخصة البلدية*\n\n📎 أرسل صورة أو PDF\n_(أو اكتب *تخطى*)_');
+  return send(phone, rid, null, 'text', '🏛 *رخصة البلدية*\n\nاكتب *رقم الرخصة*');
 }
-// 👤 الفرد/الأسر المنتجة: وثيقة العمل الحر (رقم + إرفاق)
+// 👤 الفرد/الأسر المنتجة: وثيقة العمل الحر (رقم + تاريخ إصدار)
 async function askFreelance(phone, rid, session) {
   saveSession(phone, 'reg_flno', { ...session.data });
-  return send(phone, rid, null, 'text', '📄 *وثيقة العمل الحر*\n\nاكتب *رقم الوثيقة* أولاً');
+  return send(phone, rid, null, 'text', '📄 *وثيقة العمل الحر*\n\nاكتب *رقم الوثيقة*');
 }
-async function handleRegFreelanceNo(phone, rid, session, b, mediaRef = null) {
+async function handleRegFreelanceNo(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const raw = String(b || '').trim();
-  // 📎 وصلت الوثيقة مباشرة (قبل الرقم) — نحفظها ونكمل
-  if (mediaRef) return afterRegDocs(phone, rid, { ...session.data, reg: { ...session.data.reg, freelance_doc: mediaRef } });
   if (DOC_SKIP.test(raw)) return afterRegDocs(phone, rid, { ...session.data });
-  if (raw.length < 4) return send(phone, rid, null, 'text', 'اكتب رقم وثيقة العمل الحر 🙏 (أو *تخطى*)');
-  saveSession(phone, 'reg_fldoc', { ...session.data, reg: { ...session.data.reg, freelance_no: raw.slice(0, 40) } });
-  return send(phone, rid, null, 'text', `✅ رقم الوثيقة: *${raw.slice(0, 40)}*\n\n📎 الحين أرسل *صورة/PDF للوثيقة*`);
+  if (!DOC_NO_OK(raw)) return send(phone, rid, null, 'text', 'اكتب رقم وثيقة العمل الحر 🙏 (أو *تخطى*)');
+  saveSession(phone, 'reg_fldate', { ...session.data, reg: { ...session.data.reg, freelance_no: raw.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `✅ رقم الوثيقة: *${raw.slice(0, 40)}*\n\n📅 متى *تاريخ إصدارها*؟ (مثال: 2025-03-15)`);
 }
-async function handleRegFreelanceDoc(phone, rid, session, b, mediaRef) {
+async function handleRegFreelanceDate(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const r = readDocDate(b);
+  if (r.err) return send(phone, rid, null, 'text', DOC_DATE_HINT);
+  return afterRegDocs(phone, rid, { ...session.data, reg: { ...session.data.reg, freelance_issued_at: r.date } });
+}
+// 🏛 رخصة البلدية: رقم + تاريخ إصدار
+async function handleRegMunicipal(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.freelance_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل ملف الوثيقة، أو اكتب *تخطى* 🙏');
-  return afterRegDocs(phone, rid, { ...session.data, reg });
+  const raw = String(b || '').trim();
+  if (DOC_SKIP.test(raw)) { saveSession(phone, 'reg_licdate', { ...session.data, reg }); return send(phone, rid, null, 'text', '📅 *تاريخ إصدار الرخصة*؟ _(أو *تخطى*)_'); }
+  if (!DOC_NO_OK(raw)) return send(phone, rid, null, 'text', 'اكتب *رقم رخصة البلدية* 🙏 (أو *تخطى*)');
+  saveSession(phone, 'reg_licdate', { ...session.data, reg: { ...reg, municipal_no: raw.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `✅ رقم الرخصة: *${raw.slice(0, 40)}*\n\n📅 متى *تاريخ إصدارها*؟ (مثال: 2025-03-15)`);
 }
-// بعد المستندات: مطعم؟ → شهادات صحية · غير ذلك → المراجعة
+async function handleRegMunicipalDate(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const r = readDocDate(b);
+  if (r.err) return send(phone, rid, null, 'text', DOC_DATE_HINT);
+  saveSession(phone, 'reg_cr', { ...session.data, reg: { ...session.data.reg, municipal_issued_at: r.date } });
+  return send(phone, rid, null, 'text', '📄 *السجل التجاري*\n\nاكتب *رقم السجل التجاري*');
+}
+// 📄 السجل التجاري: رقم + تاريخ إصدار
+async function handleRegCR(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const reg = { ...(session.data.reg || {}) };
+  const raw = String(b || '').trim();
+  if (DOC_SKIP.test(raw)) return sendRegReview(phone, rid, { ...session.data, reg });
+  if (!DOC_NO_OK(raw)) return send(phone, rid, null, 'text', 'اكتب *رقم السجل التجاري* 🙏 (أو *تخطى*)');
+  saveSession(phone, 'reg_crdate', { ...session.data, reg: { ...reg, cr_no: raw.slice(0, 40) } });
+  return send(phone, rid, null, 'text', `✅ رقم السجل: *${raw.slice(0, 40)}*\n\n📅 متى *تاريخ إصداره*؟ (مثال: 2025-03-15)`);
+}
+async function handleRegCRDate(phone, rid, session, b) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const r = readDocDate(b);
+  if (r.err) return send(phone, rid, null, 'text', DOC_DATE_HINT);
+  return afterRegDocs(phone, rid, { ...session.data, reg: { ...session.data.reg, cr_issued_at: r.date } });
+}
+// بعد بيانات المستندات: إلى المراجعة مباشرة (أُزيلت خطوة الشهادات الصحية من طلب التسجيل)
 function afterRegDocs(phone, rid, data) {
-  const reg = data.reg || {};
-  if (isRestaurantType(reg.type_id)) {
-    saveSession(phone, 'reg_health', data);
-    return send(phone, rid, null, 'text', '👨‍🍳 *الشهادات الصحية للعمال*\n\nكم *عدد العمال* عندك؟ (اكتب رقم)');
-  }
   return sendRegReview(phone, rid, data);
 }
 function isIndividual(reg) {
   return reg.entity_type === 'فرد' || /أسر منتجة|اسر منتجة|منزل/.test(String(reg.type_name || ''));
 }
-
-async function handleRegCR(phone, rid, session, b, mediaRef) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.cr_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF للسجل التجاري، أو اكتب *تخطى* 🙏');
-  if (isRestaurantType(reg.type_id)) {
-    saveSession(phone, 'reg_health', { ...session.data, reg });
-    return send(phone, rid, null, 'text', '👨‍🍳 *الشهادات الصحية للعمال*\n\nكم *عدد العمال* عندك؟ (اكتب رقم)');
-  }
-  return sendRegReview(phone, rid, { ...session.data, reg });
-}
-async function handleRegHealth(phone, rid, session, b) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const n = Number(String(b).replace(/[^\d]/g, ''));
-  if (!n || n < 1 || n > 200) return send(phone, rid, null, 'text', 'اكتب *عدد العمال* برقم (مثال: 4)');
-  saveSession(phone, 'reg_hdoc', { ...session.data, reg: { ...session.data.reg, health_count: n } });
-  return send(phone, rid, null, 'text', `👨‍🍳 عدد العمال: *${n}*\n\n📎 أرسل *صورة/PDF للشهادات الصحية*\n_(أو *تخطى*)_`);
-}
-async function handleRegHealthDoc(phone, rid, session, b, mediaRef) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const reg = { ...(session.data.reg || {}) };
   if (mediaRef) reg.health_docs = mediaRef;
   else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF للشهادات الصحية، أو اكتب *تخطى* 🙏');
   return sendRegReview(phone, rid, { ...session.data, reg });
@@ -1972,9 +1988,12 @@ function sendRegReview(phone, rid, data) {
     t += `\n\n🕐 الدوام: ${sh}`;
   }
   t += `\n🏷 الكيان: *${reg.entity_type || '-'}*`;
-  if (isIndividual(reg)) t += `\n📄 وثيقة العمل الحر: ${reg.freelance_no ? 'رقم ' + reg.freelance_no : '⚠️ بلا رقم'} ${reg.freelance_doc ? '— ✅ مرفقة' : '— ⚠️ غير مرفقة'}`;
-  else t += `\n🏛 رخصة البلدية: ${reg.municipal_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'} · 📄 السجل التجاري: ${reg.cr_doc ? '✅ مرفق' : '⚠️ غير مرفق'}`;
-  if (reg.health_count) t += `\n👨‍🍳 الشهادات الصحية: ${reg.health_count} عامل ${reg.health_docs ? '— ✅ مرفقة' : '— ⚠️ غير مرفقة'}`;
+  if (isIndividual(reg)) {
+    t += `\n📄 وثيقة العمل الحر: ${reg.freelance_no ? 'رقم ' + reg.freelance_no : '⚠️ بلا رقم'}${reg.freelance_issued_at ? ' · تاريخ الإصدار: ' + reg.freelance_issued_at : ''}`;
+  } else {
+    t += `\n🏛 رخصة البلدية: ${reg.municipal_no ? 'رقم ' + reg.municipal_no : '⚠️ بلا رقم'}${reg.municipal_issued_at ? ' · تاريخ الإصدار: ' + reg.municipal_issued_at : ''}`;
+    t += `\n📄 السجل التجاري: ${reg.cr_no ? 'رقم ' + reg.cr_no : '⚠️ بلا رقم'}${reg.cr_issued_at ? ' · تاريخ الإصدار: ' + reg.cr_issued_at : ''}`;
+  }
   t += '\n\nصحيحة كلها؟ اضغط *اعتماد وإرسال* وبيوصل طلبك للإدارة.';
   saveSession(phone, 'reg_review', data);
   return send(phone, rid, null, 'buttons', t.slice(0, 1000), { buttons: [
@@ -2030,12 +2049,15 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
     const reg = session.data.reg || {};
     const items = reg.items || [];
     const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status,
-        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, entity_type, freelance_no, freelance_doc, health_count, health_docs)
-      VALUES ('business', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, entity_type,
+        municipal_no, municipal_issued_at, cr_no, cr_issued_at, freelance_no, freelance_issued_at,
+        municipal_doc, cr_doc, freelance_doc, health_count, health_docs)
+      VALUES ('business', ?,?,?,?,?,?,?,?,?,?,?, 'pending_review', ?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?)`,
       phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null,
       reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1,
-      reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null,
-      reg.municipal_doc || null, reg.cr_doc || null, reg.entity_type || null, reg.freelance_no || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
+      reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null, reg.entity_type || null,
+      reg.municipal_no || null, reg.municipal_issued_at || null, reg.cr_no || null, reg.cr_issued_at || null, reg.freelance_no || null, reg.freelance_issued_at || null,
+      reg.municipal_doc || null, reg.cr_doc || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
     const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
     saveSession(phone, 'idle', { ...session.data, reg: null });
     const ok = await notifySupervisor(row);
