@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import axios from 'axios';
 import crypto from 'node:crypto';
 import config from '../config.js';
 import { q } from '../db.js';
@@ -11,7 +12,7 @@ import { validatePhone } from '../utils.js';
 import { transcribeVoice } from '../services/voice.js';
 import { readItemsFromImage } from '../services/vision.js';
 import { saveDeliveryPhoto } from '../services/delivery.js';
-import { waSend, rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
+import { waSend, waTo, rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
 
 const router = Router();
 
@@ -235,6 +236,40 @@ router.get('/voice-test', async (req, res) => {
     res.send(Buffer.from(audio));
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// 🧪 فحص الإرسال: يرسل رسالة اختبار إلى رقم المشرف ويرجع رد ميتا كما هو
+// (بلا مصادقة — لكنه يرسل لرقم المشرف فقط، مع مهلة ١٠ ثوانٍ بين الفحوص)
+let _selfTestAt = 0;
+router.get('/selftest', async (req, res) => {
+  const now = Date.now();
+  if (now - _selfTestAt < 10000) return res.status(429).json({ ok: false, error: 'انتظر ١٠ ثوانٍ بين كل فحص' });
+  _selfTestAt = now;
+  const to = waTo(config.adminPhone || '');
+  const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
+  const base = {
+    ok: false, provider,
+    to: to ? '••••' + to.slice(-4) : null,
+    adminPhoneSet: Boolean(to), tokenSet: Boolean(token), phoneNumberId: phoneNumberId || null
+  };
+  if (!to) return res.json({ ...base, error: 'ADMIN_PHONE غير مضبوط — اضبط رقم المشرف أولاً' });
+  if (!token) return res.json({ ...base, error: 'WHATSAPP_TOKEN غير معرّف' });
+  if (provider === 'simulator') return res.json({ ...base, error: 'المزود simulator — لا إرسال حقيقي' });
+  try {
+    const r = await axios.post(`${apiUrl}/${phoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body: '✅ فحص إرسال من منصة واتس هم — الإرسال يعمل' } },
+      { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 });
+    return res.json({ ...base, ok: true, meta: r.data, note: 'وصلت الرسالة لرقم المشرف ✅ — الإرسال سليم' });
+  } catch (e) {
+    const d = e.response?.data?.error || { message: e.message, code: e.response?.status || null };
+    const msg = String(d.message || '');
+    const hint = /access blocked|OAuthException/i.test(msg) ? 'حجب على مستوى الحساب/التطبيق عند ميتا — راجع تنبيهات التطبيق وحالة حساب واتساب' 
+      : /expired|Invalid OAuth|session has expired/i.test(msg) ? 'التوكن منتهي/غير صالح — أعد توليده من ميتا والصقه في الإعدادات'
+      : /not in allowed list|131030/i.test(msg) ? 'الرقم غير مضاف في قائمة أرقام الاختبار عند ميتا (التطبيق في وضع التطوير)'
+      : /24|re-engagement|131047/i.test(msg) ? 'انتهت نافذة ٢٤ ساعة — يحتاج العميل يراسلنا أول'
+      : null;
+    return res.json({ ...base, ok: false, meta: d, hint });
   }
 });
 
