@@ -37,6 +37,17 @@ try { db.exec("ALTER TABLE business_registrations ADD COLUMN postal_code TEXT");
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN owner_name TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN owner_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN deposit_paid INTEGER DEFAULT 0"); } catch {}
+// 🧾 المستندات بالنظام الجديد: رقم + تاريخ إصدار (بدون رفع ملفات)
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN municipal_no TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN municipal_issued_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN cr_no TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN cr_issued_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE business_registrations ADD COLUMN freelance_issued_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN municipal_no TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN municipal_issued_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN cr_no TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN cr_issued_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN freelance_issued_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurant_users ADD COLUMN national_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE report_recipients ADD COLUMN national_id TEXT"); } catch {}

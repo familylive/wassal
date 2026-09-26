@@ -86,12 +86,15 @@ export async function approveRegistration(id) {
     const subPaid = Number(reg.subscription_paid || 0) ? 1 : 0;
     const newRestId = nextRestaurantId();   // 🆔 الترقيم يبدأ من 1001
     q.run(`INSERT INTO restaurants (id, name_ar, phone, city, address, whatsapp_number, delivery_fee, min_order, avg_prep_time_min, is_active, business_type_id, subscription_paid, subscription_paid_at,
-        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, municipal_doc, cr_doc, entity_type, freelance_no, freelance_doc, health_count, health_docs)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, entity_type,
+        municipal_no, municipal_issued_at, cr_no, cr_issued_at, freelance_no, freelance_issued_at,
+        municipal_doc, cr_doc, freelance_doc, health_count, health_docs)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       newRestId, reg.business_name || 'نشاط جديد', phone, reg.city || null, addr, null,
       1000, 2000, 25, 1, reg.business_type_id || null, subPaid, subPaid ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null,
-      reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1, reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null,
-      reg.municipal_doc || null, reg.cr_doc || null, reg.entity_type || null, reg.freelance_no || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
+      reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1, reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null, reg.entity_type || null,
+      reg.municipal_no || null, reg.municipal_issued_at || null, reg.cr_no || null, reg.cr_issued_at || null, reg.freelance_no || null, reg.freelance_issued_at || null,
+      reg.municipal_doc || null, reg.cr_doc || null, reg.freelance_doc || null, reg.health_count || null, reg.health_docs || null);
     const rid = newRestId;
     let catId;
     const existingCat = q.get("SELECT id FROM categories WHERE restaurant_id=? AND name=?", rid, 'الأصناف');
