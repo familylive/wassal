@@ -629,8 +629,6 @@ function RegistrationsTab() {
           {r.kind === 'captain' && (
             <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
               🚗 {r.vehicle_type || '-'}{r.vehicle_color ? ` · 🎨 ${r.vehicle_color}` : ''}{r.vehicle_plate ? ` · 🔢 ${r.vehicle_plate}` : ''}
-              {' · '}🪪 {r.license_doc ? <a href={r.license_doc} target="_blank" rel="noreferrer">رخصة القيادة ✅</a> : 'رخصة قيادة ⚠️'}
-              {' · '}🧾 {r.criminal_doc ? <a href={r.criminal_doc} target="_blank" rel="noreferrer">خلو سوابق ✅</a> : 'خلو سوابق ⚠️'}
             </div>
           )}
         </div>

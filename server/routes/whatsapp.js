@@ -149,7 +149,7 @@ router.post('/webhook', async (req, res) => {
               // 📝 ما نحتاج ملفات في هذي الخطوات — الرقم وتاريخ الإصدار يكفيان
               await waSend({ phone, type: 'text', body: '📝 ما نحتاج صورة — اكتب *رقم المستند* أو *تاريخ إصداره* فقط 🙏' });
             } else if (REG_DOC_STATES[getSessionState(phone)]) {
-              // 📎 مستند تسجيل (رخصة بلدية · سجل تجاري · شهادات صحية · رخصة قيادة · خلو سوابق)
+              // 📎 مستند تسجيل (صور الهوية: المالك · الكاشير · المدير · الكابتن)
               const st = getSessionState(phone);
               const saved = mediaId ? await saveRegDoc(mediaId, REG_DOC_STATES[st]) : null;
               logHit('reg-doc', phone + ':' + (saved?.url || 'فشل'));
