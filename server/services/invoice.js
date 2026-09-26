@@ -368,7 +368,7 @@ export async function buildOrderInvoiceFiles(order) {
   const out = await renderOrderInvoicePng(order);
   if (!out) return null;
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  const base = `order-${String(order.order_no || order.id).replace(/[^\w-]/g, '')}-${order.id}`;
+  const base = `order-${String(order.order_no || order.id).replace(/[^\w-]/g, '')}-${order.id}-${(await import('node:crypto')).randomBytes(4).toString('hex')}`;
   const pngFile = path.join(OUT_DIR, `${base}.png`);
   const pdfFile = path.join(OUT_DIR, `${base}.pdf`);
   fs.writeFileSync(pngFile, out.png);

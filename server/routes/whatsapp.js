@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import config from '../config.js';
 import { q } from '../db.js';
 import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating, getSessionState } from '../services/flow.js';
@@ -72,7 +73,24 @@ router.get('/webhook', (req, res) => {
   return res.sendStatus(403);
 });
 
+// 🛡️ التحقق من توقيع ميتا (X-Hub-Signature-256) — يمنع إرسال رسائل مزيفة
+function metaSignatureOk(req) {
+  const secret = config.whatsapp.appSecret;
+  if (!secret) return { ok: true, skipped: true };
+  try {
+    const sig = String(req.get('x-hub-signature-256') || '');
+    if (!sig.startsWith('sha256=') || !req.rawBody) return { ok: false };
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
+    const a = Buffer.from(sig), b = Buffer.from(expected);
+    if (a.length !== b.length) return { ok: false };
+    return { ok: crypto.timingSafeEqual(a, b) };
+  } catch (e) { return { ok: false }; }
+}
+
 router.post('/webhook', async (req, res) => {
+  const sig = metaSignatureOk(req);
+  if (!sig.ok) { logHit('rejected-signature', req.ip); return res.status(401).send('invalid signature'); }
+  if (sig.skipped) logHit('no-app-secret', 'التحقق من التوقيع معطّل — أضف WHATSAPP_APP_SECRET');
   res.sendStatus(200); // أجب فوراً لتجنب إعادة الإرسال
   try {
     const entries = req.body?.entry || [];

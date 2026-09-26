@@ -11,7 +11,15 @@ import { applySettings } from './services/settings.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '2mb', verify: (req, res, buf) => { try { req.rawBody = buf; } catch (e) {} } }));
+
+// 🛡️ تحديد معدل الطلبات — قبل تركيب المسارات حتى يعمل فعلاً
+app.set('trust proxy', 1);   // وراء Render: نأخذ IP العميل الحقيقي
+const { loginLimiter, webhookLimiter, apiLimiter } = await import('./middleware/rateLimit.js');
+app.use('/api/auth/login', loginLimiter);
+app.use('/api/whatsapp/webhook', webhookLimiter);
+app.use('/api/dbadmin', apiLimiter);
+
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/sim', express.static(path.join(__dirname, 'public/sim')));
 app.use('/api', apiRouter);

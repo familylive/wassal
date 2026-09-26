@@ -1,5 +1,6 @@
 // ---------- صورة التسليم من الكابتن (شرط إغلاق الطلب) ----------
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { q } from '../db.js';
@@ -30,7 +31,7 @@ export async function saveDeliveryPhoto(captainPhone, mediaId) {
     if (media?.buffer?.length) {
       fs.mkdirSync(PHOTO_DIR, { recursive: true });
       const ext = String(media.mime || 'image/jpeg').includes('png') ? 'png' : 'jpg';
-      const base = `${order.order_no || 'order'}-${order.id}.${ext}`;
+      const base = `${(order.order_no || 'order').replace(/[^\w-]/g, '')}-${order.id}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
       fs.writeFileSync(path.join(PHOTO_DIR, base), media.buffer);
       file = base;
       url = `/uploads/deliveries/${base}`;

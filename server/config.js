@@ -11,7 +11,8 @@ export const config = {
     provider: process.env.WHATSAPP_PROVIDER || 'simulator', // simulator | cloud | 360dialog
     token: process.env.WHATSAPP_TOKEN || '',
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
-    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN || 'wassal-verify',
+    verifyToken: process.env.WHATSAPP_VERIFY_TOKEN,
+    appSecret: process.env.WHATSAPP_APP_SECRET || '',
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0'
   },
   voice: {

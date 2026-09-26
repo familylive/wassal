@@ -3,7 +3,7 @@ import config from '../config.js';
 import { q } from '../db.js';
 
 export function signToken(user) {
-  return jwt.sign(user, config.jwtSecret, { expiresIn: '30d' });
+  return jwt.sign(user, config.jwtSecret, { expiresIn: '7d' });
 }
 
 export function requireAuth(req, res, next) {

@@ -1,5 +1,6 @@
 // 📎 حفظ مستندات التسجيل (رخصة بلدية · سجل تجاري · شهادات صحية · رخصة قيادة · خلو سوابق)
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import config from '../config.js';
 
@@ -14,7 +15,7 @@ export async function saveRegDoc(mediaId, prefix = 'doc') {
     fs.mkdirSync(DOC_DIR, { recursive: true });
     const mime = String(media.mime || 'image/jpeg');
     const ext = mime.includes('pdf') ? 'pdf' : mime.includes('png') ? 'png' : 'jpg';
-    const base = `${String(prefix).replace(/[^\w-]/g, '').slice(0, 30)}-${Date.now()}.${ext}`;
+    const base = `${String(prefix).replace(/[^\w-]/g, '').slice(0, 30)}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
     fs.writeFileSync(path.join(DOC_DIR, base), media.buffer);
     return { file: base, url: `/uploads/docs/${base}`, ext, isPdf: ext === 'pdf' };
   } catch (e) { console.error('DOC_SAVE_FAIL', e.message); return null; }
