@@ -443,8 +443,9 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'cap_reqs': return handleCapReqs(phone, rid, session, b, p);
     case 'cap_color': return handleCapColor(phone, rid, session, b);
     case 'cap_plate': return handleCapPlate(phone, rid, session, b);
-    case 'cap_license': return handleCapLicense(phone, rid, session, b, mediaRef);
-    case 'cap_criminal': return handleCapCriminal(phone, rid, session, b, mediaRef);
+    // بقايا جلسات قديمة (قبل إزالة رخصة القيادة وخلو السوابق): نكملها من خطوة صورة الهوية
+    case 'cap_license': return handleCapIdDoc(phone, rid, session, b, mediaRef);
+    case 'cap_criminal': return handleCapIdDoc(phone, rid, session, b, mediaRef);
     case 'cap_name': return handleCapName(phone, rid, session, b);
     case 'cap_id': return handleCapId(phone, rid, session, b);
     case 'cap_city': return handleCapCity(phone, rid, session, b);
@@ -2068,7 +2069,7 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
 }
 
 // ---- تسجيل كابتن ----
-const CAP_REQS = `🛵 *انضمام كابتن توصيل — واتس هم*\n\n📋 *جهّز هذي الطلبات قبل ما تبدأ:*\n1️⃣ *اسمك* و*رقم هويتك* (١٠ أرقام)\n2️⃣ *مدينتك* والحي اللي تشتغل فيه\n3️⃣ *وسيلة النقل* ولون المركبة و*رقم اللوحة*\n4️⃣ صورة *رخصة القيادة* 🪪\n5️⃣ *شهادة خلو سوابق* — تُسحب من *أبشر* (صورة أو PDF)\n6️⃣ *تأمين الحساب* ٥٠٠ ر.س (يُحفظ رصيداً لك)\n\n⚠️ الطلب الناقص ما يُعتمد.\n\nجاهز؟ نبدأ خطوة خطوة 👇`;
+const CAP_REQS = `🛵 *انضمام كابتن توصيل — واتس هم*\n\n📋 *جهّز هذي الطلبات قبل ما تبدأ:*\n1️⃣ *اسمك* و*رقم هويتك* (١٠ أرقام)\n2️⃣ *مدينتك* والحي اللي تشتغل فيه\n3️⃣ *وسيلة النقل* ولون المركبة و*رقم اللوحة*\n4️⃣ *صورة هويتك* 🪪 (أو الإقامة)\n5️⃣ *تأمين الحساب* ٥٠٠ ر.س (يُحفظ رصيداً لك)\n\n⚠️ الطلب الناقص ما يُعتمد.\n\nجاهز؟ نبدأ خطوة خطوة 👇`;
 
 function startCaptainReg(phone, rid, session) {
   if (isCaptainPhone(phone)) return send(phone, rid, null, 'text', 'أنت مسجّل عندنا كابتن توصيل ✅ — بيجيك الطلبات هنا.');
@@ -2131,7 +2132,7 @@ async function handleCapVehicle(phone, rid, session, b, p) {
   return send(phone, rid, null, 'text', `🚗 وسيلة النقل: *${v}*\n\n🎨 وش *لون المركبة*؟`);
 }
 
-// 🎨 لون المركبة → 🪪 رقم اللوحة → 🪪 رخصة القيادة → 🧾 خلو السوابق → التأمين
+// 🎨 لون المركبة → 🔢 رقم اللوحة → 🪪 صورة الهوية → التعهد → التأمين
 function handleCapColor(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const c = String(b || '').trim();
@@ -2143,23 +2144,7 @@ function handleCapPlate(phone, rid, session, b) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const pl = String(b || '').trim();
   if (pl.length < 3) return send(phone, rid, null, 'text', 'اكتب رقم اللوحة 🔢 (مثال: أ ب ج 1234)');
-  saveSession(phone, 'cap_license', { ...session.data, reg: { ...session.data.reg, vehicle_plate: pl.slice(0, 30) } });
-  return send(phone, rid, null, 'text', '🪪 *رخصة القيادة*\n\n📎 أرسل *صورة* الرخصه\n_(أو اكتب *تخطى*)_');
-}
-async function handleCapLicense(phone, rid, session, b, mediaRef) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.license_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة رخصة القيادة، أو اكتب *تخطى* 🙏');
-  saveSession(phone, 'cap_criminal', { ...session.data, reg });
-  return send(phone, rid, null, 'text', '🧾 *شهادة خلو السوابق*\n\nتسحبها من *أبشر* ثم 📎 أرسلها هنا (صورة أو PDF)\n\n_طريقة السحب: أبشر → خدماتي → الأمن العام → شهادة خلو سوابق → تحميل PDF_\n_(أو اكتب *تخطى*)_');
-}
-async function handleCapCriminal(phone, rid, session, b, mediaRef) {
-  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
-  const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.criminal_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل شهادة خلو السوابق من أبشر، أو اكتب *تخطى* 🙏');
-  saveSession(phone, 'cap_iddoc', { ...session.data, reg });
+  saveSession(phone, 'cap_iddoc', { ...session.data, reg: { ...session.data.reg, vehicle_plate: pl.slice(0, 30) } });
   return send(phone, rid, null, 'text', '🪪 *صورة هويتك الوطنية* (أو الإقامة)\n\n📎 أرسل صورة واضحة\n_(أو اكتب *تخطى*)_');
 }
 async function handleCapIdDoc(phone, rid, session, b, mediaRef) {

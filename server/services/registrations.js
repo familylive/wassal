@@ -28,7 +28,6 @@ export async function notifySupervisor(reg) {
   if (isCap) {
     txt += `👤 الاسم: *${reg.business_name || reg.owner_name || '-'}*\n🔢 الهوية: ${reg.owner_id || reg.national_id || '⚠️ غير مسجّلة'}\n🏙 المدينة: ${reg.city || '-'}${reg.district ? ' — ' + reg.district : ''}\n`
       + `🚗 المركبة: ${reg.vehicle_type || '-'}${reg.vehicle_color ? ' · 🎨 ' + reg.vehicle_color : ''}${reg.vehicle_plate ? ' · 🔢 ' + reg.vehicle_plate : ''}\n`
-      + `🪪 رخصة القيادة: ${reg.license_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'}\n🧾 خلو السوابق: ${reg.criminal_doc ? '✅ مرفقة' : '⚠️ غير مرفقة'}\n`
       + `💰 التأمين (٥٠٠ ر.س): ${Number(reg.deposit_paid || 0) ? '✅ مدفوع' : '⏳ غير مدفوع'}${reg.note ? ` (${reg.note})` : ''}\n📱 الجوال: ${reg.phone}\n`;
   } else {
     const items = safeItems(reg.items_json);
