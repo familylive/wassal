@@ -1453,6 +1453,31 @@ async function startDeliveryBidding(phone, rid, customer, data) {
 }
 
 // انتهت نافذة التسعير → نعرض العروض على العميل
+// 🧹 استئناف إغلاق المزايدات التي ضاع مؤقّتها
+// نافذة التسعير (٩٠ ثانية) تُغلق بـsetTimeout في الذاكرة، فإذا أُعيد تشغيل السيرفر
+// (نشر جديد · نوم الخدمة · انقطاع) يضيع المؤقّت ويبقى الطلب معلّقًا بلا إغلاق.
+// هذا الفحص يلتقطها ويستأنف ما كان المؤقّت سيفعله: إعادة البث حتى ٤ محاولات ثم تبليغ الإدارة.
+export async function sweepStaleBiddings() {
+  try {
+    const rows = q.all(`SELECT o.id FROM orders o
+        WHERE o.chosen_captain_id IS NULL
+          AND o.status IN ('new','confirmed','preparing','ready','offered')
+          AND o.bid_until IS NOT NULL
+          AND o.bid_until <= datetime('now','-30 seconds')
+          AND NOT EXISTS (SELECT 1 FROM captain_offers co WHERE co.order_id=o.id AND co.bid_amount IS NOT NULL)
+        ORDER BY o.id LIMIT 50`);
+    for (const r of rows) {
+      try { await closeBidding(r.id); }
+      catch (e) { console.error('BID_SWEEP_CLOSE_FAIL', r.id, e.message); }
+    }
+    if (rows.length) console.log('BID_SWEEP_CLOSED', rows.length);
+    return rows.length;
+  } catch (e) {
+    console.error('BID_SWEEP_FAIL', e.message);
+    return 0;
+  }
+}
+
 export async function closeBidding(orderId) {
   const order = q.get("SELECT * FROM orders WHERE id=?", orderId);
   if (!order || order.chosen_captain_id) return;

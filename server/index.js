@@ -95,6 +95,12 @@ import('./services/backup.js').then(({ restoreUploadsIfNeeded, scheduleUploadsBa
   scheduleWeeklySnapshot();   // 📦 النسخة الأسبوعية الكاملة (كل جمعة 12 منتصف الليل)
 }).catch(e => console.error('UPLOADS_BACKUP_INIT_FAIL', e.message));
 
+// 🧹 استئناف إغلاق المزايدات المعلّقة (مؤقّت التسعير يُفقد عند إعادة التشغيل) — فحص كل دقيقة
+import('./services/flow.js').then(({ sweepStaleBiddings }) => {
+  setInterval(() => sweepStaleBiddings().catch(() => {}), 60 * 1000);
+  setTimeout(() => sweepStaleBiddings().catch(() => {}), 15000);
+}).catch(e => console.error('BID_SWEEP_INIT_FAIL', e.message));
+
 // 🏠 الطلبات المسبقة (الأسر المنتجة): بث المستحق منها للكباتن
 import('./services/orderService.js').then(({ dispatchDuePreorders }) => {
   setInterval(() => dispatchDuePreorders().catch(e => console.error('PREORDER_LOOP_FAIL', e.message)), 5 * 60 * 1000);
