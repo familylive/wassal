@@ -47,6 +47,7 @@ export async function notifySupervisor(reg) {
     if (sample) txt += sample + (items.length > 8 ? `\n… و${items.length - 8} أصناف أخرى` : '');
   }
   txt += '\n\nهل تعتمد التسجيل؟';
+  txt = txt.replace(/\n{3,}/g, '\n\n');       // سطران فارغان كحد أقصى — بعض المزودين يرفض الفراغات الزائدة
   const pre = isCap ? 'cap' : 'biz';
   try {
     const sent = await waSend({ phone: to, type: 'buttons', body: txt, buttons: [
