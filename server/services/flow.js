@@ -2497,10 +2497,20 @@ const HOUR_OPTIONS = [
   { id: 'rhour:21:00', title: '🕘 ٩:٠٠ مساءً' },
   { id: 'rhour:00:00', title: '🕛 ١٢:٠٠ منتصف الليل' }
 ];
-function askReportHour(phone, rid, extra = '', current = null) {
+// 🕐 وقت إغلاق النشاط (نقترحه كوقت للتقرير حتى يكون المجموع ختامياً)
+function closeHourOf(restaurantId) {
+  const r = restaurantId ? q.get("SELECT close_hour, s1_to, s2_to, shifts FROM restaurants WHERE id=?", restaurantId) : null;
+  const h = String((Number(r?.shifts) === 2 ? r?.s2_to : r?.close_hour) || '').slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(h) ? h : null;
+}
+function askReportHour(phone, rid, extra = '', current = null, restaurantId = null) {
+  const closeH = closeHourOf(restaurantId);
+  const opts = closeH
+    ? [{ id: 'rhour:' + closeH, title: `🕐 الإغلاق ${prettyHour(closeH)}` }, ...HOUR_OPTIONS].slice(0, 3)
+    : HOUR_OPTIONS;
   return send(phone, rid, null, 'buttons',
     `⏰ *وقت التقرير اليومي*\n\n${extra ? extra + '\n\n' : ''}أي ساعة تبيه يوصلك؟${current ? `\n(الحالي: *${prettyHour(current)}*)` : ''}\n_(أو اكتب الوقت: 10:30 · 9 مساءً · 7 صباحاً)_`,
-    { buttons: HOUR_OPTIONS });
+    { buttons: opts });
 }
 
 // 🏪 انضمام مدير النشاط: اسمه → هويته → رقم النشاط (أو اسمه) → يتربط ويروح للاعتماد
@@ -2552,7 +2562,7 @@ async function handleMgrBiz(phone, rid, session, b, p) {
     return send(phone, rid, null, 'list', 'الأنشطة المسجّلة', { list: [{ title: 'الأنشطة المسجّلة', rows: rests.map(r => ({ id: 'mgrbiz:' + r.id, title: `#${r.id} ${String(r.name_ar).slice(0, 20)}`, description: String(r.city || '').slice(0, 60) })) }] });
   }
   saveSession(phone, 'mgr_hour', { ...session.data, mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } });
-  return askReportHour(phone, rid, `🏪 *${rest.name_ar}* (#${rest.id}) ✅`);
+  return askReportHour(phone, rid, `🏪 *${rest.name_ar}* (#${rest.id}) ✅`, null, rest.id);
 }
 async function handleMgrHour(phone, rid, session, b, p) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -2635,7 +2645,7 @@ async function handleRepPhone(phone, rid, session, b) {
   saveSession(phone, 'idle', { ...data, rep: null });
   saveSession(phone, 'rep_hour', { ...data, rep: { ...rep, phone: norm } });
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", rep.restaurant_id);
-  return askReportHour(phone, rid, `👤 *${rep.name || ''}* · 📱 ${norm}\n🏪 ${rest?.name_ar || ''}`);
+  return askReportHour(phone, rid, `👤 *${rep.name || ''}* · 📱 ${norm}\n🏪 ${rest?.name_ar || ''}`, null, rest?.id);
 }
 // ⏰ اختيار وقت التقرير عند إضافة المدير من صاحب النشاط
 async function handleRepHour(phone, rid, session, b, p) {
@@ -2658,14 +2668,14 @@ function startChangeReportHour(phone, rid) {
   if (rec && rec.status === 'approved') {
     saveSession(phone, 'hour_change', { hourTarget: rec.id });
     const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", rec.restaurant_id);
-    return askReportHour(phone, rid, `🏪 ${r?.name_ar || ''}`, rec.report_hour);
+    return askReportHour(phone, rid, `🏪 ${r?.name_ar || ''}`, rec.report_hour, rec.restaurant_id);
   }
   if (rrid) {
     const rows = q.all("SELECT * FROM report_recipients WHERE restaurant_id=? AND status='approved' ORDER BY id", rrid);
     if (!rows.length) return send(phone, rid, null, 'text', '🔔 ما فيه مستلم تقرير معتمد بعد ⏰\nأضف مدير النشاط بكتابة *مدير*، أول خطوة نحدد معك وقت التقرير.\nوللعلم: تقرير الإدارة المجمّع يوصل يومياً بوقته المحدد ✅');
     if (rows.length === 1) {
       saveSession(phone, 'hour_change', { hourTarget: rows[0].id });
-      return askReportHour(phone, rid, `👤 ${rows[0].name || ''} · 🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid)?.name_ar || ''}`, rows[0].report_hour);
+      return askReportHour(phone, rid, `👤 ${rows[0].name || ''} · 🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", rrid)?.name_ar || ''}`, rows[0].report_hour, rrid);
     }
     saveSession(phone, 'hour_pick', { hourRows: rows.map(r => r.id) });
     send(phone, rid, null, 'text', '🔔 وقت تقرير مين؟ اختر:');
@@ -2682,7 +2692,7 @@ function handleHourPick(phone, rid, session, b, p) {
   const row = q.get("SELECT * FROM report_recipients WHERE id=?", id);
   if (!row) return send(phone, rid, null, 'text', 'اختر من القائمة 👇');
   saveSession(phone, 'hour_change', { hourTarget: row.id });
-  return askReportHour(phone, rid, `👤 ${row.name || ''}`, row.report_hour);
+  return askReportHour(phone, rid, `👤 ${row.name || ''}`, row.report_hour, row.restaurant_id);
 }
 function handleHourChange(phone, rid, session, b, p) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -2816,7 +2826,7 @@ async function handleCashPhone(phone, rid, session, b) {
   const cash = { ...(session.data.cash || {}) };
   const norm = validatePhone(digits);
   saveSession(phone, 'cash_hour', { ...session.data, cash: { ...cash, phone: norm } });
-  return askReportHour(phone, rid, `🧾 *${cash.name || 'الكاشير'}* · 📱 ${norm}\n_(تقرير *المبالغ* لتسليم نهاية اليوم)_`);
+  return askReportHour(phone, rid, `🧾 *${cash.name || 'الكاشير'}* · 📱 ${norm}\n_(تقرير *المبالغ* لتسليم نهاية اليوم)_`, null, cash.restaurant_id);
   const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", cash.restaurant_id);
   // ترحيب الكاشير على واتسابه
