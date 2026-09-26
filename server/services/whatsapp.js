@@ -40,6 +40,32 @@ async function sendCloud({ phone, type, body, buttons, list, image, document }) 
   return r.data;
 }
 
+// 📨 تليجرام: نفس أشكال الرسائل (نص · أزرار · قوائم · صورة · ملف)
+async function sendTelegram({ phone, type, body, buttons, list, image, document }) {
+  const { token } = config.telegram;
+  if (!token) throw new Error('TELEGRAM_BOT_TOKEN غير معرّف');
+  const raw = String(phone || '');
+  const norm = raw.startsWith('+') ? raw : (raw.length > 10 ? '+' + raw : '+966' + raw.replace(/^0/, ''));
+  const row = q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=? OR phone=? ORDER BY updated_at DESC LIMIT 1", raw, norm, raw.replace(/^\+/, ''))
+    || q.get("SELECT chat_id FROM telegram_links WHERE phone LIKE ? ORDER BY updated_at DESC LIMIT 1", '%' + raw.slice(-9));
+  if (!row?.chat_id) throw new Error('لا توجد محادثة تليجرام مرتبطة بهذا الرقم');
+  const chat_id = row.chat_id;
+  const api = (m) => `https://api.telegram.org/bot${token}/${m}`;
+  const post = async (m, payload) => (await axios.post(api(m), { chat_id, ...payload }, { timeout: 20000 })).data;
+
+  let keyboard = null;
+  if (type === 'buttons' && Array.isArray(buttons) && buttons.length) {
+    keyboard = { inline_keyboard: buttons.slice(0, 10).map(b => [{ text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60) }]) };
+  } else if (type === 'list' && Array.isArray(list) && list.length) {
+    const rows = [];
+    for (const sec of list) for (const r of (sec.rows || [])) rows.push([{ text: String(r.title || '').slice(0, 60), callback_data: String(r.id || '').slice(0, 60) }]);
+    if (rows.length) keyboard = { inline_keyboard: rows.slice(0, 30) };
+  }
+  if (type === 'image' && image) return post('sendPhoto', { photo: image, caption: String(body || '').slice(0, 1000) });
+  if (type === 'document' && (document?.link || image)) return post('sendDocument', { document: document?.link || image, caption: String(body || '').slice(0, 1000) });
+  return post('sendMessage', { text: (String(body || '').trim() || '—').slice(0, 4000), ...(keyboard ? { reply_markup: keyboard } : {}) });
+}
+
 // LetsBot: WhatsApp Web API (formdata) — https://letsbot.net/api/v1
 async function sendLetsBot({ phone, type, body, buttons, list, image }) {
   const { token, apiUrl } = config.whatsapp;
@@ -113,9 +139,10 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
   const oid = orderId && q.get("SELECT id FROM orders WHERE id=?", orderId) ? orderId : null;   // طلب محذوف؟ لا نكسر السجل
   q.run("INSERT INTO conversations (order_id, phone, restaurant_id, participant_type, direction, channel, message_type, body, payload_json) VALUES (?,?,?,?,?,?,?,?,?)",
     oid, phone || null, resolveRestaurantId(phone, restaurantId), participant, 'out', channel || (config.whatsapp.provider === 'simulator' ? 'simulator' : 'whatsapp'), type, body, payload);
-  if (['cloud', '360dialog', 'letsbot'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
+  if (['cloud', '360dialog', 'letsbot', 'telegram'].includes(config.whatsapp.provider) && channel !== 'simulator-only') {
     try {
-      if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
+      if (config.whatsapp.provider === 'telegram') await sendTelegram({ phone, type, body, buttons, list, image, document });
+      else if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
       else await sendCloud({ phone, type, body, buttons, list, image, document });
       console.log('WA_SEND_OK', type, phone);
       // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)

@@ -446,6 +446,16 @@ CREATE TABLE IF NOT EXISTS business_registrations (
 );
 
 -- 📜 التعهدات وأرقام التفعيل (عميل · مالك · مدير · كاشير · كابتن)
+-- 🔗 ربط محادثة تليجرام (chat_id) برقم جوال المستخدم — حتى تعمل كل التدفقات بلا تعديل
+CREATE TABLE IF NOT EXISTS telegram_links (
+  chat_id TEXT PRIMARY KEY,
+  phone TEXT,
+  username TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_links_phone ON telegram_links(phone);
+
 CREATE TABLE IF NOT EXISTS agreements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
