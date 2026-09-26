@@ -240,7 +240,7 @@ function buildSnapshotArchive(tag) {
   // ١) الكود (بدون node_modules و uploads و قاعدة البيانات)
   execSync(`mkdir -p ${work}/١-الكود && tar czf ${work}/١-الكود/wassal-code.tar.gz --exclude='*/node_modules' --exclude='*/.git' --exclude='*/uploads' --exclude='*/dist' --exclude='*.db' --exclude='*.db-shm' --exclude='*.db-wal' --exclude='snapshot-tmp' --exclude='*.tar.gz' --exclude='*.zip' -C ${root} .`, { stdio: 'ignore' });
   // ٢) قاعدة البيانات
-  try { q.exec?.('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
+  try { sigDb().exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) {}
   try { fs.mkdirSync(`${work}/٢-قاعدة-البيانات`, { recursive: true }); fs.copyFileSync(config.dbPath, `${work}/٢-قاعدة-البيانات/wassal-db.db`); } catch (e) { console.error('SNAP_DB_FAIL', e.message); }
   // ٣) الملفات المرفوعة
   try {

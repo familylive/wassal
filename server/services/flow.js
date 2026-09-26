@@ -1,6 +1,6 @@
 import { q } from '../db.js';
 import { waSend, waLogIn } from './whatsapp.js';
-import { createOrder } from './orderService.js';
+import { createOrder, setStatus } from './orderService.js';
 import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
@@ -2817,6 +2817,7 @@ async function handleCashHour(phone, rid, session, b, p) {
 
 async function finishCashierAdd(phone, rid, session, cash) {
   saveSession(phone, 'idle', { ...session.data, cash: null });
+  const hour = cash.hour;            // ← كان متغيّراً محلياً في الدالة القديمة
   const norm = cash.phone;
   const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
   // 🆔 حفظ هوية الكاشير بالرقم + تاريخ الميلاد (بدون صورة)
