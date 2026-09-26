@@ -66,9 +66,10 @@ export async function approveRegistration(id) {
     const pass = String(reg.phone || '').slice(-6) || '123456';
     if (!cap) {
       const paidDeposit = Number(reg.deposit_paid || 0) ? 1 : 0;
-      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, password_hash, status, deposit_paid, blocked, blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      const r = q.run("INSERT INTO captains (name, phone, city, district, national_id, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, id_doc, id_doc_back, password_hash, status, deposit_paid, blocked, blocked_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         reg.business_name || reg.owner_name || 'كابتن', phone, reg.city || null, reg.district || null, reg.owner_id || reg.national_id || null, reg.vehicle_type || 'دراجة',
         reg.vehicle_plate || null, reg.vehicle_color || null, reg.license_doc || null, reg.criminal_doc || null,
+        reg.id_doc || null, reg.id_doc_back || null,
         bcrypt.hashSync(pass, 10), 'offline', paidDeposit, paidDeposit ? 0 : 1, paidDeposit ? null : 'بانتظار تأمين الحساب (٥٠٠ ر.س)');
       cap = { id: Number(r.lastInsertRowid) };
     }
@@ -106,8 +107,8 @@ export async function approveRegistration(id) {
     }
     const u = q.get("SELECT id FROM restaurant_users WHERE restaurant_id=? AND phone=?", rid, phone);
     if (!u) {
-      q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, national_id, password_hash, role) VALUES (?,?,?,?,?,?)",
-        rid, 'صاحب النشاط (المالك)', phone, reg.owner_id || null, bcrypt.hashSync(pass, 10), 'owner');
+      q.run("INSERT INTO restaurant_users (restaurant_id, name, phone, national_id, id_doc, id_doc_back, password_hash, role) VALUES (?,?,?,?,?,?,?,?)",
+        rid, 'صاحب النشاط (المالك)', phone, reg.owner_id || null, reg.id_doc || null, reg.id_doc_back || null, bcrypt.hashSync(pass, 10), 'owner');
     }
     q.run("UPDATE business_registrations SET status='approved', restaurant_id=?, updated_at=datetime('now') WHERE id=?", rid, id);
     return rid;

@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS restaurant_users (
   role TEXT DEFAULT 'owner',
   national_id TEXT,
   id_doc TEXT,
+  id_doc_back TEXT,
   birth_date TEXT,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now'))
@@ -163,6 +164,7 @@ CREATE TABLE IF NOT EXISTS captains (
   license_doc TEXT,
   criminal_doc TEXT,
   id_doc TEXT,
+  id_doc_back TEXT,
   city TEXT,
   district TEXT,
   national_id TEXT,
@@ -452,6 +454,7 @@ CREATE TABLE IF NOT EXISTS agreements (
   national_id TEXT,
   birth_date TEXT,
   doc TEXT,
+  doc_back TEXT,
   restaurant_id INTEGER,
   code TEXT,
   accepted_at TEXT DEFAULT (datetime('now')),

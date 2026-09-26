@@ -78,6 +78,10 @@ for (const [t, c, ty] of [
   ['customers', 'national_id', 'TEXT'], ['customers', 'birth_date', 'TEXT'], ['customers', 'activation_code', 'TEXT'], ['customers', 'pledged_at', 'TEXT'],
   ['captains', 'id_doc', 'TEXT'], ['restaurant_users', 'id_doc', 'TEXT'], ['restaurant_users', 'birth_date', 'TEXT'], ['business_registrations', 'id_doc', 'TEXT'],
   ['report_recipients', 'birth_date', 'TEXT'], ['report_recipients', 'id_doc', 'TEXT'],
+  // 🪪 الوجه الخلفي للهوية (وصولاً لكل الأدوار)
+  ['restaurant_users', 'id_doc_back', 'TEXT'], ['captains', 'id_doc_back', 'TEXT'],
+  ['report_recipients', 'id_doc_back', 'TEXT'], ['business_registrations', 'id_doc_back', 'TEXT'],
+  ['agreements', 'doc_back', 'TEXT'],
   ['restaurants', 'open_hour', 'TEXT'], ['restaurants', 'close_hour', 'TEXT'], ['restaurants', 'shifts', 'INTEGER'],
   ['restaurants', 's1_from', 'TEXT'], ['restaurants', 's1_to', 'TEXT'], ['restaurants', 's2_from', 'TEXT'], ['restaurants', 's2_to', 'TEXT'],
   ['restaurants', 'municipal_doc', 'TEXT'], ['restaurants', 'entity_type', 'TEXT'], ['restaurants', 'freelance_no', 'TEXT'], ['restaurants', 'freelance_doc', 'TEXT'],
