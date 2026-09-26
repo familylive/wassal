@@ -439,6 +439,8 @@ CREATE TABLE IF NOT EXISTS business_registrations (
   note TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+  lat REAL,
+  lng REAL,
 );
 
 -- 📜 التعهدات وأرقام التفعيل (عميل · مالك · مدير · كاشير · كابتن)

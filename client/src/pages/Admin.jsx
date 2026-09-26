@@ -620,6 +620,11 @@ function RegistrationsTab() {
           {r.kind === 'business' && (
             <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
               🏷 {r.entity_type || '—'} · 🕐 {r.shifts === 2 ? `فترتان: ${hh(r.s1_from)}–${hh(r.s1_to)} · ${hh(r.s2_from)}–${hh(r.s2_to)}` : (r.s1_from || r.close_hour ? `فترة: ${hh(r.s1_from)}–${hh(r.close_hour)}` : 'دوام غير محدد')}
+              <div style={{ fontSize: 12.5, color: 'var(--mut)' }}>
+                📍 {r.lat != null && r.lng != null
+                  ? `${Number(r.lat).toFixed(4)}, ${Number(r.lng).toFixed(4)}`
+                  : <span style={{ color: 'var(--red)' }}>بلا إحداثيات ⚠️ — لن يظهر للعملاء حتى تُحدَّد</span>}
+              </div>
               {(r.entity_type === 'فرد')
                 ? <>{' · '}📄 {r.freelance_no ? `وثيقة العمل الحر ${r.freelance_no}` : 'وثيقة ⚠️'}{r.freelance_issued_at ? ` · 📅 إصدار ${r.freelance_issued_at}` : ''}</>
                 : <>{' · '}🏛 {r.municipal_no ? `رخصة ${r.municipal_no}` : 'رخصة ⚠️'}{r.municipal_issued_at ? ` · 📅 ${r.municipal_issued_at}` : ''}
