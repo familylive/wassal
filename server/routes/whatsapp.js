@@ -11,7 +11,7 @@ import { validatePhone } from '../utils.js';
 import { transcribeVoice } from '../services/voice.js';
 import { readItemsFromImage } from '../services/vision.js';
 import { saveDeliveryPhoto } from '../services/delivery.js';
-import { rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
+import { waSend, rememberPhoneRestaurant, restaurantForPhone } from '../services/whatsapp.js';
 
 const router = Router();
 
