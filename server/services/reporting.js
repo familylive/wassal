@@ -32,19 +32,43 @@ export function prettyDate(dateStr) {
 
 const METHOD_LABEL = { cash: '💵 كاش', mada: '💳 مدى', card: '💳 بطاقة', applepay: '🍎 Apple Pay' };
 
-// ملخص مبيعات يوم كامل لنشاط
-export function dailyStats(restaurantId, dateStr) {
-  const day = { restaurantId, dateStr };
-  const where = "restaurant_id=? AND date(created_at)=?";
-  const orders = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where}`, restaurantId, dateStr).c);
-  const delivered = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='delivered'`, restaurantId, dateStr).c);
-  const cancelled = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='cancelled'`, restaurantId, dateStr).c);
+// 🗓 مدى التقرير: يومي · أسبوعي · شهري · سنوي (بتوقيت الرياض)
+const pad2 = (n) => String(n).padStart(2, '0');
+export function reportRange(kind = 'day', today = localNow().date) {
+  const [y, m] = today.split('-').map(Number);
+  const firstOfMonth = `${y}-${pad2(m)}-01`;
+  const lastOfMonth = `${y}-${pad2(m)}-${pad2(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+  const lastOfPrevMonth = shiftDate(firstOfMonth, -1);
+  const firstOfPrevMonth = lastOfPrevMonth.slice(0, 8) + '01';
+  switch (kind) {
+    case 'yesterday': return { kind, from: shiftDate(today, -1), to: shiftDate(today, -1), label: 'أمس' };
+    case 'week':      return { kind, from: shiftDate(today, -6), to: today, label: 'آخر ٧ أيام' };
+    case 'lastweek':  return { kind, from: shiftDate(today, -13), to: shiftDate(today, -7), label: 'الأسبوع الماضي' };
+    case 'month':     return { kind, from: firstOfMonth, to: today, label: 'هذا الشهر' };
+    case 'lastmonth': return { kind, from: firstOfPrevMonth, to: lastOfPrevMonth, label: 'الشهر الماضي' };
+    case 'year':      return { kind, from: `${y}-01-01`, to: today, label: 'هذا العام' };
+    case 'lastyear':  return { kind, from: `${y - 1}-01-01`, to: `${y - 1}-12-31`, label: 'العام الماضي' };
+    default:          return { kind: 'day', from: today, to: today, label: 'اليوم' };
+  }
+}
+export function reportRangePeriod(range) {
+  return range.from === range.to ? prettyDate(range.to) : `من ${prettyDate(range.from)} إلى ${prettyDate(range.to)}`;
+}
+export const daysInRange = (r) => Math.round((Date.parse(r.to + 'T00:00:00Z') - Date.parse(r.from + 'T00:00:00Z')) / 86400000) + 1;
+
+// ملخص مبيعات نشاط خلال مدى (يوم أو أكثر)
+export function rangeStats(restaurantId, from, to) {
+  const where = "restaurant_id=? AND date(created_at) BETWEEN ? AND ?";
+  const w = [restaurantId, from, to];
+  const orders = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where}`, ...w).c);
+  const delivered = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='delivered'`, ...w).c);
+  const cancelled = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='cancelled'`, ...w).c);
   const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc, COALESCE(SUM(subtotal),0) sub
-    FROM orders WHERE ${where} AND status!='cancelled'`, restaurantId, dateStr);
+    FROM orders WHERE ${where} AND status!='cancelled'`, ...w);
   const byMethod = q.all(`SELECT payment_method m, COUNT(*) c, COALESCE(SUM(total),0) s
-    FROM orders WHERE ${where} AND status!='cancelled' GROUP BY payment_method ORDER BY s DESC`, restaurantId, dateStr);
+    FROM orders WHERE ${where} AND status!='cancelled' GROUP BY payment_method ORDER BY s DESC`, ...w);
   // الأكثر مبيعاً (من أصناف الطلبات غير الملغاة)
-  const rows = q.all(`SELECT items_json FROM orders WHERE ${where} AND status!='cancelled'`, restaurantId, dateStr);
+  const rows = q.all(`SELECT items_json FROM orders WHERE ${where} AND status!='cancelled'`, ...w);
   const tally = new Map();
   for (const r of rows) {
     let items = [];
@@ -63,7 +87,7 @@ export function dailyStats(restaurantId, dateStr) {
   }
   const top = [...tally.entries()].sort((a, b) => b[1].qty - a[1].qty).slice(0, 20).map(([name, v]) => ({ name, qty: v.qty, sales: v.sales }));
   return {
-    ...day,
+    restaurantId, from, to, dateStr: from === to ? from : `${from}..${to}`,
     orders, delivered, cancelled,
     salesCount: n(agg.c), salesTotal: n(agg.total), fees: n(agg.fee), discount: n(agg.disc), subtotal: n(agg.sub),
     methods: byMethod.map(x => ({ method: x.m || 'card', count: n(x.c), total: n(x.s) })),
@@ -71,18 +95,21 @@ export function dailyStats(restaurantId, dateStr) {
   };
 }
 
+// ملخص يوم واحد (نفس مدى من يوم واحد)
+export function dailyStats(restaurantId, dateStr) {
+  return { ...rangeStats(restaurantId, dateStr, dateStr), dateStr };
+}
+
 const isElectronic = (m) => m !== 'cash';
 
-// نص التقرير (جاهز للإرسال)
-export function buildDailyReport(restaurantId, dateStr) {
-  const r = q.get("SELECT r.*, (SELECT title FROM ads_campaigns a WHERE a.restaurant_id=r.id LIMIT 1) ad FROM restaurants r WHERE r.id=?", restaurantId);
-  if (!r) return null;
-  const s = dailyStats(restaurantId, dateStr);
+// نص التقرير (جاهز للإرسال) — يُستخدم لليوم وللمدى (أسبوعي · شهري · سنوي)
+function renderSalesReport(r, s, { title, period = '', emptyWord = 'هذا اليوم' }) {
   const bt = r.business_type_id ? q.get("SELECT icon FROM business_types WHERE id=?", r.business_type_id) : null;
-  let t = `📊 *تقرير مبيعات ${prettyDate(dateStr)}*\n${bt?.icon || '🏪'} *${r.name_ar}* (#${r.id})${r.city ? ' — ' + r.city : ''}\n`;
+  let t = `📊 *تقرير مبيعات ${title}*\n${bt?.icon || '🏪'} *${r.name_ar}* (#${r.id})${r.city ? ' — ' + r.city : ''}\n`;
+  if (period) t += `🗓 ${period}\n`;
   t += '━━━━━━━━━━━━━━━━\n';
   if (!s.orders) {
-    t += '📦 لا توجد طلبات في هذا اليوم.\n\n🙏 نتمنى لك يوماً موفقاً';
+    t += `📦 لا توجد طلبات في ${emptyWord}.\n\n🙏 نتمنى لك يوماً موفقاً`;
     return t;
   }
   t += `📦 الطلبات: *${s.orders}*\n`;
@@ -109,6 +136,22 @@ export function buildDailyReport(restaurantId, dateStr) {
   }
   t += '\n🙏 يعطيك العافية';
   return t;
+}
+
+export function buildDailyReport(restaurantId, dateStr) {
+  const r = q.get("SELECT r.*, (SELECT title FROM ads_campaigns a WHERE a.restaurant_id=r.id LIMIT 1) ad FROM restaurants r WHERE r.id=?", restaurantId);
+  if (!r) return null;
+  return renderSalesReport(r, dailyStats(restaurantId, dateStr), { title: prettyDate(dateStr) });
+}
+
+// 🗓 تقرير مبيعات نشاط لمدى (يومي · أسبوعي · شهري · سنوي)
+export function buildRangeReport(restaurantId, kind = 'day') {
+  const range = reportRange(kind);
+  const r = q.get("SELECT r.* FROM restaurants r WHERE r.id=?", restaurantId);
+  if (!r) return null;
+  return renderSalesReport(r, rangeStats(restaurantId, range.from, range.to), {
+    title: range.label, period: reportRangePeriod(range), emptyWord: 'هذه الفترة'
+  });
 }
 
 export async function sendReportTo(phone, restaurantId, dateStr) {
@@ -227,28 +270,35 @@ export async function rejectRecipient(id, note = '') {
 // ---------- 🏛 تقرير الإدارة المجمّع لكل العمليات ----------
 export const PLATFORM_SHARE_PERCENT = Number(process.env.PLATFORM_SHARE_PERCENT || 10);
 
-// مبيعات يوم واحد مجمّعة حسب نوع النشاط
-export function platformStats(dateStr) {
+// مبيعات مدى مجمّعة حسب نوع النشاط (يوم = مدى من يوم واحد)
+export function platformRangeStats(from, to) {
+  const w = [from, to];
   const rows = q.all(`SELECT COALESCE(b.id, 0) AS type_id, COALESCE(b.name_ar, 'غير مصنّف') AS type_name, COALESCE(b.icon, '🏬') AS icon,
       COUNT(*) AS orders, COALESCE(SUM(o.total),0) AS total
     FROM orders o
     LEFT JOIN restaurants r ON r.id = o.restaurant_id
     LEFT JOIN business_types b ON b.id = r.business_type_id
-    WHERE date(o.created_at)=? AND o.status!='cancelled'
-    GROUP BY type_id ORDER BY total DESC`, dateStr);
-  const all = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=?", dateStr);
-  const delivered = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status='delivered'", dateStr);
-  const cancelled = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status='cancelled'", dateStr);
+    WHERE date(o.created_at) BETWEEN ? AND ? AND o.status!='cancelled'
+    GROUP BY type_id ORDER BY total DESC`, ...w);
+  const all = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ?", ...w);
+  const delivered = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status='delivered'", ...w);
+  const cancelled = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status='cancelled'", ...w);
   const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc,
       COALESCE(SUM(CASE WHEN payment_method='cash' THEN total ELSE 0 END),0) cash,
       COALESCE(SUM(CASE WHEN payment_method!='cash' THEN total ELSE 0 END),0) net
-    FROM orders WHERE date(created_at)=? AND status!='cancelled'`, dateStr);
-  const pickup = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at)=? AND status!='cancelled' AND order_type='pickup'", dateStr);
-  const commissions = q.get("SELECT COALESCE(SUM(commission_business),0) cb, COALESCE(SUM(commission_captain),0) cc FROM orders WHERE date(created_at)=? AND status='delivered'", dateStr);
+    FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status!='cancelled'`, ...w);
+  const pickup = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status!='cancelled' AND order_type='pickup'", ...w);
+  const commissions = q.get("SELECT COALESCE(SUM(commission_business),0) cb, COALESCE(SUM(commission_captain),0) cc FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status='delivered'", ...w);
+  const topRestaurants = q.all(`SELECT o.restaurant_id id, COALESCE(r.name_ar,'—') name_ar, COUNT(*) orders, COALESCE(SUM(o.total),0) total
+    FROM orders o LEFT JOIN restaurants r ON r.id=o.restaurant_id
+    WHERE date(o.created_at) BETWEEN ? AND ? AND o.status!='cancelled'
+    GROUP BY o.restaurant_id ORDER BY total DESC LIMIT 5`, ...w);
   const types = rows.map(r => ({ ...r, orders: Number(r.orders) || 0, total: Number(r.total) || 0 }));
   const total = Number(agg.total) || 0;
   return {
-    dateStr, types,
+    from, to,
+    types: types.map(t => ({ ...t, orders: t.orders, total: t.total })),
+    topRestaurants: topRestaurants.map(r => ({ ...r, orders: Number(r.orders) || 0, total: Number(r.total) || 0 })),
     orders: Number(all.c) || 0,
     delivered: Number(delivered.c) || 0,
     cancelled: Number(cancelled.c) || 0,
@@ -263,6 +313,10 @@ export function platformStats(dateStr) {
   };
 }
 
+export function platformStats(dateStr) {
+  return { ...platformRangeStats(dateStr, dateStr), dateStr };
+}
+
 export function buildPlatformReport(dateStr) {
   const s = platformStats(dateStr);
   let t = `🏛 *تقرير الإدارة المجمّع*\n📅 ${prettyDate(dateStr)}\n━━━━━━━━━━━━━━━━\n`;
@@ -273,6 +327,38 @@ export function buildPlatformReport(dateStr) {
   t += '📊 *مبيعات الأنشطة*\n';
   for (const x of s.types) t += `${x.icon} ${x.type_name} — ${x.orders} طلب · *${money(x.total)}* ر.س\n`;
   if (!s.types.length) t += '_لا مبيعات_\n';
+  t += '━━━━━━━━━━━━━━━━\n';
+  t += `📦 إجمالي الطلبات: *${s.orders}*\n`;
+  t += `✅ مكتملة: ${s.delivered}`;
+  if (s.cancelled) t += ` · ❌ ملغاة: ${s.cancelled}`;
+  t += '\n';
+  if (s.pickup) t += `🏪 استلام من الفرع: ${s.pickup} طلب\n`;
+  t += `💳 شبكة: ${money(s.net)} ر.س · 💵 كاش: ${money(s.cash)} ر.س\n`;
+  t += `🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س\n`;
+  if (s.discount) t += `🏷 الخصومات: -${money(s.discount)} ر.س\n`;
+  if (s.fee) t += `🛵 رسوم التوصيل: ${money(s.fee)} ر.س\n`;
+  t += '━━━━━━━━━━━━━━━━\n';
+  t += `💰 *المجموع الختامي: ${money(s.total)} ر.س*\n`;
+  t += `🏛 *حصة المنصة: ${money(s.share)} ر.س*`;
+  return t;
+}
+
+// 🗓 تقرير الإدارة المجمّع لمدى (أسبوعي · شهري · سنوي)
+export function buildPlatformRangeReport(kind = 'day') {
+  const range = reportRange(kind);
+  const s = platformRangeStats(range.from, range.to);
+  let t = `🏛 *تقرير الإدارة المجمّع — ${range.label}*\n🗓 ${reportRangePeriod(range)} (${daysInRange(range)} يوم)\n━━━━━━━━━━━━━━━━\n`;
+  if (!s.salesCount && !s.orders) {
+    t += '📦 لا توجد عمليات في هذه الفترة.';
+    return t;
+  }
+  t += '📊 *مبيعات الأنشطة*\n';
+  for (const x of s.types) t += `${x.icon} ${x.type_name} — ${x.orders} طلب · *${money(x.total)}* ر.س\n`;
+  if (!s.types.length) t += '_لا مبيعات_\n';
+  if (s.topRestaurants?.length) {
+    t += '━━━━━━━━━━━━━━━━\n🏆 *أعلى الأنشطة*\n';
+    t += s.topRestaurants.map((x, i) => `${i + 1}. ${x.name_ar} — ${x.orders} طلب · *${money(x.total)}* ر.س`).join('\n') + '\n';
+  }
   t += '━━━━━━━━━━━━━━━━\n';
   t += `📦 إجمالي الطلبات: *${s.orders}*\n`;
   t += `✅ مكتملة: ${s.delivered}`;

@@ -5,7 +5,7 @@ import { createPayment, markPaid } from './payments.js';
 import { validatePhone, computeTier, TIERS, validNationalId } from '../utils.js';
 import { resolveDelivery, ensureDefaultBranch } from './branches.js';
 import { notifySupervisor, approveRegistration, rejectRegistration } from './registrations.js';
-import { addRecipient, notifySupervisorRecipient, notifyOwnerRecipient, notifyOwnerTeamInfo, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour } from './reporting.js';
+import { addRecipient, notifySupervisorRecipient, notifyOwnerRecipient, notifyOwnerTeamInfo, approveRecipient, rejectRecipient, findRecipientByPhone, buildDailyReport, parseReportHour, setRecipientHour, prettyHour, buildRangeReport, buildPlatformRangeReport, reportRange, sendPlatformReport } from './reporting.js';
 import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cashierPhone, addCashier, listUsers } from './restUsers.js';
 import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage, findPledge } from './pledge.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
@@ -323,9 +323,17 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     }
   }
 
-  // ===== مدير المطعم / تقرير المبيعات (لأصحاب الأنشطة ومستلمي التقارير) =====
-  if (/^تقرير\s+(أمس|امس|البارح)$/.test(bt)) return sendReportNow(phone, rid, true);
-  if (/^(تقرير|تقرير اليوم|تقرير مبيعات)$/.test(bt)) return sendReportNow(phone, rid, false);
+  // ===== 📊 التقارير: المشرف العام · أصحاب الأنشطة · مستلمو التقارير =====
+  // «تقرير» = اليوم · «تقرير يومي/أسبوعي/شهري/سنوي» · «تقرير الشهر الماضي» · «تقرير أمس»
+  {
+    const kind = reportKindFromText(bt);
+    if (kind) {
+      const sup = config.adminPhone && validatePhone(phone) === validatePhone(config.adminPhone);
+      if (sup) return sendSupervisorReport(phone, rid, kind);
+      if (kind === 'day' || kind === 'yesterday') return sendReportNow(phone, rid, kind === 'yesterday');
+      return sendReportRangeNow(phone, rid, kind);
+    }
+  }
   if (p === 'pad_all' || p === 'pad_city') { const sess = getSession(phone); return handlePlatformAdAudience(phone, rid, { ...session, data: sess.data || {} }, p); }
   if (p === 'ad_yes' || p === 'ad_no') { const sess = getSession(phone); return handleAdDecision(phone, rid, { ...session, data: { ...(sess.data || {}), adReqId: sess.data?.adReqId } }, p); }
   // 🚫 الكاشير: ممنوع من تسجيل نشاط/كابتن/إضافة مدير — الطلبات ومتابعتها فقط
@@ -2697,6 +2705,44 @@ async function sendReportNow(phone, rid, yesterday) {
   const { localNow, shiftDate } = await import('./reporting.js');
   const target = yesterday ? shiftDate(localNow().date, -1) : localNow().date;
   const txt = buildDailyReport(rrid, target);
+  return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
+}
+
+// 🔤 تحويل «تقرير أسبوعي/شهري/سنوي/الشهر الماضي» إلى نوع المدى
+function reportKindFromText(text) {
+  const t = String(text || '').trim()
+    .replace(/[أإآٱ]/g, 'ا').replace(/[ةه]/g, 'ه')
+    .replace(/[\u064B-\u0652\u0670]/g, '').replace(/\s+/g, ' ');
+  if (!/^تقرير(\s|$)/.test(t)) return null;
+  const rest = t.replace(/^تقرير\s*/, '').trim();
+  if (!rest || /^(اليوم|يومي|يوميه|مبيعات|مبيعاتي)$/.test(rest)) return 'day';
+  if (/^(امس|البارح|بارح)$/.test(rest)) return 'yesterday';
+  const past = /(ماضي|ماضيه|سابق|اللي فات)/.test(rest);
+  if (/(اسبوع|7 ايام|سبعه ايام)/.test(rest)) return past ? 'lastweek' : 'week';
+  if (/(شهر|شهري|30 يوم|ثلاثين يوم)/.test(rest)) return past ? 'lastmonth' : 'month';
+  if (/(سنه|سنوي|سنه كامله|عام|12 شهر)/.test(rest)) return past ? 'lastyear' : 'year';
+  return null;
+}
+
+// 🏛 تقرير المشرف العام على المنصة: يومي (نص + PDF) أو مدى (أسبوعي · شهري · سنوي)
+async function sendSupervisorReport(phone, rid, kind) {
+  const range = reportRange(kind);
+  if (kind === 'day' || kind === 'yesterday') {
+    const r = await sendPlatformReport(range.to, { force: true });
+    if (r && r.error) return send(phone, rid, null, 'text', '⚠️ ' + r.error);
+    return;
+  }
+  return send(phone, rid, null, 'text', buildPlatformRangeReport(kind));
+}
+
+// 🗓 تقرير مدى لنشاط (أسبوعي · شهري · سنوي) — لصاحب النشاط ومستلمي التقارير
+function sendReportRangeNow(phone, rid, kind) {
+  const rec = findRecipientByPhone(phone);
+  const rrid = ownerRestaurantId(phone) || (rec?.status === 'approved' ? rec.restaurant_id : null);
+  if (!rrid) {
+    return send(phone, rid, null, 'text', '📊 *تقارير المبيعات* 🌸\n\n• صاحب نشاط أو مدير؟ اكتب *انضمام* أو *انضمام مدير*\n• مشرف المنصة؟ اكتب *تقرير شهري*\n\n_(وبعد التسجيل: *تقرير* · *تقرير أسبوعي* · *تقرير شهري* · *تقرير سنوي*)_');
+  }
+  const txt = buildRangeReport(rrid, kind);
   return send(phone, rid, null, 'text', txt || 'ما قدرت أطلع التقرير الحين 🙏 جرّب بعد شوي');
 }
 
