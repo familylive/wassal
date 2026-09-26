@@ -878,7 +878,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -948,10 +948,16 @@ function SettingsTab() {
           <select value={f.WHATSAPP_PROVIDER} onChange={set('WHATSAPP_PROVIDER')}>
             <option value="simulator">simulator (محاكي — لا يرسل فعلياً)</option>
             <option value="cloud">cloud (واتساب الأعمال — Meta)</option>
+            <option value="360dialog">360dialog (مزود BSP)</option>
+            <option value="letsbot">letsbot</option>
+            <option value="telegram">telegram (قناة إضافية — بلا ميتا)</option>
           </select>
         </Fld>
         <Fld label="Phone Number ID">
           <input value={f.WHATSAPP_PHONE_NUMBER_ID} onChange={set('WHATSAPP_PHONE_NUMBER_ID')} placeholder="1328717473658833" />
+        </Fld>
+        <Fld label="توكن بوت تليجرام">
+          <input value={f.TELEGRAM_BOT_TOKEN || ''} onChange={set('TELEGRAM_BOT_TOKEN')} placeholder="123456:ABC-DEF..." style={{ direction: 'ltr' }} />
         </Fld>
         <Fld label="Verify Token">
           <input value={f.WHATSAPP_VERIFY_TOKEN} onChange={set('WHATSAPP_VERIFY_TOKEN')} placeholder="wassal-verify-2026" />
