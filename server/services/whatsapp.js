@@ -125,7 +125,13 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
         sendVoiceNote(phone, body).catch(() => {});
       }
     } catch (e) {
-      console.error('WA_SEND_FAIL', type, phone, e.message);
+      // 🔎 سبب رفض ميتا — يُسجَّل في webhook_log فيظهر عبر /api/whatsapp/debug
+      const detail = e?.response?.data ? JSON.stringify(e.response.data).slice(0, 500) : (e?.message || 'خطأ غير معروف');
+      console.error('WA_SEND_FAIL', type, phone, detail);
+      try {
+        q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('send-fail', ?, ?)",
+          `${type} → ••••${String(phone || '').slice(-4)}`, detail);
+      } catch (err) {}
       return false;                    // ← كان الخطأ يُبلع فيظنّ المستدعي أن الإرسال نجح
     }
   }
