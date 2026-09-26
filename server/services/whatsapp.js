@@ -3,11 +3,23 @@ import config from '../config.js';
 import { q } from '../db.js';
 
 // ---------- provider: Meta WhatsApp Cloud API ----------
+// 📞 توحيد رقم المستلم للصيغة الدولية: 05XXXXXXXX → 9665XXXXXXXX · +9665… → 9665… · 00966… → 966…
+export function waTo(phone) {
+  let s = String(phone || '')
+    .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))   // أرقام عربية
+    .replace(/[^\d]/g, '');
+  if (s.startsWith('00')) s = s.slice(2);
+  if (s.startsWith('966')) return s;
+  if (s.startsWith('0')) return '966' + s.slice(1);            // صيغة محلية 05…
+  if (s.length === 9 && s.startsWith('5')) return '966' + s;   // 5XXXXXXXX بلا صفر
+  return s;
+}
+
 async function sendCloud({ phone, type, body, buttons, list, image, document }) {
   const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
   if (!token) throw new Error('WHATSAPP_TOKEN غير معرّف');
-  // ميتا تقبل الصيغة الدولية للأرقام بدون + أو 00 — ننظّف الرقم دائماً
-  const to = String(phone || '').replace(/[^\d]/g, '');
+  // ميتا تقبل الصيغة الدولية للأرقام بدون + أو 00 — نحوّل الرقم دائماً
+  const to = waTo(phone);
   let msg;
   if (type === 'text') msg = { messaging_product: 'whatsapp', to: to, type: 'text', text: { body } };
   else if (type === 'buttons') msg = {
@@ -31,7 +43,7 @@ async function sendCloud({ phone, type, body, buttons, list, image, document }) 
 // LetsBot: WhatsApp Web API (formdata) — https://letsbot.net/api/v1
 async function sendLetsBot({ phone, type, body, buttons, list, image }) {
   const { token, apiUrl } = config.whatsapp;
-  const to = String(phone).replace(/[^\d]/g, '');
+  const to = waTo(phone);
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/x-www-form-urlencoded' };
   const fd = (obj) => new URLSearchParams(obj).toString();
   let r;
@@ -114,8 +126,10 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
       }
     } catch (e) {
       console.error('WA_SEND_FAIL', type, phone, e.message);
+      return false;                    // ← كان الخطأ يُبلع فيظنّ المستدعي أن الإرسال نجح
     }
   }
+  return true;
 }
 
 // ---------- log inbound ----------

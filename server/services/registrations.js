@@ -2,7 +2,7 @@
 // دورة العمل: مسودة في المحادثة → اعتماد صاحب النشاط → إشعار المشرف → اعتماد الإدارة → إنشاء النشاط/الكابتن وربطه بالجوال
 import { q, tx, nextRestaurantId } from '../db.js';
 import config from '../config.js';
-import { waSend } from './whatsapp.js';
+import { waSend, waTo } from './whatsapp.js';
 import { validatePhone } from '../utils.js';
 import bcrypt from 'bcryptjs';
 
@@ -20,8 +20,10 @@ export function getRegistration(id) {
 const hr = (h) => { if (!h) return '-'; const [a, b] = String(h).split(':'); let x = Number(a); const ap = x >= 12 ? 'م' : 'ص'; if (x === 0) x = 12; else if (x > 12) x -= 12; return `${x}:${b} ${ap}`; };
 
 export async function notifySupervisor(reg) {
-  const to = config.adminPhone || '';
+  const to = waTo(config.adminPhone || '');
   if (!to) { console.log('REG_NOTIFY_SKIPPED_NO_ADMIN_PHONE', reg.id); return false; }
+  // تنبيه بصيغة الرقم (بلا إفشاء) — الرقم المحلي 05… كان يفشل الإرسال سابقاً
+  if (!/^9665\d{8}$/.test(to)) console.warn('REG_NOTIFY_ADMIN_PHONE_FORMAT', '••••' + to.slice(-4));
   const isCap = reg.kind === 'captain';
   const typeRow = reg.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", reg.business_type_id) : null;
   let txt = isCap ? '🛵 *طلب تسجيل كابتن توصيل*\n\n' : '🆕 *طلب تسجيل نشاط جديد*\n\n';
@@ -47,10 +49,11 @@ export async function notifySupervisor(reg) {
   txt += '\n\nهل تعتمد التسجيل؟';
   const pre = isCap ? 'cap' : 'biz';
   try {
-    await waSend({ phone: to, type: 'buttons', body: txt, buttons: [
+    const sent = await waSend({ phone: to, type: 'buttons', body: txt, buttons: [
       { id: `${pre}_ok:${reg.id}`, title: '✅ اعتماد' },
       { id: `${pre}_no:${reg.id}`, title: '❌ رفض' }
     ] });
+    if (sent === false) { console.error('REG_SUPERVISOR_NOTIFY_FAIL', 'send failed → ••••' + to.slice(-4), 'reg#' + reg.id); return false; }
     return true;
   } catch (e) { console.error('REG_SUPERVISOR_NOTIFY_FAIL', e.message); return false; }
 }

@@ -2221,7 +2221,7 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
     const ok = await notifySupervisor(row);
     return send(phone, rid, null, 'text', ok
       ? `🎉 *تم إرسال طلبك للإدارة!*\n\n🍽 ${reg.name}\n🍽 الأصناف: ${items.length}\n📍 ${[reg.city, reg.district, reg.postal].filter(Boolean).join(' — ')}\n👤 ${reg.owner || ''}\n\nبنراجعه ونبلغك بالاعتماد قريباً 🙏`
-      : '✅ تم حفظ طلبك.\n\n⚠️ رقم المشرف غير مضبوط — كلّم الإدارة للاعتماد.');
+      : '✅ تم حفظ طلبك.\n\n⚠️ ما قدرنا نرسل الطلب للإدارة الحين — كلّم الإدارة للاعتماد 🙏');
   }
 }
 
@@ -2357,7 +2357,7 @@ async function submitCaptainReg(phone, rid, session, { depositPaid = false, clai
   const ok = await notifySupervisor(row);
   return send(phone, rid, null, 'text', ok
     ? `✅ *تم إرسال طلب انضمامك للإدارة*\n\n👤 ${reg.name}\n🔢 ${reg.national_id || ''}\n📍 ${reg.city}${reg.district ? ' — ' + reg.district : ''}\n🛵 ${v}\n\nبنبلغك بالاعتماد قريباً 🙏`
-    : '✅ تم حفظ طلبك — بس رقم المشرف غير مضبوط.');
+    : '✅ تم حفظ طلبك — بس ما قدرنا نرسله للإدارة الحين، كلّم الإدارة للاعتماد 🙏');
 }
 
 // ---------- مدير المطعم: مستلم تقرير المبيعات ----------

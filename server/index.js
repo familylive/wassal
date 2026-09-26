@@ -78,6 +78,15 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   });
 }
 
+// 👤 تحقّق من رقم المشرف عند التشغيل (إشعارات الاعتماد تعتمد عليه)
+try {
+  const { waTo } = await import('./services/whatsapp.js');
+  const ap = waTo(config.adminPhone || '');
+  if (!ap) console.warn('ADMIN_PHONE_MISSING ⚠️ رقم المشرف غير مضبوط — لن تصل إشعارات اعتماد التسجيلات (اضبط ADMIN_PHONE أو من لوحة التحكم)');
+  else if (!/^9665\d{8}$/.test(ap)) console.warn('ADMIN_PHONE_FORMAT ⚠️ رقم المشرف بصيغة غير متوقعة ••••' + ap.slice(-4) + ' — استخدم 9665XXXXXXXX');
+  else console.log('ADMIN_PHONE_OK ••••' + ap.slice(-4));
+} catch (e) {}
+
 server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
 
 // نسخ احتياطي دوري كل دقيقتين (إضافة للنسخ الفوري بعد الطلبات)
