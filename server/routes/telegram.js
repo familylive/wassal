@@ -7,6 +7,7 @@ import config from '../config.js';
 import { q } from '../db.js';
 import { handleIncoming } from '../services/flow.js';
 import { validatePhone } from '../utils.js';
+import { waTo } from '../services/whatsapp.js';
 
 const router = Router();
 const tg = (m) => `https://api.telegram.org/bot${config.telegram.token}/${m}`;
@@ -99,6 +100,14 @@ router.get('/setup-webhook', async (req, res) => {
 router.get('/status', async (req, res) => {
   const out = { ok: false, tokenSet: Boolean(config.telegram.token), provider: config.whatsapp.provider };
   try { out.links = q.get("SELECT COUNT(*) c FROM telegram_links")?.c ?? 0; } catch (e) {}
+  try {
+    const admin = waTo(config.adminPhone || '');
+    const tgAdmin = waTo(config.telegram.adminPhone || config.adminPhone || '');
+    out.adminPhone = config.adminPhone || null;
+    out.telegramAdminPhone = config.telegram.adminPhone || null;
+    out.adminLinked = Boolean(admin && q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=?", admin, tgAdmin)?.chat_id);
+    out.linkedPhones = q.all("SELECT phone, updated_at FROM telegram_links ORDER BY updated_at DESC LIMIT 5").map(r => ({ phone: '••••' + String(r.phone).slice(-4), at: r.updated_at }));
+  } catch (e) {}
   if (!config.telegram.token) return res.json({ ...out, error: 'التوكن غير مضبوط' });
   try {
     const r = await axios.get(tg('getWebhookInfo'), { timeout: 20000 });
