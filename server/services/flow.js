@@ -118,8 +118,11 @@ function showRestaurants(phone) {
   // لا يوجد موقع محفوظ → اطلب الموقع أولاً بدل عرض كل المطاعم
   if (!loc || loc.lat == null || loc.lng == null) {
     saveSession(phone, 'directory', {});
-    send(phone, null, null, 'text', '📍 لتظهر لك *المطاعم القريبة منك* فقط، أرسل موقعك الحالي الآن.\n(في واتساب: زر 📎 ← الموقع)\nأو اضغط الزر 👇');
-    return send(phone, null, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
+    send(phone, null, null, 'text', '📍 لتظهر لك *الأنشطة القريبة منك* أرسل موقعك الحالي.\n(في واتساب: زر 📎 ← الموقع)\nأو تصفّح الكل 👇');
+    return send(phone, null, null, 'buttons', '', { buttons: [
+      { id: 'send_location', title: '📍 إرسال الموقع' },
+      { id: 'all_rests', title: '🏬 عرض كل الأنشطة' }
+    ] });
   }
   const rests = q.all("SELECT r.* FROM restaurants r WHERE r.is_active=1");
   const nearby = [];
@@ -131,12 +134,15 @@ function showRestaurants(phone) {
   }
   if (!nearby.length) {
     saveSession(phone, 'directory', {});
-    send(phone, null, null, 'text', '🚫 لا توجد مطاعم ضمن نطاق التوصيل (15 كم) من موقعك حالياً.\nيمكنك إرسال موقع آخر أو التواصل معنا.');
-    return send(phone, null, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال موقع آخر' }] });
+    send(phone, null, null, 'text', '🚫 ما فيه نشاط يوصل لموقعك حالياً.\nتقدر ترسل موقعاً آخر أو تتصفّح كل الأنشطة وتطلب مباشرة.');
+    return send(phone, null, null, 'buttons', '', { buttons: [
+      { id: 'send_location', title: '📍 إرسال موقع آخر' },
+      { id: 'all_rests', title: '🏬 عرض كل الأنشطة' }
+    ] });
   }
   nearby.sort((a, b) => a.distKm - b.distKm);
   saveSession(phone, 'directory', { restList: nearby.map(r => r.id) });
-  let t = `📍 *المطاعم القريبة منك:* (ضمن 15 كم)\n`;
+  let t = `📍 *الأنشطة القريبة منك:*\n`;
   nearby.slice(0, 10).forEach((r, i) => {
     t += `${i + 1}. ${r.name_ar} — ${r.branchName} (${r.distKm} كم)${r.rating_avg ? ' ⭐' + r.rating_avg : ''}\n`;
   });
@@ -150,6 +156,26 @@ function showRestaurants(phone) {
     list: [{ title: '🍽 المطاعم القريبة', rows }]
   });
 }
+// 🏬 عرض كل الأنشطة بغض النظر عن الموقع — لمن لا تغطيه الفروع أو لا يريد مشاركة موقعه
+function showAllRestaurants(phone) {
+  const rests = q.all("SELECT r.* FROM restaurants r WHERE r.is_active=1 ORDER BY r.rating_avg DESC, r.id");
+  if (!rests.length) {
+    saveSession(phone, 'directory', {});
+    return send(phone, null, null, 'text', '🚫 ما فيه أنشطة مسجّلة حالياً 🙏');
+  }
+  saveSession(phone, 'directory', { restList: rests.map(r => r.id) });
+  let t = '🏬 *كل الأنشطة:*\n';
+  rests.slice(0, 10).forEach((r, i) => {
+    t += `${i + 1}. ${r.name_ar}${r.city ? ' — ' + r.city : ''}${r.rating_avg ? ' ⭐' + r.rating_avg : ''}\n`;
+  });
+  send(phone, null, null, 'text', t);
+  const rows = rests.slice(0, 10).map(r => ({
+    id: 'rest:' + r.id,
+    title: r.name_ar,
+    description: `${r.city || ''}${r.rating_avg ? ' · ⭐ ' + r.rating_avg : ''}`.slice(0, 72)
+  }));
+  return send(phone, null, null, 'list', '🏬 *كل الأنشطة:* اختر اللي يعجبك 👇', { list: [{ title: '🏬 كل الأنشطة', rows }] });
+}
 function handleDirectory(phone, p, b, type, lat, lng) {
   // استلام الموقع من العميل (زر إرسال الموقع أو مشاركة موقع)
   if (p === 'send_location' || type === 'location') {
@@ -161,6 +187,10 @@ function handleDirectory(phone, p, b, type, lat, lng) {
     return showRestaurants(phone);
   }
   if (p.startsWith('rest:')) return selectRestaurant(phone, Number(p.split(':')[1]));
+  // 🏬 مخرج من حلقة «ما فيه نشاط يوصل لموقعك»
+  if (p === 'all_rests' || /^(كل المطاعم|كل الأنشطة|كل الانشطة|عرض الكل|بدون موقع|تصفح الكل)$/.test(String(b || '').trim())) {
+    return showAllRestaurants(phone);
+  }
   // اختيار المطعم برقم
   if (!p && b && /^\d+$/.test(b)) {
     const session = getSession(phone);
