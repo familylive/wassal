@@ -19,13 +19,13 @@ export const ROLES_AR = {
 // 👥 كل المستخدمين في المنصة مع أدوارهم
 router.get('/', requireRole('admin'), (req, res) => {
   const admins = q.all("SELECT id, name, email, created_at FROM admins").map(a => ({ ...a, kind: 'admin', role: 'admin', role_ar: ROLES_AR.admin, login: a.email }));
-  const restUsers = q.all(`SELECT u.id, u.name, u.phone, u.email, u.role, u.national_id, u.id_doc, u.is_active, u.created_at, u.restaurant_id, r.name_ar AS restaurant_name
+  const restUsers = q.all(`SELECT u.id, u.name, u.phone, u.email, u.role, u.national_id, u.id_doc, u.id_doc_back, u.is_active, u.created_at, u.restaurant_id, r.name_ar AS restaurant_name
     FROM restaurant_users u LEFT JOIN restaurants r ON r.id=u.restaurant_id ORDER BY u.restaurant_id, CASE u.role WHEN 'owner' THEN 0 WHEN 'cashier' THEN 1 ELSE 2 END, u.id`)
     .map(u => ({ ...u, kind: 'restaurant_user', role_ar: roleAr(u.role), login: u.phone || u.email }));
-  const managers = q.all(`SELECT p.id, p.name, p.phone, p.national_id, p.birth_date, p.id_doc, p.status, p.report_hour, p.restaurant_id, r.name_ar AS restaurant_name
+  const managers = q.all(`SELECT p.id, p.name, p.phone, p.national_id, p.birth_date, p.id_doc, p.id_doc_back, p.status, p.report_hour, p.restaurant_id, r.name_ar AS restaurant_name
     FROM report_recipients p LEFT JOIN restaurants r ON r.id=p.restaurant_id ORDER BY p.id DESC`)
     .map(p => ({ ...p, kind: 'manager', role: 'manager', role_ar: ROLES_AR.manager, is_active: p.status === 'approved', login: p.phone }));
-  const captains = q.all(`SELECT id, name, phone, email, city, status, is_active, blocked, deposit_balance, national_id, id_doc, created_at FROM captains ORDER BY id DESC`)
+  const captains = q.all(`SELECT id, name, phone, email, city, status, is_active, blocked, deposit_balance, national_id, id_doc, id_doc_back, created_at FROM captains ORDER BY id DESC`)
     .map(c => ({ ...c, kind: 'captain', role: 'captain', role_ar: ROLES_AR.captain, login: c.phone }));
   const ags = q.all("SELECT kind, phone, code, accepted_at FROM agreements").reduce((a, x) => (a[x.kind + ':' + x.phone] = x, a), {});
   const customers = q.all(`SELECT c.id, c.name, c.phone, c.national_id, c.birth_date, c.activation_code, c.pledged_at, c.total_orders, c.total_spent, c.created_at,

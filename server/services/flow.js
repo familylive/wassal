@@ -1738,6 +1738,26 @@ const REG_CANCEL = /^(الغاء|إلغاء|الغاء التسجيل|إلغاء
 // 🔑 كلمات التخطي في خطوات المستندات (كانت محذوفة بالخطأ في تعديل سابق)
 const DOC_SKIP = /^(تخطى|تخطي|بدون|لا يوجد|ما عندي|لاحقاً|لاحقا|بعدين|موجود|تجاوز)$/;
 
+// 🪪 الهوية وجهان: الأمامي ثم الخلفي — لكل الأدوار (مالك · كابتن · مدير · كاشير)
+function sendIdPrompt(phone, rid, back, label = 'صورة هويتك الوطنية') {
+  if (back) return send(phone, rid, null, 'text', '📄 *الوجه الخلفي للهوية*\n\n📎 أرسل صورة واضحة للخلف\n_(أو اكتب *تخطى* لتجاوزه)_');
+  return send(phone, rid, null, 'text', `🪪 *${label}* (أو الإقامة)\n\n📎 أرسل صورة واضحة *للوجه الأمامي*\n_(أو اكتب *تخطى*)_`);
+}
+const idNeedRetry = (back) => back
+  ? '📎 أرسل صورة *الوجه الخلفي*، أو اكتب *تخطى* 🙏'
+  : '📎 أرسل صورة *الوجه الأمامي*، أو اكتب *تخطى* 🙏';
+
+// 🪪 استقبال صورة هوية (أمامي ثم خلفي) — يرجّع true إذا اكتملت الخطوة
+// المتغير container هو الكائن الحاوي (reg / mgr / cash)
+function collectIdSide(container, mediaRef) {
+  if (mediaRef) {
+    if (!container.id_doc) { container.id_doc = mediaRef; return false; }
+    container.id_doc_back = container.id_doc_back || mediaRef;
+    return true;
+  }
+  return true; // تخطّى (DOC_SKIP) — نكمّل
+}
+
 function cancelReg(phone, rid, session) {
   saveSession(phone, 'idle', { ...session.data, reg: null });
   return send(phone, rid, null, 'text', 'تم إلغاء التسجيل 👍\nاكتب *انضمام* متى ما تحب تبدّي من جديد.');
@@ -1865,8 +1885,12 @@ function handleRegOwnerId(phone, rid, session, b) {
 async function handleRegIdDoc(phone, rid, session, b, mediaRef) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.id_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة الهوية، أو اكتب *تخطى* 🙏');
+  if (mediaRef || DOC_SKIP.test(String(b || '').trim())) {
+    if (!collectIdSide(reg, mediaRef)) {
+      saveSession(phone, 'reg_id_doc', { ...session.data, reg });
+      return sendIdPrompt(phone, rid, true);
+    }
+  } else return send(phone, rid, null, 'text', idNeedRetry(!!reg.id_doc));
   saveSession(phone, 'reg_items', { ...session.data, reg });
   return send(phone, rid, null, 'text', ITEMS_PROMPT('✅ تم حفظ بياناتك.\n\n'));
 }
@@ -2087,7 +2111,7 @@ async function handleRegReview(phone, rid, session, b, p) {
   if (p === 'reg_fix') { saveSession(phone, 'reg_items', session.data); return send(phone, rid, null, 'text', 'أرسل الأصناف من جديد ✏️ (نص · 🎙 صوتية · 📷 صورة واضحة)'); }
   if (p === 'reg_submit' || /^(اعتماد|ارسال|إرسال|تم|اوكي|أوكي)$/.test(String(b).trim())) {
     const reg0 = session.data.reg || {};
-    return askPledge(phone, rid, { kind: 'owner', name: reg0.owner || null, national_id: reg0.owner_id || null, doc: reg0.id_doc || null, next: 'reg_subscribe_now', data: session.data });
+    return askPledge(phone, rid, { kind: 'owner', name: reg0.owner || null, national_id: reg0.owner_id || null, doc: reg0.id_doc || null, doc_back: reg0.id_doc_back || null, next: 'reg_subscribe_now', data: session.data });
   }
   if (p === 'reg_pledged_ok') {
     const sub = Math.round(Number(config.businessSubscription || 100000) / 100);
@@ -2127,12 +2151,12 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
   {
     const reg = session.data.reg || {};
     const items = reg.items || [];
-    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, items_json, subscription_paid, note, status,
+    const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, business_type_id, city, district, postal_code, owner_name, owner_id, id_doc, id_doc_back, items_json, subscription_paid, note, status,
         open_hour, close_hour, shifts, s1_from, s1_to, s2_from, s2_to, entity_type,
         municipal_no, municipal_issued_at, cr_no, cr_issued_at, freelance_no, freelance_issued_at,
         municipal_doc, cr_doc, freelance_doc, health_count, health_docs, lat, lng)
-      VALUES ('business', ?,?,?,?,?,?,?,?,?,?,?, 'pending_review', ?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?)`,
-      phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null,
+      VALUES ('business', ?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending_review', ?,?,?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?,?)`,
+      phone, reg.name || '', reg.type_id || null, reg.city || null, reg.district || null, reg.postal || null, reg.owner || null, reg.owner_id || null, reg.id_doc || null, reg.id_doc_back || null, JSON.stringify(items), subscriptionPaid ? 1 : 0, claimed ? 'يقول إنه حوّل الاشتراك' : null,
       reg.s1_from || null, (reg.shifts === 2 ? reg.s2_to : reg.close_hour) || null, reg.shifts || 1,
       reg.s1_from || null, reg.s1_to || null, reg.s2_from || null, reg.s2_to || null, reg.entity_type || null,
       reg.municipal_no || null, reg.municipal_issued_at || null, reg.cr_no || null, reg.cr_issued_at || null, reg.freelance_no || null, reg.freelance_issued_at || null,
@@ -2224,15 +2248,19 @@ function handleCapPlate(phone, rid, session, b) {
   const pl = String(b || '').trim();
   if (pl.length < 3) return send(phone, rid, null, 'text', 'اكتب رقم اللوحة 🔢 (مثال: أ ب ج 1234)');
   saveSession(phone, 'cap_iddoc', { ...session.data, reg: { ...session.data.reg, vehicle_plate: pl.slice(0, 30) } });
-  return send(phone, rid, null, 'text', '🪪 *صورة هويتك الوطنية* (أو الإقامة)\n\n📎 أرسل صورة واضحة\n_(أو اكتب *تخطى*)_');
+  return sendIdPrompt(phone, rid, false);
 }
 async function handleCapIdDoc(phone, rid, session, b, mediaRef) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const reg = { ...(session.data.reg || {}) };
-  if (mediaRef) reg.id_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة الهوية، أو اكتب *تخطى* 🙏');
+  if (mediaRef || DOC_SKIP.test(String(b || '').trim())) {
+    if (!collectIdSide(reg, mediaRef)) {
+      saveSession(phone, 'cap_iddoc', { ...session.data, reg });
+      return sendIdPrompt(phone, rid, true);
+    }
+  } else return send(phone, rid, null, 'text', idNeedRetry(!!reg.id_doc));
   saveSession(phone, 'cap_pledge', { ...session.data, reg });
-  return askPledge(phone, rid, { kind: 'captain', name: reg.name || null, national_id: reg.national_id || null, doc: reg.id_doc || null, next: 'cap_deposit_now', data: { ...session.data, reg } });
+  return askPledge(phone, rid, { kind: 'captain', name: reg.name || null, national_id: reg.national_id || null, doc: reg.id_doc || null, doc_back: reg.id_doc_back || null, next: 'cap_deposit_now', data: { ...session.data, reg } });
 }
 
 // 💰 خطوة تأمين الحساب (تُستدعى بعد التعهد كذلك)
@@ -2265,9 +2293,9 @@ async function handleCapDeposit(phone, rid, session, b, p) {
 async function submitCaptainReg(phone, rid, session, { depositPaid = false, claimed = false } = {}) {
   const reg = session.data.reg || {};
   const v = reg.vehicle || 'دراجة';
-  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, deposit_paid, note, status)
-    VALUES ('captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`,
-    phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, v.slice(0, 30),
+  const r = q.run(`INSERT INTO business_registrations (kind, phone, business_name, city, district, owner_id, id_doc, id_doc_back, vehicle_type, vehicle_plate, vehicle_color, license_doc, criminal_doc, deposit_paid, note, status)
+    VALUES ('captain', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')`,
+    phone, reg.name || '', reg.city || null, reg.district || null, reg.national_id || null, reg.id_doc || null, reg.id_doc_back || null, v.slice(0, 30),
     reg.vehicle_plate || null, reg.vehicle_color || null, reg.license_doc || null, reg.criminal_doc || null,
     depositPaid ? 1 : 0, claimed ? 'يقول إنه حوّل التأمين' : null);
   const row = q.get("SELECT * FROM business_registrations WHERE id=?", Number(r.lastInsertRowid));
@@ -2336,12 +2364,12 @@ function pledgeNeeded(phone) {
   try {
     if (isCaptainPhone(phone)) {
       const c = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
-      return { kind: 'captain', name: c?.name || null, national_id: c?.national_id || null, doc: c?.id_doc || null };
+      return { kind: 'captain', name: c?.name || null, national_id: c?.national_id || null, doc: c?.id_doc || null, doc_back: c?.id_doc_back || null };
     }
     const ru = restUserByPhone(phone);
-    if (ru) return { kind: ru.role === 'cashier' ? 'cashier' : 'owner', name: ru.name || null, national_id: ru.national_id || null, doc: ru.id_doc || null, restaurant_id: ru.restaurant_id };
+    if (ru) return { kind: ru.role === 'cashier' ? 'cashier' : 'owner', name: ru.name || null, national_id: ru.national_id || null, doc: ru.id_doc || null, doc_back: ru.id_doc_back || null, restaurant_id: ru.restaurant_id };
     const rec = findRecipientByPhone(validatePhone(phone));
-    if (rec && rec.status === 'approved') return { kind: 'manager', name: rec.name || null, national_id: rec.national_id || null, birth_date: rec.birth_date || null, doc: rec.id_doc || null, restaurant_id: rec.restaurant_id };
+    if (rec && rec.status === 'approved') return { kind: 'manager', name: rec.name || null, national_id: rec.national_id || null, birth_date: rec.birth_date || null, doc: rec.id_doc || null, doc_back: rec.id_doc_back || null, restaurant_id: rec.restaurant_id };
     // 🙋 العميل: يكفيه رقم الهوية وتاريخ الميلاد — ما نطلب منه تعهداً
     return null;
   } catch (e) { console.error('PLEDGE_CHECK_FAIL', e.message); }
@@ -2365,15 +2393,16 @@ async function handlePledgeAccept(phone, rid, session, b, p) {
     national_id: pending.national_id || null,
     birth_date: pending.birth_date || null,
     doc: pending.doc || null,
+    doc_back: pending.doc_back || null,
     restaurant_id: pending.restaurant_id || null
   };
   const { code } = createPledge(info);
   // حدّث سجلات المستخدم برقم التفعيل
   try {
     if (info.kind === 'customer') q.run("UPDATE customers SET national_id=COALESCE(?,national_id), birth_date=COALESCE(?,birth_date), activation_code=?, pledged_at=datetime('now') WHERE phone=? OR phone=?", info.national_id, info.birth_date, code, info.phone, '+' + info.phone);
-    if (info.kind === 'owner' || info.kind === 'cashier') q.run("UPDATE restaurant_users SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.doc, info.phone, '+' + info.phone);
-    if (info.kind === 'captain') q.run("UPDATE captains SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.doc, info.phone, '+' + info.phone);
-    if (info.kind === 'manager') q.run("UPDATE report_recipients SET national_id=COALESCE(?,national_id), birth_date=COALESCE(?,birth_date), id_doc=COALESCE(?,id_doc) WHERE phone=? OR phone=?", info.national_id, info.birth_date, info.doc, info.phone, '+' + info.phone);
+    if (info.kind === 'owner' || info.kind === 'cashier') q.run("UPDATE restaurant_users SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc), id_doc_back=COALESCE(?,id_doc_back) WHERE phone=? OR phone=?", info.national_id, info.doc, info.doc_back, info.phone, '+' + info.phone);
+    if (info.kind === 'captain') q.run("UPDATE captains SET national_id=COALESCE(?,national_id), id_doc=COALESCE(?,id_doc), id_doc_back=COALESCE(?,id_doc_back) WHERE phone=? OR phone=?", info.national_id, info.doc, info.doc_back, info.phone, '+' + info.phone);
+    if (info.kind === 'manager') q.run("UPDATE report_recipients SET national_id=COALESCE(?,national_id), birth_date=COALESCE(?,birth_date), id_doc=COALESCE(?,id_doc), id_doc_back=COALESCE(?,id_doc_back) WHERE phone=? OR phone=?", info.national_id, info.birth_date, info.doc, info.doc_back, info.phone, '+' + info.phone);
   } catch (e) { console.error('PLEDGE_UPDATE_FAIL', e.message); }
   await send(phone, rid, null, 'text', pledgeMessage(code));
   const next = pending.next || 'done';
@@ -2486,14 +2515,18 @@ function handleMgrPick(phone, rid, session, b, p) {
 async function finishManagerJoin(phone, rid, session, mgr, rest) {
   // 📜 تعهد + رقم تفعيل قبل الربط
   saveSession(phone, 'mgr_pledge', { ...session.data, mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } });
-  return askPledge(phone, rid, { kind: 'manager', name: mgr.name || null, national_id: mgr.national_id || null, birth_date: mgr.birth_date || null, doc: mgr.id_doc || null, restaurant_id: rest.id, next: 'manager_done', data: { mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } } });
+  return askPledge(phone, rid, { kind: 'manager', name: mgr.name || null, national_id: mgr.national_id || null, birth_date: mgr.birth_date || null, doc: mgr.id_doc || null, doc_back: mgr.id_doc_back || null, restaurant_id: rest.id, next: 'manager_done', data: { mgr: { ...mgr, restaurant_id: rest.id, restaurant_name: rest.name_ar } } });
 }
 // 🪪 صورة هوية المدير قبل التعهد
 async function handleMgrIdDoc(phone, rid, session, b, mediaRef) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const mgr = { ...(session.data.mgr || {}) };
-  if (mediaRef) mgr.id_doc = mediaRef;
-  else if (!DOC_SKIP.test(String(b || '').trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة هويتك/إقامتك، أو اكتب *تخطى* 🙏');
+  if (mediaRef || DOC_SKIP.test(String(b || '').trim())) {
+    if (!collectIdSide(mgr, mediaRef)) {
+      saveSession(phone, 'mgr_iddoc', { ...session.data, mgr });
+      return sendIdPrompt(phone, rid, true, 'صورة هويتك أو إقامتك');
+    }
+  } else return send(phone, rid, null, 'text', idNeedRetry(!!mgr.id_doc));
   saveSession(phone, 'mgr_biz', { ...session.data, mgr });
   const have = q.get("SELECT COUNT(*) c FROM restaurants").c;
   return send(phone, rid, null, 'text', `🏪 الحين أرسل *رقم النشاط* اللي تديره${have ? '' : '\n_(أو اكتب اسم النشاط)_'}`);
@@ -2503,7 +2536,7 @@ async function finishManagerJoinAfterPledge(phone, rid, pending, code) {
   const mgr = pending?.data?.mgr || {};
   const rest = { id: mgr.restaurant_id, name_ar: mgr.restaurant_name };
   const row = addRecipient(rest.id, mgr.name, mgr.phone, mgr.hour || '23:30', mgr.national_id);
-  if (mgr.id_doc) { try { q.run("UPDATE report_recipients SET id_doc=? WHERE id=?", mgr.id_doc, row.id); } catch (e) {} }
+  if (mgr.id_doc || mgr.id_doc_back) { try { q.run("UPDATE report_recipients SET id_doc=COALESCE(?,id_doc), id_doc_back=COALESCE(?,id_doc_back) WHERE id=?", mgr.id_doc || null, mgr.id_doc_back || null, row.id); } catch (e) {} }
   saveSession(phone, 'idle', {});
   const sent = await notifyOwnerRecipient(row);
   if (!sent) await notifySupervisorRecipient(row);
@@ -2636,9 +2669,32 @@ async function handleCashHour(phone, rid, session, b, p) {
   const hour = (p && String(p).startsWith('rhour:')) ? String(p).slice(6) : parseReportHour(b);
   if (!hour) return send(phone, rid, null, 'text', '⏰ اكتب الوقت: 10:30 أو 9 مساءً أو 12 منتصف الليل');
   const cash = { ...(session.data.cash || {}), hour };
+  saveSession(phone, 'cash_iddoc', { ...session.data, cash });
+  return sendIdPrompt(phone, rid, false, 'صورة هوية الكاشير');
+}
+
+// 🧾 بعد هوية الكاشير: إنشاء الحساب وربطه بتقرير المبيعات
+async function handleCashIdDoc(phone, rid, session, b, mediaRef) {
+  if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
+  const cash = { ...(session.data.cash || {}) };
+  if (mediaRef || DOC_SKIP.test(String(b || '').trim())) {
+    if (!collectIdSide(cash, mediaRef)) {
+      saveSession(phone, 'cash_iddoc', { ...session.data, cash });
+      return sendIdPrompt(phone, rid, true, 'صورة هوية الكاشير');
+    }
+  } else return send(phone, rid, null, 'text', idNeedRetry(!!cash.id_doc));
+  return finishCashierAdd(phone, rid, session, cash);
+}
+
+async function finishCashierAdd(phone, rid, session, cash) {
   saveSession(phone, 'idle', { ...session.data, cash: null });
   const norm = cash.phone;
   const { user, created, password } = addCashier({ restaurant_id: cash.restaurant_id, name: cash.name, phone: norm });
+  // 🪪 حفظ هوية الكاشير (أمامي + خلفي)
+  if (cash.id_doc || cash.id_doc_back) {
+    try { q.run("UPDATE restaurant_users SET id_doc=COALESCE(?,id_doc), id_doc_back=COALESCE(?,id_doc_back) WHERE phone=? OR phone=?", cash.id_doc || null, cash.id_doc_back || null, norm, '+' + norm); }
+    catch (e) { console.error('CASHIER_ID_DOC_FAIL', e.message); }
+  }
   const rest = q.get("SELECT name_ar FROM restaurants WHERE id=?", cash.restaurant_id);
   // 📊 يضاف كمستلم تقرير المبيعات (لتسليم المبالغ نهاية اليوم)
   let recOk = false;
@@ -2968,7 +3024,7 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
       const sess = getSession(phone);
       if (sess.state === 'pledge') return handlePledgeAccept(phone, null, sess, body, payload);
       if (!findPledge('captain', phone)) {
-        return askPledge(phone, null, { kind: 'captain', name: cap.name, national_id: cap.national_id, doc: cap.id_doc, next: 'resume', resumeState: 'idle', data: (sess.data || {}) });
+        return askPledge(phone, null, { kind: 'captain', name: cap.name, national_id: cap.national_id, doc: cap.id_doc, doc_back: cap.id_doc_back, next: 'resume', resumeState: 'idle', data: (sess.data || {}) });
       }
     }
   } catch (e) { console.error('CAP_PLEDGE_GATE_FAIL', e.message); }
