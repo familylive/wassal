@@ -878,7 +878,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '', TELEGRAM_ADMIN_PHONE: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -901,6 +901,7 @@ function SettingsTab() {
       WHATSAPP_VERIFY_TOKEN: d.verifyToken || '',
       VOICE_REPLIES: d.voiceReplies ? 'true' : 'false',
       ADMIN_PHONE: d.adminPhone || '',
+      TELEGRAM_ADMIN_PHONE: d.telegramAdminPhone || '',
       SUPERVISOR_NAME: d.supervisorName || '',
       SUPERVISOR_ID: d.supervisorId || '',
       COMMISSION_BUSINESS_PERCENT: d.commissionBusinessPercent != null ? String(d.commissionBusinessPercent) : '',
@@ -970,6 +971,9 @@ function SettingsTab() {
         </Fld>
         <Fld label="رقم المشرف (إشعارات اعتماد التسجيل)">
           <input value={f.ADMIN_PHONE || ''} onChange={set('ADMIN_PHONE')} placeholder="9665xxxxxxxx" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="رقم تليجرام المشرف (اختياري — لو رقم حسابك في تليجرام مختلف)">
+          <input value={f.TELEGRAM_ADMIN_PHONE || ''} onChange={set('TELEGRAM_ADMIN_PHONE')} placeholder="اتركه فارغاً لاستخدام رقم المشرف" style={{ direction: 'ltr' }} />
         </Fld>
         <Fld label="اسم المشرف العام">
           <input value={f.SUPERVISOR_NAME || ''} onChange={set('SUPERVISOR_NAME')} placeholder="الاسم الكامل" />
