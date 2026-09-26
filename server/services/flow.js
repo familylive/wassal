@@ -1735,6 +1735,9 @@ export function onPaymentSuccess(phone, rid) {
 // ================= تسجيل الأنشطة والكباتن عبر واتساب =================
 const REG_CANCEL = /^(الغاء|إلغاء|الغاء التسجيل|إلغاء التسجيل|توقف|كنسل)$/;
 
+// 🔑 كلمات التخطي في خطوات المستندات (كانت محذوفة بالخطأ في تعديل سابق)
+const DOC_SKIP = /^(تخطى|تخطي|بدون|لا يوجد|ما عندي|لاحقاً|لاحقا|بعدين|موجود|تجاوز)$/;
+
 function cancelReg(phone, rid, session) {
   saveSession(phone, 'idle', { ...session.data, reg: null });
   return send(phone, rid, null, 'text', 'تم إلغاء التسجيل 👍\nاكتب *انضمام* متى ما تحب تبدّي من جديد.');
