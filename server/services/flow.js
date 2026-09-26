@@ -446,7 +446,18 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     case 'preorder_date': return handlePreorderDate(phone, rid, session, b, p);
     case 'preorder_time': return handlePreorderTime(phone, rid, customer, session, b, p);
     case 'reg_shift': return handleRegShift(phone, rid, session, b, p);
-    case 'reg_s1f': return handleRegShiftTime(phone, rid, session, b, 's1_from', 'reg_s1t', '✅ من {t} — ومتى *يقفل* النشاط؟');
+    case 'reg_s1f': {
+      const two = session.data.reg?.shifts === 2;
+      const indiv = isIndividual(session.data.reg || {});
+      const r = parseTimeRange(b);
+      if (r) return applyShiftRange(phone, rid, session, r, {
+        fromKey: 's1_from', toKey: two ? 's1_to' : 'close_hour',
+        nextState: two ? 'reg_s2f' : (indiv ? 'reg_flno' : 'reg_lic'),
+        nextQuestion: two ? '✅ الفترة الأولى: *{t}*\n\n🕐 *الفترة الثانية* — متى تبدأ؟'
+          : '✅ يقفل *{t}*\n\n' + (indiv ? '📄 *وثيقة العمل الحر* _(لأن النشاط فرد)_ — اكتب *رقم الوثيقة*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*')
+      });
+      return handleRegShiftTime(phone, rid, session, b, 's1_from', 'reg_s1t', '✅ من {t} — ومتى *يقفل* النشاط؟');
+    }
     case 'reg_s1t': {
       const two = session.data.reg?.shifts === 2;
       const indiv = isIndividual(session.data.reg || {});
@@ -454,7 +465,16 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
         two ? '✅ الفترة الأولى تنتهي {t}\n\n🕐 *الفترة الثانية* — متى تبدأ؟'
             : '✅ يقفل {t}\n\n' + (indiv ? '📄 *وثيقة العمل الحر* _(لأن النشاط فرد)_ — اكتب *رقم الوثيقة*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*'));
     }
-    case 'reg_s2f': return handleRegShiftTime(phone, rid, session, b, 's2_from', 'reg_s2t', '✅ تبدأ {t} — ومتى *تنتهي الفترة الثانية*؟');
+    case 'reg_s2f': {
+      const indiv2 = isIndividual(session.data.reg || {});
+      const r2 = parseTimeRange(b);
+      if (r2) return applyShiftRange(phone, rid, session, r2, {
+        fromKey: 's2_from', toKey: 's2_to',
+        nextState: indiv2 ? 'reg_flno' : 'reg_lic',
+        nextQuestion: '✅ تنتهي الفترة الثانية: *{t}*\n\n' + (indiv2 ? '📄 *وثيقة العمل الحر* — اكتب *رقم الوثيقة*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*')
+      });
+      return handleRegShiftTime(phone, rid, session, b, 's2_from', 'reg_s2t', '✅ تبدأ {t} — ومتى *تنتهي الفترة الثانية*؟');
+    }
     case 'reg_s2t': return handleRegShiftTime(phone, rid, session, b, 's2_to', isIndividual(session.data.reg || {}) ? 'reg_flno' : 'reg_lic', '✅ تنتهي {t}\n\n' + (isIndividual(session.data.reg || {}) ? '📄 *وثيقة العمل الحر* — نطلبها لأن النشاط *فرد*' : '🏛 *رخصة البلدية* — اكتب *رقم الرخصة*'));
     case 'reg_entity': return handleRegEntity(phone, rid, session, b, p);
     case 'reg_flno': return handleRegFreelanceNo(phone, rid, session, b);
@@ -1976,14 +1996,43 @@ function handleRegShift(phone, rid, session, b, p) {
   const reg = { ...(session.data.reg || {}), shifts: n };
   saveSession(phone, 'reg_s1f', { ...session.data, reg });
   return send(phone, rid, null, 'text', n === 1
-    ? '🕐 متى *يفتح* النشاط؟ (مثال: 8 صباحاً · 9:00 · 16:00)'
-    : '🕐 *الفترة الأولى* — متى تبدأ؟ (مثال: 8 صباحاً)');
+    ? '🕐 متى *يفتح* النشاط؟ (مثال: 8 صباحاً · 9:00 · 16:00)\n_(أو أرسل الفترة كاملة: من 8 صباحاً إلى 8 مساءً)_'
+    : '🕐 *الفترة الأولى* — متى تبدأ؟ (مثال: 8 صباحاً)\n_(أو أرسل الفترة كاملة: من 8 صباحاً إلى 12 ظهراً)_');
 }
+// ⏰ قراءة فترة كاملة في رسالة واحدة: «من 8 صباحاً إلى 8 مساءً» · «من 9:00 الى 17:00» · «8 - 20»
+function parseTimeRange(input) {
+  const t = String(input || '').trim()
+    .replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[–—−]/g, '-')
+    .replace(/\s+/g, ' ');
+  if (!t) return null;
+  const alt = 'إلى|الى|إلي|الي|حتى|لحد|لغاية|to';
+  let m = t.match(new RegExp(`^(?:من\\s+)?(.+?)\\s+(?:${alt})\\s+(.+)$`, 'i'));
+  if (!m) m = t.match(/^(?:من\s+)?(.+?)\s*-\s*(.+)$/);
+  if (!m) return null;
+  const from = parseReportHour(m[1], { morning: true });
+  const to = parseReportHour(m[2], { morning: true });
+  return (from && to) ? { from, to } : null;
+}
+
+// تطبيق فترة كاملة: نحفظ البداية والنهاية ونتجاوز سؤال النهاية
+function applyShiftRange(phone, rid, session, range, { fromKey, toKey, nextState, nextQuestion }) {
+  const reg = { ...(session.data.reg || {}), [fromKey]: range.from, [toKey]: range.to };
+  saveSession(phone, nextState, { ...session.data, reg });
+  return send(phone, rid, null, 'text', String(nextQuestion || '').replace('{t}', fmtH(range.to)));
+}
+
+const TIME_HINT = '⏰ ما فهمت الوقت 🙏\n\nاكتبه مثل: *8 صباحاً* · *9:00* · *16:30*\nأو أرسل الفترة كاملة: *من 8 صباحاً إلى 8 مساءً*';
+
 function handleRegShiftTime(phone, rid, session, b, key, nextState, question) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
   const h = parseReportHour(b, { morning: true });
-  if (!h) return send(phone, rid, null, 'text', 'اكتب الوقت بصيغة مثل: 8 صباحاً · 9:00 · 16:30 🙏');
+  if (!h) return send(phone, rid, null, 'text', TIME_HINT);
   const reg = { ...(session.data.reg || {}), [key]: h };
+  saveSession(phone, nextState, { ...session.data, reg });
+  return send(phone, rid, null, 'text', question.replace('{t}', fmtH(h)));
+}
+
 // 🔢 رقم مستند: ٤ خانات على الأقل ويحتوي رقمين على الأقل
 const DOC_NO_OK = (s) => { const t = String(s || '').trim(); return t.length >= 4 && (t.match(/\d/g) || []).length >= 2; };
 // 📅 تاريخ إصدار مستند: يقبل 2025-03-15 · 15/3/2025 · 15-03-2025
@@ -2070,10 +2119,6 @@ function afterRegDocs(phone, rid, data) {
 }
 function isIndividual(reg) {
   return reg.entity_type === 'فرد' || /أسر منتجة|اسر منتجة|منزل/.test(String(reg.type_name || ''));
-}
-  if (mediaRef) reg.health_docs = mediaRef;
-  else if (!DOC_SKIP.test(String(b).trim())) return send(phone, rid, null, 'text', '📎 أرسل صورة/PDF للشهادات الصحية، أو اكتب *تخطى* 🙏');
-  return sendRegReview(phone, rid, { ...session.data, reg });
 }
 
 function sendRegReview(phone, rid, data) {
