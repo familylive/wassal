@@ -29,7 +29,7 @@ function logHit(kind, summary, raw = '') {
 // حالات استقبال مستندات التسجيل داخل الواتساب
 const REG_DOC_STATES = {
   cap_license: 'license', cap_criminal: 'criminal',
-  reg_id_doc: 'owner-id', cap_iddoc: 'captain-id', mgr_iddoc: 'manager-id', cash_iddoc: 'cashier-id'
+  reg_id_doc: 'owner-id', cap_iddoc: 'captain-id', mgr_iddoc: 'manager-id'
 };
 // 📝 حالات التسجيل التي صار الاكتفاء فيها بالرقم وتاريخ الإصدار (بدون رفع ملفات)
 const REG_NODOC_STATES = ['reg_lic', 'reg_licdate', 'reg_cr', 'reg_crdate', 'reg_flno', 'reg_fldate'];
