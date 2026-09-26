@@ -1880,7 +1880,7 @@ function handleRegOwnerId(phone, rid, session, b) {
   const id = validNationalId(b);
   if (!id) return send(phone, rid, null, 'text', 'رقم الهوية لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
   saveSession(phone, 'reg_id_doc', { ...session.data, reg: { ...session.data.reg, owner_id: id } });
-  return send(phone, rid, null, 'text', '🪪 *صورة هويتك الوطنية* (أو الإقامة)\n\n📎 أرسل صورة واضحة للوجه والخلف\n_(أو اكتب *تخطى*)_');
+  return sendIdPrompt(phone, rid, false);
 }
 async function handleRegIdDoc(phone, rid, session, b, mediaRef) {
   if (REG_CANCEL.test(b)) return cancelReg(phone, rid, session);
@@ -2482,7 +2482,7 @@ function handleMgrId(phone, rid, session, b) {
   const nid = validNationalId(b);
   if (!nid) return send(phone, rid, null, 'text', 'رقم الهوية لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
   saveSession(phone, 'mgr_iddoc', { ...session.data, mgr: { ...session.data.mgr, national_id: nid } });
-  return send(phone, rid, null, 'text', `✅ *${session.data.mgr?.name || ''}* · 🔢 ${nid}\n\n🪪 *صورة هويتك* (أو الإقامة)\n📎 أرسل صورة واضحة\n_(أو اكتب *تخطى*)_`);
+  return send(phone, rid, null, 'text', `✅ *${session.data.mgr?.name || ''}* · 🔢 ${nid}\n\n🪪 *صورة هويتك* (أو الإقامة)\n\n📎 أرسل صورة واضحة *للوجه الأمامي*\n_(أو اكتب *تخطى*)_`);
 }
 // رقم النشاط → ربط + إرسال للاعتماد
 async function handleMgrBiz(phone, rid, session, b, p) {
