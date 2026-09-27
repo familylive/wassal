@@ -20,6 +20,8 @@ try { db.exec("ALTER TABLE restaurant_users ADD COLUMN branch_id INTEGER"); } ca
 try { db.exec("ALTER TABLE orders ADD COLUMN no_captain_notified_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN busy_order_no TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN busy_since TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN orders_paused INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN paused_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captain_offers ADD COLUMN reject_reason TEXT"); } catch {}
 try { db.exec("ALTER TABLE branches ADD COLUMN district TEXT"); } catch {}
 try { db.exec("ALTER TABLE branches ADD COLUMN cr_no TEXT"); } catch {}
