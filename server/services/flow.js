@@ -3167,7 +3167,8 @@ async function handlePledgeAccept(phone, rid, session, b, p) {
     }
     saveSession(phone, 'idle', pending.data || {});
     if (pending.kind === 'captain') {
-      const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
+      const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=? OR phone LIKE ? ORDER BY id LIMIT 1",
+      validatePhone(phone), String(phone || ''), '%' + String(phone || '').replace(/\D/g, '').slice(-9));
       return send(phone, rid, null, 'text', `🛵 أهلاً كابتن *${cap?.name || ''}* — بيجيك الطلبات هنا على واتساب ✅\nاكتب *رصيدي* لمعرفة حسابك · *طلباتي* لطلباتك النشطة`);
     }
     return mainMenu(phone, rid);
@@ -4032,14 +4033,24 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", validatePhone(phone), String(phone || ''));
     if (cap) {
       const sess = getSession(phone);
-      if (sess.state === 'pledge') return handlePledgeAccept(phone, null, sess, body, payload);
-      if (!findPledge('captain', phone)) {
+      // ⚠️ أزرار الكابتن تعمل دائمًا: كانت تضيع داخل حالة التعهّد فيظهر «الطلب لا يصل للكابتن»
+      const _btn = payload && String(payload).startsWith('cap:');
+      const _acceptBtn = payload && String(payload).startsWith('cap:acc:');
+      if (sess.state === 'pledge' && !_btn) return handlePledgeAccept(phone, null, sess, body, payload);
+      if (!findPledge('captain', phone) && (!_btn || _acceptBtn)) {
         return askPledge(phone, null, { kind: 'captain', name: cap.name, national_id: cap.national_id, doc: cap.id_doc, doc_back: cap.id_doc_back, next: 'resume', resumeState: 'idle', data: (sess.data || {}) });
       }
+      if (_btn && sess.state === 'pledge') saveSession(phone, 'idle', (sess.data || {}));
     }
   } catch (e) { console.error('CAP_PLEDGE_GATE_FAIL', e.message); }
-  const captain = q.get("SELECT * FROM captains WHERE phone=? OR phone=?", phone, validatePhone(phone));
-  if (!captain) return { ok: false };
+  // 🔎 بحث أوسع (يطابق آخر ٩ أرقام أيضًا) — كان يعود بصمت فيظهر «الطلب لا يصل للكابتن»
+  const captain = q.get("SELECT * FROM captains WHERE phone=? OR phone=? OR phone LIKE ? ORDER BY id LIMIT 1",
+    phone, validatePhone(phone), '%' + String(phone || '').replace(/\D/g, '').slice(-9)) || null;
+  if (!captain) {
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('cap-no-account', ?, ?)",
+      String(payload || body || '').slice(0, 60), JSON.stringify({ tail: String(phone || '').slice(-4) }).slice(0, 160)); } catch (e) {}
+    return send(phone, null, null, 'text', '🤔 ما لقيت حسابك كـ*كابتن*.\n• للتسجيل: أرسل *تسجيل كابتن*\n• أو تواصل مع الإدارة لربط رقمك.');
+  }
   const b = String(body || '').trim();
   const p = payload ? String(payload) : '';
 
@@ -4072,7 +4083,8 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
       return send(captain.phone, null, orderId, 'text',
         `❌ *رفض الطلب*\n\nاكتب *سبب الرفض* (مطلوب) — وبعدها نرسله للإدارة ⏳\n\n⚠️ مرات الرفض المتبقية: *${rj.remaining}* من ${rj.max}${warn}`);
     }
-    return handleCaptainMenu(phone, rid, pv, captain);
+    if (String(pv).startsWith('cap:')) return handleCaptainMenu(phone, null, pv, captain);
+    return handleCaptainMenu(phone, null, 'cap:menu', captain);
   }
   // حالات الكابتن: سبب الرفض · رقم الطلب المشغول
   {
