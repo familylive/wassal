@@ -28,6 +28,12 @@ try { db.exec("ALTER TABLE orders ADD COLUMN cancel_note TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN cancel_requested_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurant_users ADD COLUMN branch_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN no_captain_notified_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN cashier_deadline TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN captain_deadline TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN late_fee_cashier INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN late_fee_captain INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN cashier_late_notified INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN captain_late_notified INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN busy_order_no TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN busy_since TEXT"); } catch {}
 try { db.exec("ALTER TABLE restaurants ADD COLUMN orders_paused INTEGER DEFAULT 0"); } catch {}

@@ -145,6 +145,12 @@ import('./services/orderService.js').then(({ dispatchDuePreorders, redispatchUna
   setTimeout(() => { dispatchDuePreorders().catch(() => {}); redispatchUnassigned().catch(() => {}); }, 40000);
 }).catch(() => {});
 
+// ⏱️ فحص غرامات التأخير (كاشير/كابتن) كل دقيقتين
+import('./services/sla.js').then(({ runSlaChecks }) => {
+  setInterval(() => runSlaChecks().catch(() => {}), 2 * 60 * 1000);
+  setTimeout(() => runSlaChecks().catch(() => {}), 60000);
+}).catch(() => {});
+
 import('./services/reporting.js').then(({ runDueReports }) => {
   setInterval(() => runDueReports().catch(e => console.error('REPORT_LOOP_FAIL', e.message)), 5 * 60 * 1000);
   setTimeout(() => runDueReports().then(n => { if (n) console.log('REPORTS_CATCHUP', n); }).catch(() => {}), 25000);
