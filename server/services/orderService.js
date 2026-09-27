@@ -146,10 +146,12 @@ export async function setStatus(orderId, status, actorType = 'system', actorId =
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   // 🔐 إعادة إرسال رمز الاستلام مع رسالة «الكابتن في الطريق» (العميل يحتاجه قبل التسليم)
   let custMsg = msgs[status] || status;
-  if (status === 'with_captain' && order.delivery_code) {
+  if (['with_captain', 'arrived'].includes(status) && order.delivery_code) {
     const cap = order.captain_id ? q.get("SELECT name, phone FROM captains WHERE id=?", order.captain_id) : null;
     const lp = (x) => { const d = String(x || '').replace(/\D/g, ''); return d.startsWith('966') ? '0' + d.slice(3) : d; };
-    custMsg += `\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه إلا للمندوب عند التسليم.`
+    custMsg += (status === 'arrived'
+      ? `\n\n📍 أعطِ المندوب *رمز الاستلام* الآن:\n🔐 *${order.delivery_code}*`
+      : `\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه إلا للمندوب عند التسليم.`);
       + (cap ? `\n🛵 المندوب: *${cap.name || ''}* — 📱 ${lp(cap.phone)}` : '');
   }
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'text', body: custMsg });
