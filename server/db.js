@@ -31,6 +31,7 @@ try { db.exec("ALTER TABLE orders ADD COLUMN no_captain_notified_at TEXT"); } ca
 try { db.exec("ALTER TABLE orders ADD COLUMN cashier_deadline TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN captain_deadline TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN late_fee_cashier INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN late_fee_captain INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN cashier_late_notified INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN captain_late_notified INTEGER DEFAULT 0"); } catch {}
