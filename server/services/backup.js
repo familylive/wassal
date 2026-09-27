@@ -49,10 +49,79 @@ function localInfo() {
 }
 function localHasData() { return localInfo().hasData; }
 
+// 🩺 فحص سلامة ملف القاعدة — يمنع رفع/استعادة نسخة تالفة
+// (quick_check أسرع من integrity_check ويكشف التلف البنيوي الذي أوقف الحفظ في 2026-09-27)
+const _saneCache = { at: 0, val: null, path: null };
+export function dbLooksSane(file = config.dbPath, useCache = false) {
+  const now = Date.now();
+  if (useCache && _saneCache.path === file && _saneCache.val !== null && now - _saneCache.at < 30000) return _saneCache.val;
+  let val = false;
+  try {
+    if (existsSync(file)) {
+      const db = new DatabaseSync(file, { readOnly: true });
+      try {
+        const r = db.prepare('PRAGMA quick_check').get();
+        const v = r ? Object.values(r)[0] : '';
+        val = String(v || '').toLowerCase() === 'ok';
+      } finally { try { db.close(); } catch {} }
+    }
+  } catch (e) { val = false; }
+  if (useCache) { _saneCache.at = now; _saneCache.val = val; _saneCache.path = file; }
+  return val;
+}
+
+// ♻️ استرجاع آخر نسخة سليمة من تاريخ المستودع (نتجاوز النسخ التالفة واحدة واحدة)
+// ملاحظة: النسخة التالفة تُرفع كل دقيقتين، فالنسخة السليمة قد تكون مئات الإصدارات للخلف → نجلب الصفحات
+async function historyShas(maxVersions) {
+  const shas = [];
+  const pages = Math.ceil(Math.min(600, Math.max(1, maxVersions)) / 100);
+  for (let p = 1; p <= pages; p++) {
+    const r = await axios.get(`https://api.github.com/repos/${OWNER}/${REPO}/commits?path=${FILE}&per_page=100&page=${p}`,
+      { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 20000 });
+    const items = (r.data || []).map(c => c.sha).filter(Boolean);
+    shas.push(...items);
+    if (items.length < 100) break;
+  }
+  return shas;
+}
+
+export async function restoreFromHistory(maxVersions = 400) {
+  if (!TOKEN) { console.error('DB_HISTORY_NO_TOKEN'); return false; }
+  let shas = [];
+  try { shas = await historyShas(maxVersions); } catch (e) { console.error('DB_HISTORY_LIST_FAIL', e.message); return false; }
+  console.log('DB_HISTORY_SCAN', shas.length);
+  for (const sha of shas) {
+    try {
+      const r = await axios.get(`${API}?ref=${sha}`, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 30000 });
+      const content = Buffer.from(r.data?.content || '', 'base64');
+      if (content.length < 60000) continue;
+      if (!content.slice(0, 16).toString('ascii').includes('SQLite format 3')) continue;
+      const tmp = config.dbPath + '.cand';
+      writeFileSync(tmp, content);
+      if (!dbLooksSane(tmp)) { try { rmSync(tmp, { force: true }); } catch {} continue; }
+      try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
+      try { rmSync(config.dbPath + '-shm', { force: true }); } catch {}
+      try { if (existsSync(config.dbPath)) writeFileSync(config.dbPath + '.bak', readFileSync(config.dbPath)); } catch {}
+      writeFileSync(config.dbPath, content);
+      try { rmSync(tmp, { force: true }); } catch {}
+      console.log('DB_RESTORED_FROM_HISTORY', sha.slice(0, 7), content.length);
+      return true;
+    } catch (e) { /* جرّب الإصدار الأقدم */ }
+  }
+  console.error('DB_HISTORY_NO_GOOD_VERSION');
+  return false;
+}
+
 // استعادة عند الإقلاع
 // القاعدة: نستعيد النسخة الاحتياطية إذا (١) القاعدة المحلية فاضية، أو (٢) النسخة الاحتياطية أحدث من الملف المحلي
 // هكذا لا يضيع أي شي بعد كل نشر (Render يمسح القرص)، وفي نفس الوقت لا نستبدل بيانات أحدث بنسخة أقدم.
 export async function restoreIfNeeded() {
+  // ٠) إن كانت القاعدة المحلية تالفة → استرجع آخر نسخة سليمة من التاريخ
+  // (بدون هذا: النسخة التالفة تُرفع كل دقيقتين وتُستعاد عند كل إقلاع — حلقة تلف لا تنتهي)
+  if (existsSync(config.dbPath) && !dbLooksSane(config.dbPath)) {
+    console.error('DB_LOCAL_MALFORMED scanning_backup_history');
+    if (await restoreFromHistory()) return true;
+  }
   const local = localInfo();
   const remote = await fetchBackup();
   if (!remote) {
@@ -84,6 +153,8 @@ export async function backupNow() {
   if (!TOKEN) return false;
   try {
     if (!existsSync(config.dbPath)) return false;
+    // 🛡 لا ترفع قاعدة تالفة أبداً — وإلا طمست النسخة السليمة في المستودع
+    if (!dbLooksSane(config.dbPath)) { console.error('DB_BACKUP_SKIP_MALFORMED'); return false; }
     // ⚠️ مهم: تدقيق WAL قبل القراءة (وإلا تفوت النسخة أحدث الطلبات)
     try {
       const { q } = await import('../db.js');

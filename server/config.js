@@ -39,7 +39,9 @@ export const config = {
   // 📨 تليجرام (قناة إضافية — نفس التدفقات)
   telegram: {
     token: process.env.TELEGRAM_BOT_TOKEN || '',
-    secret: process.env.TELEGRAM_WEBHOOK_SECRET || 'wassal-tg'
+    secret: process.env.TELEGRAM_WEBHOOK_SECRET || 'wassal-tg',
+    // رقم حساب المشرف في تليجرام إن اختلف عن رقم المشرف (المعلن للاستفسارات)
+    adminPhone: process.env.TELEGRAM_ADMIN_PHONE || ''
   },
   commissionBusinessPercent: Number(process.env.COMMISSION_BUSINESS_PERCENT || 15),
   commissionCaptainPercent: Number(process.env.COMMISSION_CAPTAIN_PERCENT || 15),

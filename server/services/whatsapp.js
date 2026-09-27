@@ -44,10 +44,19 @@ async function sendCloud({ phone, type, body, buttons, list, image, document }) 
 async function sendTelegram({ phone, type, body, buttons, list, image, document }) {
   const { token } = config.telegram;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN غير معرّف');
-  const raw = String(phone || '');
-  const norm = raw.startsWith('+') ? raw : (raw.length > 10 ? '+' + raw : '+966' + raw.replace(/^0/, ''));
-  const row = q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=? OR phone=? ORDER BY updated_at DESC LIMIT 1", raw, norm, raw.replace(/^\+/, ''))
-    || q.get("SELECT chat_id FROM telegram_links WHERE phone LIKE ? ORDER BY updated_at DESC LIMIT 1", '%' + raw.slice(-9));
+  // رقم حساب المشرف في تليجرام قد يختلف عن رقم المشرف المعلن — جرّب الاثنين
+  const candidates = [phone];
+  try {
+    if (config.telegram.adminPhone && config.adminPhone && waTo(phone) === waTo(config.adminPhone)) candidates.push(config.telegram.adminPhone);
+  } catch (e) {}
+  let row = null;
+  for (const cand of candidates) {
+    const raw = String(cand || '');
+    const norm = raw.startsWith('+') ? raw : (raw.length > 10 ? '+' + raw : '+966' + raw.replace(/^0/, ''));
+    row = q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=? OR phone=? ORDER BY updated_at DESC LIMIT 1", raw, norm, raw.replace(/^\+/, ''))
+      || q.get("SELECT chat_id FROM telegram_links WHERE phone LIKE ? ORDER BY updated_at DESC LIMIT 1", '%' + raw.slice(-9));
+    if (row?.chat_id) break;
+  }
   if (!row?.chat_id) throw new Error('لا توجد محادثة تليجرام مرتبطة بهذا الرقم');
   const chat_id = row.chat_id;
   const api = (m) => `https://api.telegram.org/bot${token}/${m}`;
