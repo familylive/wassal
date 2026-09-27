@@ -67,6 +67,7 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
   const postRaw = async (m, payload) => (await axios.post(api(m), { chat_id, ...payload }, { timeout: 20000 })).data;
   const post = async (m, payload) => {
     try {
+      outStats.n += 1; outStats.lastAt = new Date().toISOString(); outStats.lastSummary = `${m} → ${String(phone || '').slice(-4)}`;
       const r = await postRaw(m, payload);
       try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('outbound', ?, ?)",
         `${m} → ${String(phone || '').slice(-4)}`, JSON.stringify({ chat_id: String(chat_id), ok: r?.ok }).slice(0, 200)); } catch (e) {}
@@ -153,6 +154,9 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
   }
   return r?.data;
 }
+
+// 🔢 عدّاد الإرسال — لمعرفة إن كان التدفّق قد أنهى دون أي رد (تشخيص «ما فيه رد»)
+export const outStats = { n: 0, lastAt: null, lastSummary: '' };
 
 // ---------- log + deliver ----------
 // تحديد المطعم: من الوسيط، وإلا من جلسة الرقم، وإلا من آخر مطعم معروف للرقم

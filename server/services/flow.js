@@ -635,7 +635,7 @@ function mainMenu(phone, rid) {
 }
 
 // ---------- main dispatcher ----------
-export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null, mediaRef = null }) {
+async function handleIncomingInner({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null, mediaRef = null }) {
   // 🛵 الكابتن المسجّل له مسار مستقل — كان تليجرام يمرّره للموزّع العام فيظهر له منيو العملاء
   //    (ولذلك لم تكن تظهر له فاتورة التأمين ولا عروض الطلبات ولا رمز الاستلام)
   try {
@@ -4361,4 +4361,36 @@ async function finishCancel(phone, rid, customer, data, reason, note = null) {
   const session = getSession(phone);
   saveSession(phone, 'idle', { ...session.data, orderId: null, cart: { items: [] } });
   return mainMenu(phone, rid);
+}
+
+
+// 🧭 غلاف تشخيصي: إن انتهى التدفّق بلا أي إرسال → نسجّل الحالة والسبب (مشكلة «ما فيه رد»)
+export async function handleIncoming(args) {
+  const { outStats } = await import('./whatsapp.js');
+  const before = outStats.n;
+  try {
+    return await handleIncomingInner(args);
+  } finally {
+    try {
+      if (outStats.n === before) {
+        const phone = args?.phone;
+        let st = null;
+        try { st = getSession(phone)?.state || null; } catch (e) {}
+        try {
+          q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('no-reply', ?, ?)",
+            String(args?.payload || args?.body || '').slice(0, 80),
+            JSON.stringify({ phone_tail: String(phone || '').slice(-4), type: args?.type, state: st, rid: args?.restaurantId }).slice(0, 220));
+        } catch (e) {}
+        // 🧭 ضمان ألا تبقى أي رسالة بلا رد
+        try {
+          const { waSend } = await import('./whatsapp.js');
+          await waSend({
+            phone, restaurantId: args?.restaurantId || 1, type: 'buttons',
+            body: 'وصلتني رسالتك ✅\n• للطلب: أرسل *المنيو*\n• للقائمة الرئيسية: أرسل *مرحبا*',
+            buttons: [{ id: 'cmenu:new', title: '🛒 طلب جديد' }, { id: 'cmenu:back', title: '🏠 القائمة' }]
+          });
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
 }
