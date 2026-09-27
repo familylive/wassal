@@ -5,7 +5,17 @@ import config from './config.js';
 // استعادة النسخة الاحتياطية قبل فتح القاعدة (ضد مسح بيانات Render عند النشر)
 import { restoreIfNeeded } from './services/backup.js';
 
-mkdirSync(dirname(config.dbPath), { recursive: true });
+// ⏳ مجلد قاعدة البيانات: القرص الدائم غير مربوط أثناء البناء على Render (يربط وقت التشغيل فقط)
+// → لا نُسقط العملية (كان: ENOENT mkdir '/var/data' → فشل النشر)، ونرجع لمسار محلي مؤقت.
+try {
+  mkdirSync(dirname(config.dbPath), { recursive: true });
+} catch (e) {
+  const fallback = new URL('./.data/wassal.db', import.meta.url).pathname;
+  console.warn('DB_DIR_UNAVAILABLE', dirname(config.dbPath), e.code, '→ fallback', fallback);
+  try { mkdirSync(dirname(fallback), { recursive: true }); } catch {}
+  config.dbPath = fallback;
+}
+console.log('DB_EFFECTIVE', config.dbPath);
 await restoreIfNeeded();
 const db = new DatabaseSync(config.dbPath);
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
