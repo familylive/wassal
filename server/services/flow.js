@@ -397,17 +397,24 @@ export async function handleStaffMenu(phone, rid, p, staff) {
   // 🛵 إعادة البحث عن كابتن من تليجرام (بلا دخول اللوحة)
   // 🍳 «الطلب جاهز»: خطوة مستقلة بعد قبول الكابتن ⇒ يُبلَّغ الكابتن لاستلامه
   if (p === 'st:ready') {
-    const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NOT NULL
-      AND status IN ('confirmed','preparing') ORDER BY id DESC LIMIT 8`, ridr);
+    const rows = q.all(`SELECT * FROM orders o WHERE o.restaurant_id=?
+      AND o.status IN ('confirmed','preparing')
+      AND (o.captain_id IS NOT NULL OR EXISTS (SELECT 1 FROM captain_offers f WHERE f.order_id=o.id AND COALESCE(f.status,'offered')<>'rejected'))
+      ORDER BY o.id DESC LIMIT 8`, ridr);
     if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلب معه كابتن وينتظر «جاهز» 🍳', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
     return send(phone, rid, null, 'list', '🍳 *اختر الطلب الجاهز* — بنبلّغ الكابتن يجي يستلمه:', { list: [{ title: 'الطلبات الجاهزة', rows: rows.map(o => ({ id: 'st:rd:' + o.id, title: `📦 ${o.order_no}`, description: `${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س` })) }] });
   }
   if (p.startsWith('st:rd:')) {
     const orderId = Number(p.split(':')[2]);
     const o = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, ridr);
-    if (!o?.captain_id) return send(phone, rid, null, 'text', 'الطلب ما حجز له كابتن بعد 🙏');
+    if (!o) return send(phone, rid, null, 'text', 'الطلب غير موجود 🙏');
+    const capId2 = o.captain_id
+      || q.get("SELECT captain_id FROM captain_offers WHERE order_id=? AND COALESCE(status,'offered')<>'rejected' ORDER BY id DESC LIMIT 1", orderId)?.captain_id
+      || null;
+    if (!capId2) return send(phone, rid, null, 'text', 'لسّه ما فيه كابتن قبل هذا الطلب 🙏');
+    try { q.run("UPDATE orders SET captain_id=? WHERE id=?", capId2, orderId); } catch (e) {}
     await setStatus(orderId, 'ready', 'restaurant', staff.user?.id || null);
-    const cap = q.get("SELECT * FROM captains WHERE id=?", o.captain_id);
+    const cap = q.get("SELECT * FROM captains WHERE id=?", capId2);
     if (cap?.phone) waSend({ phone: cap.phone, restaurantId: ridr, orderId, type: 'buttons',
       body: `🍳 *الطلب جاهز للاستلام!*\n📦 ${o.order_no}\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ridr)?.name_ar || ''}\n📍 ${q.get("SELECT national_address FROM orders WHERE id=?", orderId)?.national_address || ''}\n\n👇 اضغط «استلام الطلب» لما تستلمه من المحل:`,
       buttons: [{ id: 'cap:stage:transferred', title: '📦 استلام الطلب' }] }).catch(() => {});
@@ -415,17 +422,24 @@ export async function handleStaffMenu(phone, rid, p, staff) {
   }
   // 🛵 تأكيد تسليم الطلب للكابتن (يوقف مهلة النشاط ويبدأ مهلة الكابتن ويُبلغ العميل)
   if (p === 'st:hand') {
-    const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NOT NULL
-      AND status IN ('confirmed','preparing','ready') ORDER BY id DESC LIMIT 8`, ridr);
-    if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلب حجز له كابتن وينتظر التسليم 🛵', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+    const rows = q.all(`SELECT * FROM orders o WHERE o.restaurant_id=?
+      AND o.status IN ('confirmed','preparing','ready')
+      AND (o.captain_id IS NOT NULL OR EXISTS (SELECT 1 FROM captain_offers f WHERE f.order_id=o.id AND COALESCE(f.status,'offered')<>'rejected'))
+      ORDER BY o.id DESC LIMIT 8`, ridr);
+    if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلب معه كابتن وينتظر التسليم 🛵', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
     return send(phone, rid, null, 'list', '🛵 *طلبات معها كابتن* — اختر الطلب الذي سلّمته:', { list: [{ title: 'جاهزة للتسليم للكابتن', rows: rows.map(o => ({ id: 'st:hd:' + o.id, title: `📦 ${o.order_no}`, description: `${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س` })) }] });
   }
   if (p.startsWith('st:hd:')) {
     const orderId = Number(p.split(':')[2]);
     const o = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, ridr);
-    if (!o || !o.captain_id) return send(phone, rid, null, 'text', 'الطلب غير موجود أو ما حجز له كابتن 🙏');
+    if (!o) return send(phone, rid, null, 'text', 'الطلب غير موجود 🙏');
+    const capId = o.captain_id
+      || q.get("SELECT captain_id FROM captain_offers WHERE order_id=? AND COALESCE(status,'offered')<>'rejected' ORDER BY id DESC LIMIT 1", orderId)?.captain_id
+      || null;
+    if (!capId) return send(phone, rid, null, 'text', 'لسّه ما فيه كابتن قبل هذا الطلب 🙏\nجرّب: 🛵 ابحث عن كابتن');
+    try { q.run("UPDATE orders SET captain_id=? WHERE id=?", capId, orderId); } catch (e) {}
     await setStatus(orderId, 'with_captain', 'restaurant', staff.user?.id || null);
-    const cap = q.get("SELECT * FROM captains WHERE id=?", o.captain_id);
+    const cap = q.get("SELECT * FROM captains WHERE id=?", capId);
     if (cap?.phone) waSend({ phone: cap.phone, restaurantId: ridr, orderId, type: 'buttons',
       body: `✅ *النشاط سلّمك الطلب ${o.order_no}* 🛵\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ridr)?.name_ar || ''}\n\n⏱️ عندك *25 دقيقة* للتسليم للعميل\n👇 حدّث الحالة:`,
       buttons: [{ id: 'cap:stage:on_the_way', title: '🚀 انطلقت' }, { id: 'cap:stage:arrived', title: '📍 وصلت' }, { id: 'cap:code', title: '🔐 رمز الاستلام' }] }).catch(() => {});
