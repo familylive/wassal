@@ -22,6 +22,15 @@ app.use('/api/dbadmin', apiLimiter);
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/sim', express.static(path.join(__dirname, 'public/sim')));
+
+// 🩺 فحص عام (بلا بيانات حساسة): هل ملف قاعدة البيانات سليم؟ — للمراقبة من الخارج
+app.get('/api/health', async (req, res) => {
+  try {
+    const { dbLooksSane } = await import('./services/backup.js');
+    return res.json({ ok: true, db: dbLooksSane(undefined, true) ? 'sane' : 'malformed', at: new Date().toISOString() });
+  } catch (e) { return res.json({ ok: false, error: e.message }); }
+});
+
 app.use('/api', apiRouter);
 
 const server = http.createServer(app);

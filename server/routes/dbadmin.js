@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from '../config.js';
 import { q } from '../db.js';
-import { backupNow, scheduleBackup } from '../services/backup.js';
+import { backupNow, scheduleBackup, dbLooksSane, restoreFromHistory } from '../services/backup.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,6 +34,25 @@ router.post('/import', (req, res) => {
   });
 });
 
+
+// 🔎 حالة القاعدة: سلامة الملف + أعداد الصفوف الرئيسية
+router.get('/health', (req, res) => {
+  const out = { path: config.dbPath, sane: dbLooksSane(), size: 0, counts: {} };
+  try { out.size = fs.statSync(config.dbPath).size; } catch {}
+  for (const t of ['restaurants', 'customers', 'conversations', 'orders', 'business_registrations', 'restaurant_users', 'captains', 'app_settings', 'admins', 'telegram_links']) {
+    try { out.counts[t] = Number(q.get(`SELECT COUNT(*) c FROM "${t}"`).c) || 0; } catch { out.counts[t] = null; }
+  }
+  res.json(out);
+});
+
+// ♻️ استرجاع آخر نسخة سليمة من تاريخ النسخ الاحتياطية (يكتب الملف — يحتاج إعادة تشغيل الخدمة)
+router.post('/restore', requireRole('admin'), async (req, res) => {
+  if (String(req.query.confirm || req.body?.confirm || '') !== 'YES') return res.status(400).json({ error: 'أرسل confirm=YES للتأكيد' });
+  try {
+    const ok = await restoreFromHistory(Number(req.query.max) || 400);
+    res.json({ ok, note: ok ? 'تم استرجاع نسخة سليمة — أعد تشغيل الخدمة لتفعيلها' : 'ما وُجدت نسخة سليمة في آخر الإصدارات المفحوصة' });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 
 // تفريغ البيانات التجريبية: المطاعم · المشتركين · الكباتن · الطلبات
 // يُبقي: حساب المدير · إعدادات المنصة · أنواع الأنشطة

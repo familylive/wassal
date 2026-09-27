@@ -884,6 +884,15 @@ function SettingsTab() {
   const [testPhone, setTestPhone] = useState('');
   const [testRes, setTestRes] = useState(null);
   const [clearing, setClearing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const restoreDb = async () => {
+    if (!window.confirm('استرجاع آخر نسخة سليمة من النسخ الاحتياطية؟\n\nيفيد إذا كانت قاعدة البيانات تالفة. يحتاج بعدها إعادة تشغيل الخدمة.')) return;
+    setRestoring(true);
+    try {
+      const r = await api('/dbadmin/restore?confirm=YES', { method: 'POST', body: {} });
+      notify(r?.ok ? '✅ ' + (r.note || 'تم الاسترجاع') : '⚠️ ' + (r?.note || r?.error || 'ما وُجدت نسخة سليمة'));
+    } catch (e) { notify(e.message); } finally { setRestoring(false); }
+  };
   const clearDemo = async () => {
     if (!window.confirm('تأكيد: حذف كل المطاعم والمشتركين والكباتن والطلبات والمحادثات؟\n\nتُبقي الإعدادات وأنواع الأنشطة وحساب المدير.')) return;
     if (!window.confirm('تأكيد أخير — لا يمكن التراجع إلا من نسخة الأمان. متأكد؟')) return;
@@ -1049,6 +1058,9 @@ function SettingsTab() {
         </div>
         <button className="btn ghost" disabled={clearing} onClick={clearDemo} style={{ borderColor: '#e57373', color: '#c62828' }}>
           {clearing ? '… جارٍ التفريغ' : '🧹 افرغ البيانات التجريبية'}
+        </button>
+        <button className="btn ghost" disabled={restoring} onClick={restoreDb} style={{ borderColor: '#8bc34a', color: '#33691e', marginTop: 8 }}>
+          {restoring ? '… جارٍ الاسترجاع' : '♻️ استرجاع آخر نسخة سليمة (لو القاعدة تالفة)'}
         </button>
       </div>
     </Card>
