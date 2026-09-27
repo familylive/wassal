@@ -16,8 +16,20 @@ export function broadcastToCaptains(order) {
       offerId: Number(r.lastInsertRowid), orderId: order.id, orderNo: order.order_no,
       restaurant: restaurant.name_ar, total: order.total, est: order.est_delivery_min, address: order.national_address
     });
-    waSend({ phone: c.phone, restaurantId: order.restaurant_id, orderId: order.id, participant: 'captain', type: 'text',
-      body: `🛵 طلب جديد متاح للتوصيل!\n📦 ${order.order_no} — ${restaurant.name_ar}\n💰 ${(order.total / 100).toFixed(2)} ر.س\n📍 ${order.national_address || ''}\n\n${customerScoreLine(order.customer_id)}\n\n✅ رد على هذا الرقم بكلمة: *اقبل*  (أو *رفض*)` });
+    // 🛵 المسافة وسعر التوصيل المتوقّع (كانت الرسالة تخرج بلا تسعيرة)
+    let km = null; let fee = Number(order.delivery_fee || 0);
+    try {
+      if (order.lat && order.lng) {
+        km = Math.round(resolveDelivery(order.restaurant_id, order.lat, order.lng).distanceKm * 10) / 10;
+        if (km > 0) fee = Math.max(fee, Math.round(km * 150));   // 1.50 ر.س لكل كم (حد أدنى)
+      }
+    } catch (e) { console.error('CAP_FEE_CALC_FAIL', e.message); }
+    const feeLine = (km != null && fee)
+      ? `📏 المسافة: *${km} كم*\n🛵 سعر التوصيل: *${(fee / 100).toFixed(2)} ر.س*`
+      : (fee ? `🛵 سعر التوصيل: *${(fee / 100).toFixed(2)} ر.س*` : '🛵 سعر التوصيل: *غير محدّد* (يُحدَّد مع النشاط)');
+    waSend({ phone: c.phone, restaurantId: order.restaurant_id, orderId: order.id, participant: 'captain', type: 'buttons',
+      body: `🛵 *طلب جديد متاح للتوصيل!*\n📦 ${order.order_no} — ${restaurant.name_ar}\n💰 قيمة الطلب: ${(order.total / 100).toFixed(2)} ر.س\n${feeLine}\n📍 ${order.national_address || ''}\n\n${customerScoreLine(order.customer_id)}\n\n_(أو اكتب: *اقبل* / *رفض*)_`,
+      buttons: [{ id: 'cap:acc:' + order.id, title: '✅ قبول الطلب' }, { id: 'cap:rej:' + order.id, title: '❌ رفض الطلب' }] });
   }
   if (captains.length) {
     q.run("UPDATE orders SET status='offered', updated_at=datetime('now') WHERE id=?", order.id);
