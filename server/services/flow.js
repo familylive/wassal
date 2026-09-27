@@ -3907,7 +3907,7 @@ export async function handleCaptainMenu(phone, rid, p, captain) {
   }
   if (p === 'cap:points') { const c = ensureCustomer(phone); return showLoyalty(phone, rid, c); }
   if (p === 'cap:wallet') return send(phone, null, null, 'text', (await import('./captainAccount.js')).captainAccount(captain.id)?.transactions?.length ? '💰 افتح *فواتيري* للتفاصيل، و*حسابي* في الإشعارات.' : '💰 ما فيه حركات بعد.');
-  if (p === 'cap:idle') { q.run("UPDATE captains SET status='available' WHERE id=?", captain.id); return send(phone, null, null, 'text', '🟢 *صارت حالتك: متاح* — بوصلك أي طلب في نطاقك 🛵'); }
+  if (p === 'cap:idle') { q.run("UPDATE captains SET status='available', busy_order_no=NULL WHERE id=?", captain.id); return send(phone, null, null, 'text', '🟢 *صارت حالتك: متاح* — بوصلك أي طلب في نطاقك 🛵'); }
   if (p === 'cap:code') return send(phone, null, null, 'text', '🔐 أرسل: *رمز* ثم رمز الاستلام الذي يعطيك العميل — مثال: *رمز 1234*');
   if (p.startsWith('cap:stage:')) {
     const map = { transferred: 'استلمت', with_captain: 'استلمت', on_the_way: 'انطلقت', arrived: 'وصلت' };
@@ -3993,7 +3993,7 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
     if (_sess.state === 'cap_busy_no') {
       const no = String(b || '').replace(/[^\dA-Za-z-]/g, '').slice(0, 24);
       saveSession(phone, 'idle', {});
-      q.run("UPDATE captains SET status='busy' WHERE id=?", captain.id);
+      q.run("UPDATE captains SET status='busy', busy_order_no=? WHERE id=?", no || null, captain.id);
       if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🟠 *كابتن مشغول بتوصيل طلب*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 الطلب: ${no || '—'}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}` }).catch(() => {});
       return send(captain.phone, null, null, 'buttons',
         `✅ *تم تسجيلك «مشغول»* بالطلب *${no || '—'}*\n\nما بوصلك طلبات جديدة لين تكتب *متاح*.`,
