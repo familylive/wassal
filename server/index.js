@@ -169,6 +169,12 @@ import('./services/captainAccount.js').then(({ releaseStaleBusyCaptains }) => {
   setTimeout(() => releaseStaleBusyCaptains(180), 60000);
 }).catch(() => {});
 
+// ⏰ تقارير الكابتن اليومية + تذكير العملاء بالعروض
+import('./services/reminders.js').then(({ runReminderJobs }) => {
+  setInterval(() => runReminderJobs().catch(() => {}), 5 * 60 * 1000);
+  setTimeout(() => runReminderJobs().catch(() => {}), 45000);
+}).catch(() => {});
+
 import('./services/backup.js').then(({ scheduleBackup, backupNow }) => {
   setInterval(scheduleBackup, 2 * 60 * 1000);
   console.log('🔄 النسخ الاحتياطي التلقائي مفعّل (كل دقيقتين)');

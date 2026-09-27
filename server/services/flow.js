@@ -646,6 +646,22 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   const customer = ensureCustomer(phone);
   // 🏠 أزرار قائمة العميل
   if (payload && String(payload).startsWith('cmenu:')) return handleCustomerMenu(phone, restaurantId, String(payload), customer);
+  // 🔥 اختيار عرض من رسالة التذكير → نفتح منيو النشاط صاحب العرض (ويوصل الطلب لكاشيره)
+  if (payload && String(payload).startsWith('off:')) {
+    const offerId = Number(String(payload).split(':')[1]);
+    const of_ = q.get("SELECT o.*, r.name_ar, r.id AS rid FROM offers o JOIN restaurants r ON r.id=o.restaurant_id WHERE o.id=?", offerId);
+    if (!of_) return send(phone, restaurantId, null, 'text', 'انتهى هذا العرض أو لم يعد متاحًا 🙏');
+    const kind = of_.type === 'percent' ? `خصم *${of_.value}%*`
+      : of_.type === 'amount' ? `خصم *${rls(of_.value)} ر.س*`
+      : of_.type === 'delivery' ? '*توصيل مجاني* 🛵' : 'عرض خاص 🎁';
+    const sess = getSession(phone);
+    saveSession(phone, 'idle', { ...(sess.data || {}), currentRestaurantId: of_.rid });
+    try { q.run("UPDATE whatsapp_sessions SET restaurant_id=? WHERE phone=?", of_.rid, phone); } catch (e) {}
+    const minLine = of_.min_order ? `\n(الحد الأدنى ${rls(of_.min_order)} ر.س)` : '';
+    const descLine = of_.description ? `\n${of_.description}` : '';
+    send(phone, of_.rid, null, 'text', `🎁 *${of_.title}*\n🏪 ${of_.name_ar}\n${kind}${minLine}${descLine}\n\n👇 اختر اللي تبي من المنيو، والعرض يُطبّق على طلبك.`);
+    return showMenu(phone, of_.rid);
+  }
   // 🧑‍💼 الموظفون: صاحب النشاط · مدير الفرع · الكاشير — قوائم مرتّبة بدل قائمة الخدمات 1/2/3
   {
     const staff = staffContext(phone);
