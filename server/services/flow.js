@@ -1282,7 +1282,9 @@ function handleAddressPick(phone, rid, customer, data, p) {
                                 : q.get("SELECT * FROM customer_locations WHERE customer_id=? ORDER BY is_default DESC, id DESC LIMIT 1", customer.id);
     if (!loc || loc.lat == null) return askLocation(phone, rid, customer, { ...data, forceNewLocation: true });
     const delivery = resolveDelivery(rid, loc.lat, loc.lng);
-    if (!delivery.ok || delivery.reason === 'out_of_range') {
+    if (!delivery.ok) {
+      if (delivery.reason !== 'out_of_range')
+        return send(phone, rid, null, 'text', '🚫 *التوصيل غير متاح من هذا النشاط حالياً* — موقع التوصيل غير مضبوط 📍\n\nجرّب نشاطًا ثانيًا، أو كلّم النشاط 🌸');
       send(phone, rid, null, 'text', `🚫 نعتذر، عنوانك السابق *خارج نطاق التوصيل* حالياً (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}*`);
       return askLocation(phone, rid, customer, { ...data, forceNewLocation: true });
     }
@@ -1296,8 +1298,10 @@ function handleAddressPick(phone, rid, customer, data, p) {
 function handleLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
-  if (!delivery.ok || delivery.reason === 'out_of_range') {
-    send(phone, rid, null, 'text', `🚫 المعذرة يا طويل العمر، موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع لك: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nوصلني موقع ثاني وأبشر 😊`);
+  if (!delivery.ok) {
+    if (delivery.reason !== 'out_of_range')
+      return send(phone, rid, null, 'text', '🚫 *التوصيل غير متاح من هذا النشاط حالياً* — موقع التوصيل غير مضبوط 📍\n\nجرّب نشاطًا ثانيًا، أو كلّم النشاط 🌸');
+    send(phone, rid, null, 'text', `🚫 المعذرة يا طويل العمر، موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).\nأقرب فرع لك: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nوصلني موقع ثاني وأبشر 😊`);
     saveSession(phone, 'location_request', { ...data, outOfRange: true });
     return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال موقع آخر' }, { id: 'menu', title: '⬅️ القائمة الرئيسية' }] });
   }
