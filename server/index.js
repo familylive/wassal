@@ -87,6 +87,21 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
   });
 }
 
+// 🔑 استعادة كلمة مرور المدير عند الحاجة (نسيت كلمة المرور؟)
+// اضبط ADMIN_RESET_PASSWORD في متغيرات البيئة ثم أعد التشغيل — واحذفه فوراً بعد الدخول.
+try {
+  const _rp = process.env.ADMIN_RESET_PASSWORD;
+  if (_rp && String(_rp).length >= 6) {
+    const bcrypt = (await import('bcryptjs')).default;
+    const { q } = await import('./db.js');
+    const row = q.get('SELECT id, email FROM admins ORDER BY id LIMIT 1');
+    if (row) {
+      q.run('UPDATE admins SET password_hash=? WHERE id=?', bcrypt.hashSync(String(_rp), 10), row.id);
+      console.warn('ADMIN_PASSWORD_RESET_OK ⚠️ تم تعيين كلمة مرور المدير من ADMIN_RESET_PASSWORD — احذف المتغير الآن');
+    } else console.warn('ADMIN_PASSWORD_RESET_NO_ADMIN');
+  }
+} catch (e) { console.error('ADMIN_PASSWORD_RESET_FAIL', e.message); }
+
 // 👤 تحقّق من رقم المشرف عند التشغيل (إشعارات الاعتماد تعتمد عليه)
 try {
   const { waTo } = await import('./services/whatsapp.js');
