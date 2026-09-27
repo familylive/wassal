@@ -296,6 +296,8 @@ export async function showStaffEntryMenu(phone, rid, staff) {
 }
 function cashierMenuRows() {
   return [
+    { id: 'st:orders', title: '🧾 الطلبات الحالية', description: 'طلبات اليوم وحالتها' },
+    { id: 'st:findcap', title: '🛵 ابحث عن كابتن', description: 'أعِد عرض الطلبات بلا كابتن' },
     { id: 'stc:hours', title: '⏰ وقت العمل', description: 'ساعات عمل النشاط' },
     { id: 'stc:report', title: '📊 تقرير يومي', description: 'مبيعات اليوم — نص + PDF' },
     { id: 'stc:open', title: '🟢 استقبال الطلبات', description: 'افتح الاستقبال الآن' },
