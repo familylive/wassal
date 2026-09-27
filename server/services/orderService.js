@@ -74,7 +74,8 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
     q.run("UPDATE orders SET bid_until=datetime('now','+90 seconds') WHERE id=?", order.id);
     order.bid_until = q.get("SELECT bid_until FROM orders WHERE id=?", order.id)?.bid_until || null;
   } else if (!isPickup) {
-    broadcastToCaptains(order);   // 🏪 طلب استلام = بلا خدمة كابتن
+    // 🛵 لا نبحث عن كابتن عند إنشاء الطلب — الطلب يروح للكابتن بعد تأكيد النشاط (setStatus)
+    addEvent(order.id, 'pending_captain', 'بانتظار تأكيد النشاط قبل إرساله للكابتن');
   }
   // 📦 خصم الكميات المتوفرة (الأسر المنتجة وغيرها) وإخفاء الصنف لو خلص
   try {
@@ -114,6 +115,16 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
     ready: isPickupOrder ? '📦 طلبك جاهز — تفضل باستلامه من الفرع 🙏' : '📦 طلبك جاهز للتسليم.'
   };
   addEvent(orderId, status, msgs[status] || status, actorType, actorId);
+  // 🛵 إرسال الطلب للكابتن بعد ما يقول النشاط «استلمت/أكدت» (لا عند إنشاء الطلب)
+  if (['confirmed', 'ready'].includes(status) && !order.captain_id && !isPickupOrder) {
+    try {
+      const openOffer = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE order_id=? AND status='offered'", orderId)?.c || 0);
+      if (!openOffer) {
+        const fresh = q.get("SELECT * FROM orders WHERE id=?", orderId);
+        broadcastToCaptains(fresh);
+      }
+    } catch (e) { console.error('CAPTAIN_DISPATCH_ON_CONFIRM_FAIL', e.message); }
+  }
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'text', body: msgs[status] });
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status, order: { ...order, status } });
@@ -294,7 +305,7 @@ export async function redispatchUnassigned() {
   try {
     const rows = q.all(`SELECT * FROM orders
       WHERE captain_id IS NULL
-        AND status NOT IN ('delivered','cancelled','draft')
+        AND status IN ('confirmed','preparing','ready')
         AND COALESCE(order_type,'delivery') <> 'pickup'
         AND datetime(created_at) >= datetime('now','-2 day')
         AND id NOT IN (SELECT order_id FROM captain_offers WHERE status='offered')
