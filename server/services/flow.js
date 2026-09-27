@@ -92,7 +92,8 @@ function cartTotals(rid, cart, branch = null) {
   }
   // 🏪 طلب استلام من النشاط: بلا رسوم توصيل ولا حد أدنى
   const delivery_fee = cart?.pickup ? 0 : (subtotal >= (minOrder || 0) ? 0 : fee);
-  return { subtotal, discount, delivery_fee, total: subtotal - discount + delivery_fee };
+  const free_by_min_order = !cart?.pickup && Number(fee) > 0 && subtotal >= (minOrder || 0);
+  return { subtotal, discount, delivery_fee, total: subtotal - discount + delivery_fee, min_order: Number(minOrder) || 0, free_by_min_order, has_fee: Number(fee) > 0 };
 }
 function cartText(rid, cart, branch = null) {
   const t = cartTotals(rid, cart, branch);
@@ -103,7 +104,10 @@ function cartText(rid, cart, branch = null) {
   s += '━━━━━━━━━━━━━━━━\n';
   s += `🧾 المجموع: ${rls(t.subtotal)} ر.س\n`;
   if (t.discount) s += `🏷 الخصم: -${rls(t.discount)} ر.س\n`;
-  s += `🛵 التوصيل: ${t.delivery_fee ? rls(t.delivery_fee) + ' ر.س' : 'مجاني ✅'}\n`;
+  if (cart?.pickup) s += '🏪 استلام من النشاط — بلا رسوم توصيل ✅\n';
+  else if (t.delivery_fee) s += `🛵 التوصيل: ${rls(t.delivery_fee)} ر.س\n`;
+  else if (t.free_by_min_order) s += `🛵 التوصيل: *مجاني* 🎉 (طلبك فوق الحد الأدنى ${rls(t.min_order)} ر.س)\n`;
+  else s += '🛵 التوصيل: *يُحدَّد حسب المسافة* — يظهر بعد تحديد موقعك، والكباتن يعرضون سعر التوصيل\n';
   s += `💰 *الإجمالي: ${rls(t.total)} ر.س*`;
   return s;
 }
@@ -995,8 +999,8 @@ function showCart(phone, rid, customer) {
     return showCategories(phone, rid, customer);
   }
   saveSession(phone, 'cart', session.data);
-  send(phone, rid, null, 'text', cartText(rid, cart));
-  // 🧺 تليجرام: كل صنف زر (لتعديل الكمية) وبجواره 🗑 للحذف، ثم «صنف آخر» و«إرسال الطلب»
+  // 🧺 تليجرام: المجموع النهائي والأزرار في رسالة واحدة → زر «إرسال الطلب» تحت المجموع مباشرة
+  // كل صنف زر (لتعديل الكمية) وبجواره 🗑 للحذف، ثم «صنف آخر» و«إرسال الطلب»
   if (config.whatsapp.provider === 'telegram') {
     const btns = [];
     for (const it of (cart.items || []).slice(0, 6)) {
@@ -1007,8 +1011,9 @@ function showCart(phone, rid, customer) {
     }
     btns.push({ id: 'menu', title: '➕ صنف آخر' });
     btns.push({ id: 'checkout', title: '✅ إرسال الطلب' });
-    return send(phone, rid, null, 'buttons', '🧺 *سلتك* — اضغط الصنف لتعديل كميته، أو 🗑 لحذفه:', { buttons: btns });
+    return send(phone, rid, null, 'buttons', cartText(rid, cart), { buttons: btns });
   }
+  send(phone, rid, null, 'text', cartText(rid, cart));
   return send(phone, rid, null, 'buttons', 'نكمل أو نرسل الطلب؟ 👇', { buttons: [
     { id: 'checkout', title: '✅ إرسال الطلب' }, { id: 'menu', title: '📂 المنيو' }, { id: 'manage', title: '🔢 تعديل الكميات' }
   ] });
