@@ -4074,6 +4074,15 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
       const r = acceptFn(orderId, captain.id);
       if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
       if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `✅ *كابتن قبل طلب*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 ${ord.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n💰 التوصيل: ${rls(est.fee)} ر.س${est.km ? ' (' + est.km.toFixed(1) + ' كم)' : ''}` }).catch(() => {});
+      // 📱 إبلاغ العميل بقبول الطلب + جوال الكابتن للتواصل + زر متابعة الحالة
+      try {
+        const cust = q.get("SELECT phone FROM customers WHERE id=?", ord.customer_id);
+        if (cust?.phone) {
+          waSend({ phone: cust.phone, restaurantId: ord.restaurant_id, orderId, type: 'buttons',
+            body: `✅ *تم قبول طلبك*\n📦 ${ord.order_no}\n🛵 الكابتن: *${captain.name || ''}*\n📱 للتواصل: ${captain.phone || ''}\n⏱️ جاري تجهيز طلبك وتسليمه للكابتن 🍽️`,
+            buttons: [{ id: 'track', title: '📦 متابعة حالة الطلب' }] }).catch(() => {});
+        }
+      } catch (e) { console.error('CAP_ACCEPT_NOTIFY_CUSTOMER_FAIL', e.message); }
       return send(captain.phone, null, orderId, 'text',
         `✅ *قبلت الطلب ${ord.order_no}*\n\n💰 سعر التوصيل: *${rls(est.fee)} ر.س*${est.km ? ` (${est.km.toFixed(1)} كم)` : ''}\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n\nبانتظار تحويل النشاط الطلب عليك — وبيوصلك هنا مباشرة 🛵`);
     }
