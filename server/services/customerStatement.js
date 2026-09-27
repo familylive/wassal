@@ -92,9 +92,9 @@ export async function renderCustomerStatementPng(customerId) {
   c.lineWidth = 3; c.strokeStyle = GREEN; c.stroke();
   if (logo) { c.save(); c.beginPath(); c.arc(lx, ly, lr - 4, 0, Math.PI * 2); c.closePath(); c.clip(); c.drawImage(logo, lx - lr + 4, ly - lr + 4, (lr - 4) * 2, (lr - 4) * 2); c.restore(); }
   c.restore();
-  ar('واتس هم', 'bold 40px Cairo', DARK, 78, lx - 70);
+  ar('تلي هم', 'bold 40px Cairo', DARK, 78, lx - 70);
   ar('منصة الطلبات والتوصيل', '24px Cairo', GREY, 116, lx - 70);
-  en('Wassal Order', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
+  en('Tele Ham', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
 
   en('CUSTOMER STATEMENT', 'bold 20px Cairo', GREEN, 60, 60);
   ar('كشف حساب العميل', 'bold 32px Cairo', DARK, 96, 60, 'left');
@@ -186,7 +186,7 @@ export async function renderCustomerStatementPng(customerId) {
     c.drawImage(img, rx + 24, ry + 32, 92, 92); c.restore();
   }
   c.globalAlpha = 0.85; c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 24, ry + 56);
+  c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 24, ry + 56);
   c.font = 'bold 24px Cairo'; c.fillText('كشف حساب العميل', rx + stampW - 24, ry + 106);
   c.font = 'bold 20px Cairo'; c.fillText(`تاريخ ووقت الإصدار: ${today} — ${hhmm}`, rx + stampW - 24, ry + 152);
   c.font = 'bold 19px Cairo'; c.fillText(`رقم الكشف: ${no}`, rx + stampW - 24, ry + 196);
@@ -194,7 +194,7 @@ export async function renderCustomerStatementPng(customerId) {
   c.globalAlpha = 1;
 
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, H - 150); c.lineTo(W - 50, H - 150); c.stroke();
-  ar('كشف إلكتروني صادر من منصة واتس هم', '22px Cairo', GREY, H - 110);
+  ar('كشف إلكتروني صادر من منصة تلي هم', '22px Cairo', GREY, H - 110);
   ar(`تاريخ الإصدار: ${today} · ${hhmm} — للاستفسار: ${SITE}`, '20px Cairo', GREY, H - 78);
   ar('المبالغ بالريال السعودي (SAR) — يُحدَّث الكشف آلياً', '18px Cairo', '#8a97a4', H - 48);
 

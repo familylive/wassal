@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(__dirname, '..', 'assets');
 const OUT_DIR = path.join(__dirname, '..', 'uploads', 'invoices');
 const SITE = 'whats-ham.onrender.com';
-const NATIONAL = 'وصل — Wassal Order';
+const NATIONAL = 'تلي هم — Tele Ham';
 
 const rls = (h) => (Number(h || 0) / 100).toFixed(2);
 const money = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -104,9 +104,9 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   c.lineWidth = 3; c.strokeStyle = GREEN; c.stroke();
   if (logo) { c.save(); c.beginPath(); c.arc(lx, ly, lr - 4, 0, Math.PI * 2); c.closePath(); c.clip(); c.drawImage(logo, lx - lr + 4, ly - lr + 4, (lr - 4) * 2, (lr - 4) * 2); c.restore(); }
   c.restore();
-  ar('واتس هم', 'bold 40px Cairo', DARK, 78, lx - 70);
+  ar('تلي هم', 'bold 40px Cairo', DARK, 78, lx - 70);
   ar('منصة الطلبات والتوصيل', '24px Cairo', GREY, 116, lx - 70);
-  en('Wassal Order', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
+  en('Tele Ham', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
 
   // جهة اليسار: الفاتورة
   en('SALES INVOICE', 'bold 22px Cairo', GREEN, 62, 60);
@@ -202,9 +202,9 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   }
   c.globalAlpha = 0.85;
   c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 50);
+  c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 22, ry + 50);
   c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 104);
-  c.font = '20px Cairo'; c.fillText('منصة الطلبات والتوصيل · Wassal Order', rx + stampW - 22, ry + 138);
+  c.font = '20px Cairo'; c.fillText('منصة الطلبات والتوصيل · Tele Ham', rx + stampW - 22, ry + 138);
   c.font = 'bold 19px Cairo'; c.fillText(`${range ? 'رقم التقرير' : 'رقم الفاتورة'}: ${inv.no}`, rx + stampW - 22, ry + 172);
   c.font = 'bold 19px Cairo'; c.fillText(`تاريخ ووقت الإصدار: ${today} — ${hhmm}`, rx + stampW - 22, ry + 204);
   c.restore();
@@ -212,7 +212,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
 
   // ===== تذييل =====
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, H - 150); c.lineTo(W - 50, H - 150); c.stroke();
-  ar(`فاتورة إلكترونية صادرة من منصة واتس هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
+  ar(`فاتورة إلكترونية صادرة من منصة تلي هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
   ar(`للاستفسار: ${SITE}`, '21px Cairo', GREY, H - 78);
   ar(`تم الإنشاء آلياً بتاريخ ${today} الساعة ${hhmm} (توقيت السعودية)`, '19px Cairo', '#8a97a4', H - 48);
 
@@ -283,9 +283,9 @@ export async function renderOrderInvoicePng(order) {
   c.lineWidth = 3; c.strokeStyle = GREEN; c.stroke();
   if (logo) { c.save(); c.beginPath(); c.arc(lx, ly, lr - 4, 0, Math.PI * 2); c.closePath(); c.clip(); c.drawImage(logo, lx - lr + 4, ly - lr + 4, (lr - 4) * 2, (lr - 4) * 2); c.restore(); }
   c.restore();
-  ar('واتس هم', 'bold 40px Cairo', DARK, 80, lx - 74);
+  ar('تلي هم', 'bold 40px Cairo', DARK, 80, lx - 74);
   ar('منصة الطلبات والتوصيل', '24px Cairo', GREY, 118, lx - 74);
-  en('Wassal Order', 'bold 22px Cairo', GREEN, 152, lx - 74, 'right');
+  en('Tele Ham', 'bold 22px Cairo', GREEN, 152, lx - 74, 'right');
   ar('فاتورة ضريبية مبسطة / إيصال', 'bold 30px Cairo', DARK, 78, 60, 'left');
   ar(`رقم الفاتورة: ${invNo}`, 'bold 26px Cairo', DARK, 116, 60, 'left');
   ar(`التاريخ: ${dt}`, '23px Cairo', GREY, 150, 60, 'left');
@@ -350,7 +350,7 @@ export async function renderOrderInvoicePng(order) {
   }
   if (rate?.score) { ar(`🛵 تقييم الكابتن للعميل: ${Math.round(Number(rate.score) / 200)}/5`, '23px Cairo', GREY, y + 34); y += 34; }
 
-  // ===== الختم: معتمد من منصة واتس هم + اسم النشاط + الرقم والتاريخ =====
+  // ===== الختم: معتمد من منصة تلي هم + اسم النشاط + الرقم والتاريخ =====
   const stampW = 440, stampH = 260;
   const sy = Math.min(Math.max(y + 130, H - 360), H - 150);
   const sx = 70 + stampW / 2;
@@ -372,10 +372,10 @@ export async function renderOrderInvoicePng(order) {
   }
   c.globalAlpha = 0.85;
   c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 52);
-  c.font = 'bold 32px Cairo'; c.fillText('معتمد من منصة واتس هم', rx + stampW - 22, ry + 100);
+  c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 22, ry + 52);
+  c.font = 'bold 32px Cairo'; c.fillText('معتمد من منصة تلي هم', rx + stampW - 22, ry + 100);
   c.font = 'bold 24px Cairo'; c.fillText(String(r?.name_ar || '').slice(0, 26), rx + stampW - 22, ry + 140);
-  c.font = '20px Cairo'; c.fillText('موقع إلكتروني · Wassal Order', rx + stampW - 22, ry + 176);
+  c.font = '20px Cairo'; c.fillText('موقع إلكتروني · Tele Ham', rx + stampW - 22, ry + 176);
   c.font = 'bold 20px Cairo'; c.fillText(`فاتورة رقم ${invNo}`, rx + stampW - 22, ry + 210);
   c.font = '18px Cairo'; c.fillText(`${dt}`, rx + stampW - 22, ry + 238);
   c.restore();
@@ -383,8 +383,8 @@ export async function renderOrderInvoicePng(order) {
 
   // تذييل
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, H - 150); c.lineTo(W - 50, H - 150); c.stroke();
-  ar(`فاتورة إلكترونية صادرة من منصة واتس هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
-  ar(`حقوق المنصة محفوظة لشركة Whatsham · للاستفسار: ${SITE}`, '21px Cairo', GREY, H - 78);
+  ar(`فاتورة إلكترونية صادرة من منصة تلي هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
+  ar(`حقوق المنصة محفوظة لشركة تلي هم · للاستفسار: ${SITE}`, '21px Cairo', GREY, H - 78);
   ar(`أُنشئت آلياً بعد إغلاق الطلب — ${localNow().date}`, '19px Cairo', '#8a97a4', H - 48);
 
   return { png: canvas.toBuffer('image/png'), invNo, restaurant: r };
@@ -416,7 +416,7 @@ export async function sendOrderInvoice(orderId) {
   if (cust?.phone) {
     await waSend({ phone: cust.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'document',
       document: { link: url, filename: `Wassal-${files.invNo}.pdf` },
-      body: `🧾 *فاتورة طلبك ${order.order_no}*\n💰 المجموع النهائي: ${rls(order.total)} ر.س\n_(فاتورة مختومة من منصة واتس هم)_` }).catch(e => console.error('INV_SEND_CUST_FAIL', e.message));
+      body: `🧾 *فاتورة طلبك ${order.order_no}*\n💰 المجموع النهائي: ${rls(order.total)} ر.س\n_(فاتورة مختومة من منصة تلي هم)_` }).catch(e => console.error('INV_SEND_CUST_FAIL', e.message));
   }
   // نسخة للنشاط (المالك/الكاشير)
   try {
@@ -433,7 +433,7 @@ export async function sendOrderInvoice(orderId) {
 export function pngToPdf(pngBuffer, title = 'invoice') {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 0, info: { Title: title, Author: 'Wassal Order' } });
+      const doc = new PDFDocument({ size: 'A4', margin: 0, info: { Title: title, Author: 'Tele Ham' } });
       const chunks = [];
       doc.on('data', (d) => chunks.push(d));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -482,9 +482,9 @@ export async function renderPlatformReportPng(dateStr, stats) {
   c.lineWidth = 3; c.strokeStyle = GREEN; c.stroke();
   if (logo) { c.save(); c.beginPath(); c.arc(lx, ly, lr - 4, 0, Math.PI * 2); c.closePath(); c.clip(); c.drawImage(logo, lx - lr + 4, ly - lr + 4, (lr - 4) * 2, (lr - 4) * 2); c.restore(); }
   c.restore();
-  ar('واتس هم', 'bold 40px Cairo', DARK, 78, lx - 70);
+  ar('تلي هم', 'bold 40px Cairo', DARK, 78, lx - 70);
   ar('منصة الطلبات والتوصيل', '24px Cairo', GREY, 116, lx - 70);
-  en('Wassal Order', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
+  en('Tele Ham', 'bold 22px Cairo', GREEN, 150, lx - 70, 'right');
   en('PLATFORM REPORT', 'bold 22px Cairo', GREEN, 62, 60);
   ar('تقرير الإدارة المجمّع', 'bold 30px Cairo', DARK, 96, 60, 'left');
   ar(`رقم التقرير: ${no}`, '24px Cairo', GREY, 132, 60, 'left');
@@ -551,17 +551,17 @@ export async function renderPlatformReportPng(dateStr, stats) {
   }
   c.globalAlpha = 0.85;
   c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 54);
+  c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 22, ry + 54);
   c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 106);
   c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
-  c.font = 'bold 20px Cairo'; c.fillText('Wassal Order', rx + stampW - 22, ry + 166);
+  c.font = 'bold 20px Cairo'; c.fillText('Tele Ham', rx + stampW - 22, ry + 166);
   c.font = '18px Cairo'; c.fillText(no, rx + stampW - 22, ry + 194);
   c.font = '17px Cairo'; c.fillText(`${dateStr} — ${hhmm}`, rx + stampW - 22, ry + 217);
   c.restore();
   c.globalAlpha = 1;
 
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, H - 150); c.lineTo(W - 50, H - 150); c.stroke();
-  ar(`تقرير إلكتروني صادر من منصة واتس هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
+  ar(`تقرير إلكتروني صادر من منصة تلي هم — ${NATIONAL}`, '22px Cairo', GREY, H - 110);
   ar(`للاستفسار: ${SITE}`, '21px Cairo', GREY, H - 78);
   ar(`تم الإنشاء آلياً بتاريخ ${today} الساعة ${hhmm} (توقيت السعودية)`, '19px Cairo', '#8a97a4', H - 48);
 
