@@ -70,6 +70,19 @@ export function dbLooksSane(file = config.dbPath, useCache = false) {
   return val;
 }
 
+// هل طلبت اللوحة إصلاحاً/استرجاعاً؟ (مفتاح في app_settings — يُقرأ عند الإقلاع فقط)
+function restoreRequested(file = config.dbPath) {
+  try {
+    if (!existsSync(file)) return false;
+    const db = new DatabaseSync(file, { readOnly: true });
+    try { return String(db.prepare("SELECT value FROM app_settings WHERE key='restore_request'").get()?.value || '') === 'YES'; }
+    finally { try { db.close(); } catch {} }
+  } catch (e) { return false; }
+}
+function clearRestoreRequest() {
+  try { const db = new DatabaseSync(config.dbPath); try { db.exec("UPDATE app_settings SET value='' WHERE key='restore_request'"); } finally { db.close(); } } catch (e) {}
+}
+
 // ✅ هل القاعدة قابلة للاستخدام فعلاً (فتح + قراءة)؟ — قد يكون الملف «تالفاً» في الفحص البنيوي لكن العمل عليه يعمل
 export function dbUsable(file = config.dbPath) {
   try {
@@ -188,6 +201,14 @@ async function historyOnce() {
 export async function restoreIfNeeded() {
   // ٠) إن كانت القاعدة المحلية تالفة → استرجع آخر نسخة سليمة من التاريخ
   // (بدون هذا: النسخة التالفة تُرفع كل دقيقتين وتُستعاد عند كل إقلاع — حلقة تلف لا تنتهي)
+  // طلب إصلاح من اللوحة؟ (يُنفَّذ هنا فقط — عند الإقلاع، بلا أي اتصال مفتوح)
+  // نقرأه مباشرة من الملف (لا نستورد db.js: استيراد دائري أثناء تقييمه)
+  if (restoreRequested()) {
+    console.log('DB_RESTORE_REQUESTED from_dashboard');
+    if (await repairInPlace()) { clearRestoreRequest(); return true; }
+    if (await historyOnce()) { clearRestoreRequest(); return true; }
+    console.error('DB_RESTORE_REQUEST_FAILED');
+  }
   if (existsSync(config.dbPath) && !dbLooksSane(config.dbPath)) {
     console.error('DB_LOCAL_MALFORMED trying_vacuum_repair');
     if (await repairInPlace()) return true;

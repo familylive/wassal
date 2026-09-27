@@ -105,7 +105,7 @@ router.get('/status', async (req, res) => {
     const tgAdmin = waTo(config.telegram.adminPhone || config.adminPhone || '');
     out.adminPhone = config.adminPhone || null;
     out.telegramAdminPhone = config.telegram.adminPhone || null;
-    out.adminLinked = Boolean(admin && q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=?", admin, tgAdmin)?.chat_id);
+    out.adminLinked = Boolean(admin && q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=? OR phone LIKE ?", admin, tgAdmin, '%' + String(admin).slice(-9))?.chat_id);
     out.linkedPhones = q.all("SELECT phone, updated_at FROM telegram_links ORDER BY updated_at DESC LIMIT 5").map(r => ({ phone: '••••' + String(r.phone).slice(-4), at: r.updated_at }));
   } catch (e) {}
   if (!config.telegram.token) return res.json({ ...out, error: 'التوكن غير مضبوط' });
