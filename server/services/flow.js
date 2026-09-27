@@ -1324,7 +1324,9 @@ function handleAddressConfirm(phone, rid, customer, data, p) {
     if (def.lat && def.lng) {
       const delivery = resolveDelivery(rid, def.lat, def.lng);
       if (!delivery.ok || delivery.reason === 'out_of_range') {
-        send(phone, rid, null, 'text', `🚫 نعتذر، عنوانك السابق *خارج نطاق التوصيل* الحالي (${Math.round(delivery.distanceKm)} كم من أقرب فرع).`);
+        return send(phone, rid, null, 'text', delivery.reason !== 'out_of_range'
+          ? '🚫 *التوصيل غير متاح من هذا النشاط حالياً* — موقع التوصيل غير مضبوط 📍\n\nجرّب نشاطًا ثانيًا، أو كلّم النشاط 🌸'
+          : `🚫 نعتذر، عنوانك السابق *خارج نطاق التوصيل* الحالي (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).`);
         saveSession(phone, 'address_confirm', data);
         return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'addr_new', title: '🆕 مكان آخر' }] });
       }
@@ -1346,7 +1348,9 @@ function handleSignupLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني موقعك 📍 أو اضغط الزر', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
   if (!delivery.ok || delivery.reason === 'out_of_range') {
-    send(phone, rid, null, 'text', `🚫 موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nخذ فكرة عن الأنشطة، وأي طلب داخل النطاق يوصلك 😊`);
+    if (delivery.reason !== 'out_of_range')
+      return send(phone, rid, null, 'text', '🚫 *التوصيل غير متاح من هذا النشاط حالياً* — موقع التوصيل غير مضبوط 📍\n\nخذ فكرة عن الأنشطة، وأي طلب داخل النطاق يوصلك 😊');
+    send(phone, rid, null, 'text', `🚫 موقعك *خارج نطاق التوصيل* الحين (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}\n\nخذ فكرة عن الأنشطة، وأي طلب داخل النطاق يوصلك 😊`);
     saveSession(phone, 'directory', {});
     return showRestaurants(phone);
   }
@@ -1360,7 +1364,9 @@ function handleNewLocation(phone, rid, customer, data, type, lat, lng, p) {
   if (type !== 'location' && p !== 'send_location') return send(phone, rid, null, 'buttons', 'وصلني الموقع الجديد 📍', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   const delivery = resolveDelivery(rid, lat, lng);
   if (!delivery.ok || delivery.reason === 'out_of_range') {
-    send(phone, rid, null, 'text', `🚫 نعتذر، الموقع الجديد *خارج نطاق التوصيل* (${Math.round(delivery.distanceKm)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}`);
+    if (delivery.reason !== 'out_of_range')
+      return send(phone, rid, null, 'text', '🚫 *التوصيل غير متاح من هذا النشاط حالياً* — موقع التوصيل غير مضبوط 📍\n\nجرّب نشاطًا ثانيًا، أو كلّم النشاط 🌸');
+    send(phone, rid, null, 'text', `🚫 نعتذر، الموقع الجديد *خارج نطاق التوصيل* (${Math.round(delivery.distanceKm || 0)} كم من أقرب فرع).\nأقرب فرع: *${delivery.branch?.name || ''}* — ${delivery.branch?.address || ''}`);
     saveSession(phone, 'new_location_request', { ...data, outOfRange: true });
     return send(phone, rid, null, 'buttons', '', { buttons: [{ id: 'send_location', title: '📍 إرسال موقع آخر' }] });
   }
