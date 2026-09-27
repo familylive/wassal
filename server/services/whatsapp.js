@@ -113,7 +113,7 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
   if (type === 'text') {
     r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body }), { headers });
   } else if (type === 'buttons') {
-    const p = { phone: to, title: 'واتس هم', body, footer: 'واتس هم' };
+    const p = { phone: to, title: 'تلي هم', body, footer: 'تلي هم' };
     (buttons || []).slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
     r = await axios.post(`${apiUrl}/button`, fd(p), { headers });
   } else if (type === 'list') {

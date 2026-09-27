@@ -465,7 +465,7 @@ function sendGreeting(phone, rid, customer) {
 function mainMenu(phone, rid) {
   const ad = q.get("SELECT a.*, r.name_ar AS rname FROM ads_campaigns a LEFT JOIN restaurants r ON r.id=a.restaurant_id WHERE a.is_active=1 AND a.placement='whatsapp' AND (a.ends_at IS NULL OR a.ends_at>=datetime('now')) ORDER BY a.id DESC LIMIT 1");
   const rest = q.get("SELECT name_ar, logo, cover FROM restaurants WHERE id=?", rid);
-  let txt = `هلا بك في *${rest.name_ar}* 🍽️\nأنا واتس هم، أمرني وش تحب تطلب؟ 😋`;
+  let txt = `هلا بك في *${rest.name_ar}* 🍽️\nأنا تلي هم، أمرني وش تحب تطلب؟ 😋`;
   if (ad) txt += `\n\n📣 *إعلان:* ${ad.title}${ad.rname ? ' — ' + ad.rname : ''}`;
   // حفظ خيارات القائمة للاختيار بالأرقام
   const session = getSession(phone);
@@ -2617,7 +2617,7 @@ async function submitBusinessReg(phone, rid, session, { subscriptionPaid = false
 }
 
 // ---- تسجيل كابتن ----
-const CAP_REQS = `🛵 *انضمام كابتن توصيل — واتس هم*\n\n📋 *جهّز هذي الطلبات قبل ما تبدأ:*\n1️⃣ *اسمك* و*رقم هويتك* (١٠ أرقام)\n2️⃣ *مدينتك* والحي اللي تشتغل فيه\n3️⃣ *وسيلة النقل* ولون المركبة و*رقم اللوحة*\n4️⃣ *صورة هويتك* 🪪 (أو الإقامة)\n5️⃣ *تأمين الحساب* ٥٠٠ ر.س (يُحفظ رصيداً لك)\n\n⚠️ الطلب الناقص ما يُعتمد.\n\nجاهز؟ نبدأ خطوة خطوة 👇`;
+const CAP_REQS = `🛵 *انضمام كابتن توصيل — تلي هم*\n\n📋 *جهّز هذي الطلبات قبل ما تبدأ:*\n1️⃣ *اسمك* و*رقم هويتك* (١٠ أرقام)\n2️⃣ *مدينتك* والحي اللي تشتغل فيه\n3️⃣ *وسيلة النقل* ولون المركبة و*رقم اللوحة*\n4️⃣ *صورة هويتك* 🪪 (أو الإقامة)\n5️⃣ *تأمين الحساب* ٥٠٠ ر.س (يُحفظ رصيداً لك)\n\n⚠️ الطلب الناقص ما يُعتمد.\n\nجاهز؟ نبدأ خطوة خطوة 👇`;
 
 function startCaptainReg(phone, rid, session) {
   if (isCaptainPhone(phone)) return send(phone, rid, null, 'text', 'أنت مسجّل عندنا كابتن توصيل ✅ — بيجيك الطلبات هنا.');
@@ -2791,7 +2791,7 @@ function parseBirthDate(x) {
 // 👤 تسجيل حساب العميل (اسم + موقع) — ما يحتاج أكثر
 // 👋 أول رسالة لرقم جديد: ترحيب كعميل + قائمة الخدمات بالأرقام
 const WELCOME_TEXT = `السلام عليكم ورحمة الله 🌸
-حيّاك الله في *واتس هم* — خدمة الطلبات والتوصيل 🍽️🛵
+حيّاك الله في *تلي هم* — خدمة الطلبات والتوصيل 🍽️🛵
 نطلب لك من أنشطة قريبة منك ونوصّله لبابك ✅
 
 *اختر الخدمة اللي تبيها* — اكتب الرقم 👇
@@ -2800,7 +2800,7 @@ const WELCOME_TEXT = `السلام عليكم ورحمة الله 🌸
 2️⃣ *نشاط تجاري* — أسجّل نشاطي على المنصة
 3️⃣ *استفسارات* — كيف أكون عميل؟ · كيف أسجّل نشاط؟ · كيف أصبح كابتن؟`;
 
-const WELCOME_INQUIRY = `ℹ️ *الاستفسارات — واتس هم*
+const WELCOME_INQUIRY = `ℹ️ *الاستفسارات — تلي هم*
 
 👤 *عميل* — تطلب من الأنشطة القريبة منك وتتابع طلبك لحظة بلحظة
    اكتب *1*
