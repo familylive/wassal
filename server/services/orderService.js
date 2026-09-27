@@ -98,7 +98,7 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
   return order;
 }
 
-export function setStatus(orderId, status, actorType = 'system', actorId = null) {
+export async function setStatus(orderId, status, actorType = 'system', actorId = null) {
   const order = q.get("SELECT * FROM orders WHERE id=?", orderId);
   if (!order) return { error: 'طلب غير موجود' };
   const valid = ['confirmed', 'preparing', 'ready', 'with_captain', 'on_the_way', 'arrived', 'delivered', 'cancelled'];
@@ -127,7 +127,19 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
       const openOffer = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE order_id=? AND status='offered'", orderId)?.c || 0);
       if (!openOffer) {
         const fresh = q.get("SELECT * FROM orders WHERE id=?", orderId);
+        const availBefore = Number(q.get("SELECT COUNT(*) c FROM captains WHERE status='available' AND is_active=1 AND COALESCE(blocked,0)=0")?.c || 0);
         broadcastToCaptains(fresh);
+        if (!availBefore) {
+          // ⚠️ لا يوجد كابتن متاح ⇒ نُبلّغ الإدارة فورًا (بدل ما ينتظر الطلب بصمت)
+          try {
+            const ap = q.get("SELECT value FROM app_settings WHERE key='ADMIN_PHONE'")?.value || null;
+            const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", fresh.restaurant_id);
+            if (ap) {
+              const { waSend } = await import('./whatsapp.js');
+              waSend({ phone: ap, type: 'text', body: `⚠️ *لا يوجد كابتن متاح*\n📦 ${fresh.order_no} — ${r?.name_ar || ''}\n🏪 النشاط أكّد الطلب لكن ما فيه كابتن «متاح» الآن.\n🔁 بنعيد البحث تلقائيًا كل 5 دقائق.` }).catch(() => {});
+            }
+          } catch (e) { console.error('NO_CAPTAIN_NOTIFY_FAIL', e.message); }
+        }
       }
     } catch (e) { console.error('CAPTAIN_DISPATCH_ON_CONFIRM_FAIL', e.message); }
   }
