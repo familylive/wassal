@@ -3737,9 +3737,10 @@ function capFeeEstimate(captain, order) {
 
 function captainMenuButtons() {
   return { buttons: [
+    { id: 'cap:find', title: '🔎 طلبات تحتاج كابتن', group: 'r0' },
+    { id: 'cap:auctions', title: '⚖️ مزاد الكابتن', group: 'r0' },
     { id: 'cap:orders', title: '🧾 طلبات', group: 'r1' },
     { id: 'cap:deliveries', title: '🛵 طلبات توصيل', group: 'r1' },
-    { id: 'cap:auctions', title: '⚖️ مزاد الكابتن', group: 'r2' },
     { id: 'cap:busy_now', title: '🟠 مشغول', group: 'r3' },
     { id: 'cap:invoices', title: '🧾 فواتيري', group: 'r3' },
     { id: 'cap:wallet', title: '💰 حسابي', group: 'r4' },
@@ -3870,7 +3871,10 @@ export async function handleCaptainMenu(phone, rid, p, captain) {
   if (p === 'cap:invoices') return send(phone, null, null, 'list', '🧾 *فواتيري* — اختر الفترة:', { list: [{ title: 'فواتيري', rows: captainInvoicesMenuRows() }] });
   if (p.startsWith('cap:inv:')) return showCaptainInvoices(phone, captain, p.split(':')[2]);
   if (p === 'cap:auctions') return showCaptainAuction(phone, captain);
-  if (p === 'cap:find') return captainOrderSearch(phone, captain);
+  if (p === 'cap:find') {
+    const hasOffers = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE captain_id=? AND status='offered'", captain.id)?.c || 0);
+    return hasOffers ? showCaptainAuction(phone, captain) : captainOrderSearch(phone, captain);
+  }
   if (p === 'cap:active') return showCaptainDeliveries(phone, captain);
   if (p === 'cap:new_order') return showRestaurants(phone);
   if (p === 'cap:my_orders') {
@@ -3974,6 +3978,21 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
         { buttons: [{ id: 'cap:idle', title: '🟢 متاح' }, { id: 'cap:menu', title: '⬅️ القائمة' }] });
     }
   }
+  // ⌨️ أوامر نصية للكابتن — تعمل حتى لو ما استجابت الأزرار
+  if (!p && b) {
+    if (/^(مزاد|المزاد|مزاد الكابتن|عروض|العروض|طلب جديد لي)$/.test(b)) return showCaptainAuction(phone, captain);
+    if (/^(طلبات متاحة|الطلبات المتاحة|طلبات تحتاج كابتن|ابحث عن طلبات|البحث عن طلبات|ابحث|عندي طلبات)$/.test(b)) {
+      const hasOffers = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE captain_id=? AND status='offered'", captain.id)?.c || 0);
+      return hasOffers ? showCaptainAuction(phone, captain) : captainOrderSearch(phone, captain);
+    }
+    if (/^(فواتير اليوم|فواتيري اليوم)$/.test(b)) return showCaptainInvoices(phone, captain, 'day');
+    if (/^(فواتير الاسبوع|فواتير الأسبوع|فواتيري الاسبوع|فواتيري الأسبوع)$/.test(b)) return showCaptainInvoices(phone, captain, 'week');
+    if (/^(فواتير الشهر|فواتيري الشهر|فواتيري|فواتير|كشف حسابي)$/.test(b)) return showCaptainInvoices(phone, captain, 'month');
+    if (/^(فواتير السنة|فواتيري السنة|فواتيري السنوي)$/.test(b)) return showCaptainInvoices(phone, captain, 'year');
+    if (/^(طلبات توصيل|توصيل)$/.test(b)) return showCaptainDeliveries(phone, captain);
+    if (/^(متابعة|متابعة الطلب|طلبي الحالي|طلبي)$/.test(b)) return showCaptainDeliveries(phone, captain);
+  }
+
   // 🛵 أي كلمة ترحيب → قائمة الكابتن
   if (!p && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|ابدأ|ابدا|مساعدة|help|menu|start|أوامري|اوامري)$/.test(b)) {
     return showCaptainMenu(phone, captain);
