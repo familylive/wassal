@@ -153,6 +153,16 @@ import('./routes/telegram.js').then(({ ensureWebhook }) => {
   setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
 }).catch(() => {});
 
+// ⏰ نبضة ذاتية كل 10 دقائق — تمنع «نوم» الخدمة على الخطة المجانية (فتضيع رسائل تليجرام)
+import('./config.js').then(({ default: cfg }) => {
+  const url = `${String(cfg.publicUrl || '').replace(/\/$/, '')}/api/health`;
+  if (!/^https:\/\//.test(url)) return;
+  const ping = () => fetch(url, { method: 'GET' }).then(() => {}).catch(() => {});
+  setTimeout(ping, 90 * 1000);
+  setInterval(ping, 10 * 60 * 1000);
+  console.log('SELF_PING armed:', url);
+}).catch(() => {});
+
 // 🛵 تحرير الكباتن المنشغلين طويلًا (كل 15 دقيقة)
 import('./services/captainAccount.js').then(({ releaseStaleBusyCaptains }) => {
   setInterval(() => releaseStaleBusyCaptains(180), 15 * 60 * 1000);
