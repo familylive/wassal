@@ -1,3 +1,4 @@
+import config from '../config.js';
 import { q, tx } from '../db.js';
 import { emitTo, emitAll } from './realtime.js';
 import { waSend } from './whatsapp.js';
@@ -134,6 +135,27 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
     if (order.customer_id) awardPoints(order.customer_id, orderId, order.total);
     q.run("UPDATE restaurants SET orders_count=orders_count+1 WHERE id=?", order.restaurant_id);
     emitAll('order:delivered', { orderId });
+    // 🧾 فاتورة الطلب: تُرسل للعميل + الكابتن + الكاشير/المالك (بلا await — setStatus غير async)
+    (async () => {
+      try {
+        const { buildOrderInvoiceFiles } = await import('./invoice.js');
+        const full = q.get("SELECT * FROM orders WHERE id=?", orderId);
+        const files = await buildOrderInvoiceFiles(full);
+        if (!files) return;
+        const base = String(config.publicUrl || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+        const imgUrl = `${base}/uploads/invoices/${String(files.pngFile).split('/').pop()}`;
+        const cap = `🧾 *فاتورة الطلب* ${full.order_no || ''}\n🔢 رقم الفاتورة: *${files.invNo}*\n💰 الإجمالي: ${(Number(full.total || 0) / 100).toFixed(2)} ر.س\n${full.payment_method === 'cash' ? '💵 الدفع: نقداً عند التسليم' : '💳 الدفع: إلكتروني (مدفوع)'}`;
+        const targets = new Set();
+        if (customer?.phone) targets.add(String(customer.phone));
+        if (full.captain_id) { const c = q.get("SELECT phone FROM captains WHERE id=?", full.captain_id); if (c?.phone) targets.add(String(c.phone)); }
+        for (const u of q.all("SELECT phone FROM restaurant_users WHERE restaurant_id=? AND is_active=1 AND role IN ('cashier','owner') AND phone IS NOT NULL", full.restaurant_id)) targets.add(String(u.phone));
+        for (const ph of [...targets].filter(Boolean)) {
+          try { await waSend({ phone: ph, restaurantId: full.restaurant_id, orderId, participant: 'invoice', type: 'image', image: imgUrl, body: cap }); }
+          catch (e) { console.error('ORDER_INVOICE_SEND_FAIL', e.message); }
+        }
+        console.log('ORDER_INVOICE_SENT', files.invNo, targets.size);
+      } catch (e) { console.error('ORDER_INVOICE_FAIL', e.message); }
+    })();
   }
   return { ok: true };
 }

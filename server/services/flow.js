@@ -1502,20 +1502,24 @@ function askDeliveryTimeStart(phone, rid) {
     saveSession(phone, 'preorder_date', { ...(getSession(phone).data || {}) });
     send(phone, rid, null, 'text', '🏠 *هذا النشاط أُسر منتجة — والطلب مسبق قبلها بيوم* 🗓️\n\nمتى تحب يجهزون طلبك؟');
     return send(phone, rid, null, 'buttons', 'اختر اليوم 👇', { buttons: [
+      { id: 'pdate:0', title: '📅 اليوم' },
       { id: 'pdate:1', title: '🗓️ بكرة' },
       { id: 'pdate:2', title: '🗓️ بعد بكرة' }
     ] });
   }
-  return askDeliveryTimeStart(phone, rid);
+  // المطاعم العادية: نكمل مباشرة لمراجعة الطلب (سابقاً كان يستدعي نفسه → حلقة لا نهائية)
+  const session = getSession(phone);
+  return handleDeliveryTime(phone, rid, null, session.data || {}, null);
 }
 function handlePreorderDate(phone, rid, session, b, p) {
   const d = String(p || '').startsWith('pdate:') ? Number(String(p).slice(6)) : Number(String(b || '').replace(/[^\d]/g, ''));
-  if (![1, 2, 3].includes(d)) return send(phone, rid, null, 'text', 'اختر *١* بكرة أو *٢* بعد بكرة 🗓️ (أو اكتب 3 لثلاثة أيام)');
+  if (![0, 1, 2, 3].includes(d)) return send(phone, rid, null, 'text', 'اختر *٠* اليوم أو *١* بكرة أو *٢* بعد بكرة 🗓️ (أو اكتب 3 لثلاثة أيام)');
   const t = new Date(Date.now() + 3 * 3600 * 1000 + d * 86400000);
   const dateStr = t.toISOString().slice(0, 10);
   const dayAr = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'][t.getUTCDay()];
-  saveSession(phone, 'preorder_time', { ...session.data, preorder: { date: dateStr, label: `${dayAr} ${dateStr}` } });
-  send(phone, rid, null, 'text', `🗓️ *${dayAr} ${dateStr}* ✅`);
+  const dayLabel = d === 0 ? 'اليوم' : d === 1 ? 'بكرة' : d === 2 ? 'بعد بكرة' : `${d} أيام`;
+  saveSession(phone, 'preorder_time', { ...session.data, preorder: { date: dateStr, label: `${dayLabel} · ${dayAr} ${dateStr}` } });
+  send(phone, rid, null, 'text', `🗓️ *${dayLabel}* — ${dayAr} ${dateStr} ✅`);
   return send(phone, rid, null, 'buttons', '🕐 متى تحب يوصل؟', { buttons: [
     { id: 'ptime:12:00', title: '🕛 الظهر 12:00' },
     { id: 'ptime:17:00', title: '🕔 العصر 5:00' },
