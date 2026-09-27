@@ -725,6 +725,12 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
       }
       // 🧹 الكاشير/مدير الفرع: إنهاء أي تدفّق تسجيل عالق (كان يوصله سؤال «فرد/مؤسسة/شركة» بلا علاقة)
       if (staff.kind !== 'owner' && /^(reg_|rep_|ad_|pad_|mgr_)/.test(String(_st))) saveSession(phone, 'idle', {});
+      // 🧑‍💼 موظف مسجّل عالق في قائمة الخدمات (welcome) أو بلا اسم عميل → نعرض قائمته بدل «1 عميل · 2 نشاط تجاري»
+      if (!payload && (_st === 'welcome' || !customer?.name)) {
+        saveSession(phone, 'idle', {});
+        if (staff.kind !== 'owner') return showStaffEntryMenu(phone, restaurantId, staff);
+        return showStaffMenu(phone, restaurantId, staff);
+      }
     }
   }
   const session = getSession(phone);
