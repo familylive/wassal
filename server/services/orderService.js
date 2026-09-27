@@ -164,23 +164,34 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
 export async function dispatchDuePreorders() {
   try {
     const today = new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10);
+    // ملاحظة: كان الشرط `status IN ('new')` — فأي طلب مسبق يتقدّم (مقبول/قيد التحضير/جاهز) لا يُعرض على الكباتن أبداً.
     const rows = q.all(`SELECT * FROM orders WHERE is_preorder=1 AND preorder_dispatched_at IS NULL
-      AND status IN ('new') AND (scheduled_for IS NULL OR scheduled_for <= ?)`, today);
+      AND status NOT IN ('delivered', 'cancelled') AND captain_id IS NULL AND (scheduled_for IS NULL OR scheduled_for <= ?)`, today);
     for (const order of rows) {
       // نبدأ قبل الموعد بـ 90 دقيقة
       const [h, mi] = String(order.scheduled_time || '12:00').split(':').map(Number);
       const now = new Date(Date.now() + 3 * 3600 * 1000);
       const mins = (h * 60 + mi) - (now.getUTCHours() * 60 + now.getUTCMinutes());
       if (order.scheduled_for === today && mins > 90) continue;
-      q.run("UPDATE orders SET preorder_dispatched_at=datetime('now') WHERE id=?", order.id);
+      let offered = false;
       if (order.order_type !== 'pickup') {
         const { broadcastToCaptains } = await import('./dispatch.js');
         try { broadcastToCaptains(order); } catch (e) { console.error('PREORDER_BROADCAST_FAIL', e.message); }
+        const after = q.get("SELECT status FROM orders WHERE id=?", order.id);
+        offered = after?.status === 'offered';
+      } else offered = true;
+      // ما فيه كابتن متاح؟ نلغي العلم لإعادة المحاولة كل 5 دقائق (بدل ما يعلق الطلب للأبد)
+      q.run(offered ? "UPDATE orders SET preorder_dispatched_at=datetime('now') WHERE id=?"
+                    : "UPDATE orders SET preorder_dispatched_at=NULL WHERE id=?", order.id);
+      if (!offered && config.adminPhone) {
+        waSend({ phone: config.adminPhone, type: 'text', body: `⚠️ *طلب مسبق بلا كابتن* ${order.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id)?.name_ar || ''}\nأعدنا المحاولة تلقائياً كل 5 دقائق 🛵` }).catch(() => {});
       }
-      const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
-      if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text',
-        body: `🔔 *طلبك المسبق ${order.order_no} صار في التنفيذ* — نعرضه الحين على كباتن التوصيل 🛵` }).catch(() => {});
-      console.log('PREORDER_DISPATCHED', order.order_no);
+      if (offered) {
+        const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
+        if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text',
+          body: `🔔 *طلبك المسبق ${order.order_no} صار في التنفيذ* — نعرضه الحين على كباتن التوصيل 🛵` }).catch(() => {});
+        console.log('PREORDER_DISPATCHED', order.order_no);
+      } else console.log('PREORDER_NO_CAPTAIN', order.order_no);
     }
   } catch (e) { console.error('PREORDER_LOOP_FAIL', e.message); }
 }
