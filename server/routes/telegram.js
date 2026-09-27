@@ -44,6 +44,9 @@ router.post('/webhook', async (req, res) => {
     // ١) ضغط زر
     const cb = upd.callback_query;
     if (cb) {
+      // 🔎 تسجيل كل ضغطة زر (تشخيص: هل تصل ضغطات الأزرار من تليجرام أصلاً؟)
+      try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('callback', ?, ?)",
+        String(cb.data || '').slice(0, 120), JSON.stringify({ chat: cb.message?.chat?.id, data: cb.data, from: cb.from?.id }).slice(0, 400)); } catch (e) {}
       await post('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
       const chatId = cb.message?.chat?.id;
       const phone = phoneOf(chatId);
@@ -80,6 +83,7 @@ router.post('/webhook', async (req, res) => {
     return handleIncoming({ phone, restaurantId: 1, type: 'text', body });
   } catch (e) {
     console.error('TELEGRAM_HANDLE_FAIL', e.message);
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('webhook-error', ?, ?)", String(e.message).slice(0, 160), String(e.stack || '').slice(0, 400)); } catch (_) {}
   }
 });
 
@@ -116,6 +120,14 @@ router.get('/status', async (req, res) => {
   try {
     const r = await axios.get(tg('getWebhookInfo'), { timeout: 20000 });
     const me = await axios.get(tg('getMe'), { timeout: 20000 }).catch(() => null);
+    // 🔎 تشخيص الأزرار: هل وصلت ضغطة؟ هل فيه أخطاء؟
+    try {
+      const lc = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='callback' ORDER BY id DESC LIMIT 1");
+      out.lastCallback = lc || null;
+      out.callbacks24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='callback' AND created_at > datetime('now','-1 day')")?.c || 0);
+      out.webhookErrors24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='webhook-error' AND created_at > datetime('now','-1 day')")?.c || 0);
+      out.lastWebhookError = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='webhook-error' ORDER BY id DESC LIMIT 1") || null;
+    } catch (e) {}
     return res.json({ ...out, ok: true, bot: me?.data?.result?.username || null, webhook: r.data?.result });
   } catch (e) {
     return res.json({ ...out, error: e.response?.data?.description || e.message });
