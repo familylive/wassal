@@ -137,9 +137,12 @@ import('./services/flow.js').then(({ sweepStaleBiddings }) => {
 }).catch(e => console.error('BID_SWEEP_INIT_FAIL', e.message));
 
 // 🏠 الطلبات المسبقة (الأسر المنتجة): بث المستحق منها للكباتن
-import('./services/orderService.js').then(({ dispatchDuePreorders }) => {
-  setInterval(() => dispatchDuePreorders().catch(e => console.error('PREORDER_LOOP_FAIL', e.message)), 5 * 60 * 1000);
-  setTimeout(() => dispatchDuePreorders().catch(() => {}), 40000);
+import('./services/orderService.js').then(({ dispatchDuePreorders, redispatchUnassigned }) => {
+  setInterval(() => {
+    dispatchDuePreorders().catch(e => console.error('PREORDER_LOOP_FAIL', e.message));
+    redispatchUnassigned().catch(e => console.error('REDISPATCH_LOOP_FAIL', e.message));
+  }, 5 * 60 * 1000);
+  setTimeout(() => { dispatchDuePreorders().catch(() => {}); redispatchUnassigned().catch(() => {}); }, 40000);
 }).catch(() => {});
 
 import('./services/reporting.js').then(({ runDueReports }) => {

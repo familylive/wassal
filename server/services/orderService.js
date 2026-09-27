@@ -286,3 +286,30 @@ export function rateOrder(orderId, { restaurant, speed, captain, comment }) {
     return { ok: true, order: q.get("SELECT * FROM orders WHERE id=?", orderId) };
   });
 }
+
+
+// 🛵 إعادة بث الطلبات غير المسندة كل 5 دقائق
+// السبب: الطلب كان يُبث لحظة إنشائه فقط → لو ما فيه كابتن «متاح» وقتها يعلق للأبد (شكوى: «الطلب ما يوصل للكابتن»)
+export async function redispatchUnassigned() {
+  try {
+    const rows = q.all(`SELECT * FROM orders
+      WHERE captain_id IS NULL
+        AND status NOT IN ('delivered','cancelled','draft')
+        AND COALESCE(order_type,'delivery') <> 'pickup'
+        AND datetime(created_at) >= datetime('now','-2 day')
+        AND id NOT IN (SELECT order_id FROM captain_offers WHERE status='offered')
+      ORDER BY id DESC LIMIT 10`);
+    let n = 0;
+    const { broadcastToCaptains } = await import('./dispatch.js');
+    for (const order of rows) {
+      // لا نعيد البث لنفس الطلب أكثر من مرة كل ساعة
+      const last = q.get("SELECT MAX(offered_at) c FROM captain_offers WHERE order_id=?", order.id)?.c;
+      if (last && Date.parse(String(last).replace(' ', 'T') + 'Z') > Date.now() - 60 * 60 * 1000) continue;
+      try { broadcastToCaptains(order); } catch (e) { console.error('REDISPATCH_BROADCAST_FAIL', e.message); }
+      const after = q.get("SELECT status FROM orders WHERE id=?", order.id);
+      if (after?.status === 'offered') n += 1;
+    }
+    if (n) console.log('REDISPATCHED_ORDERS', n);
+    return n;
+  } catch (e) { console.error('REDISPATCH_FAIL', e.message); return 0; }
+}
