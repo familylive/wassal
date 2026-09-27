@@ -57,10 +57,27 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
       || q.get("SELECT chat_id FROM telegram_links WHERE phone LIKE ? ORDER BY updated_at DESC LIMIT 1", '%' + raw.slice(-9));
     if (row?.chat_id) break;
   }
-  if (!row?.chat_id) throw new Error('لا توجد محادثة تليجرام مرتبطة بهذا الرقم');
+  if (!row?.chat_id) {
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('out-error', ?, ?)",
+      'no_chat_link', JSON.stringify({ phone_tail: String(phone || '').slice(-4) }).slice(0, 200)); } catch (e) {}
+    throw new Error('لا توجد محادثة تليجرام مرتبطة بهذا الرقم');
+  }
   const chat_id = row.chat_id;
   const api = (m) => `https://api.telegram.org/bot${token}/${m}`;
-  const post = async (m, payload) => (await axios.post(api(m), { chat_id, ...payload }, { timeout: 20000 })).data;
+  const postRaw = async (m, payload) => (await axios.post(api(m), { chat_id, ...payload }, { timeout: 20000 })).data;
+  const post = async (m, payload) => {
+    try {
+      const r = await postRaw(m, payload);
+      try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('outbound', ?, ?)",
+        `${m} → ${String(phone || '').slice(-4)}`, JSON.stringify({ chat_id: String(chat_id), ok: r?.ok }).slice(0, 200)); } catch (e) {}
+      return r;
+    } catch (e) {
+      const msg = e.response?.data?.description || e.message;
+      try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('out-error', ?, ?)",
+        String(msg).slice(0, 160), JSON.stringify({ chat_id: String(chat_id), m }).slice(0, 200)); } catch (e2) {}
+      throw e;
+    }
+  };
 
   let keyboard = null;
   if (type === 'buttons' && Array.isArray(buttons) && buttons.length) {
