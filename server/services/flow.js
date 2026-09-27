@@ -298,6 +298,7 @@ function cashierMenuRows() {
   return [
     { id: 'st:orders', title: '🧾 الطلبات الحالية', description: 'طلبات اليوم وحالتها' },
     { id: 'st:findcap', title: '🛵 ابحث عن كابتن', description: 'أعِد عرض الطلبات بلا كابتن' },
+    { id: 'st:hand', title: '🛵 سلّمت الطلب للكابتن', description: 'تأكيد تسليم الطلب للكابتن' },
     { id: 'stc:hours', title: '⏰ وقت العمل', description: 'ساعات عمل النشاط' },
     { id: 'stc:report', title: '📊 تقرير يومي', description: 'مبيعات اليوم — نص + PDF' },
     { id: 'stc:open', title: '🟢 استقبال الطلبات', description: 'افتح الاستقبال الآن' },
@@ -385,6 +386,24 @@ export async function handleStaffMenu(phone, rid, p, staff) {
   const ridr = staff.restaurant_id;
   if (p === 'st:menu') return showStaffMenu(phone, rid, staff);
   // 🛵 إعادة البحث عن كابتن من تليجرام (بلا دخول اللوحة)
+  // 🛵 تأكيد تسليم الطلب للكابتن (يوقف مهلة النشاط ويبدأ مهلة الكابتن ويُبلغ العميل)
+  if (p === 'st:hand') {
+    const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NOT NULL
+      AND status IN ('confirmed','preparing','ready') ORDER BY id DESC LIMIT 8`, ridr);
+    if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلب حجز له كابتن وينتظر التسليم 🛵', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+    return send(phone, rid, null, 'list', '🛵 *طلبات معها كابتن* — اختر الطلب الذي سلّمته:', { list: [{ title: 'جاهزة للتسليم للكابتن', rows: rows.map(o => ({ id: 'st:hd:' + o.id, title: `📦 ${o.order_no}`, description: `${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س` })) }] });
+  }
+  if (p.startsWith('st:hd:')) {
+    const orderId = Number(p.split(':')[2]);
+    const o = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, ridr);
+    if (!o || !o.captain_id) return send(phone, rid, null, 'text', 'الطلب غير موجود أو ما حجز له كابتن 🙏');
+    await setStatus(orderId, 'with_captain', 'restaurant', staff.user?.id || null);
+    const cap = q.get("SELECT * FROM captains WHERE id=?", o.captain_id);
+    if (cap?.phone) waSend({ phone: cap.phone, restaurantId: ridr, orderId, type: 'buttons',
+      body: `✅ *النشاط سلّمك الطلب ${o.order_no}* 🛵\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ridr)?.name_ar || ''}\n\n⏱️ عندك *25 دقيقة* للتسليم للعميل\n👇 حدّث الحالة:`,
+      buttons: [{ id: 'cap:stage:on_the_way', title: '🚀 انطلقت' }, { id: 'cap:stage:arrived', title: '📍 وصلت' }, { id: 'cap:code', title: '🔐 رمز الاستلام' }] }).catch(() => {});
+    return send(phone, rid, null, 'buttons', `✅ *تم تسليم الطلب للكابتن*\n📦 ${o.order_no}\n🛵 ${cap?.name || ''}\n\n⏱️ بدأ عدّاد الكابتن (25 دقيقة) وأُبلغ العميل أن الطلب في الطريق ✓`, { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+  }
   if (p === 'st:findcap') {
     const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NULL
       AND status IN ('confirmed','preparing','ready') AND COALESCE(order_type,'delivery')<>'pickup'
