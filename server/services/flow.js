@@ -3291,6 +3291,27 @@ export function isCaptainPhone(phone) {
   return !!q.get("SELECT id FROM captains WHERE phone=? OR phone=?", phone, validatePhone(phone));
 }
 
+// 💰 إشعار المشرف ببيانات الكابتن عند طلب الدفع/إتمامه
+export async function notifyDepositPaid(captain, amount, kind = 'paid') {
+  const amt = rls(Number(amount) || Number(captain.deposit_amount) || Number(config.captainDeposit) || 50000);
+  const mode = config.paymentMode === 'mock' ? ' 🧪 (وضع تجريبي)' : '';
+  const head = kind === 'request' ? '💰 *طلب رابط دفع تأمين — كابتن*' : '💰 *دفع تأمين كابتن* ✅';
+  const tail = kind === 'request' ? '📎 أُرسل له رابط الدفع — بانتظار التحصيل.' : '🟢 تم تفعيل حسابه وصار متاحاً لاستقبال عروض الطلبات.';
+  const body = [
+    head + mode,
+    `👤 الاسم: ${captain.name || '—'}`,
+    `🆔 رقم الهوية: ${captain.national_id || '—'}`,
+    `📱 الجوال: ${captain.phone || '—'}`,
+    `🚗 المركبة: ${captain.vehicle_type || '—'}${captain.vehicle_plate ? ' — ' + captain.vehicle_plate : ''}${captain.vehicle_color ? ' — ' + captain.vehicle_color : ''}`,
+    `🏙 المدينة: ${captain.city || '—'}${captain.district ? ' — حي ' + captain.district : ''}`,
+    `💰 المبلغ: ${amt} ر.س`,
+    `🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}`,
+    tail
+  ].join('\n');
+  if (config.adminPhone) { try { await waSend({ phone: config.adminPhone, type: 'text', body }); } catch (e) { console.error('DEPOSIT_NOTIFY_FAIL', e.message); } }
+  return body;
+}
+
 export async function handleCaptainIncoming({ phone, body = '', payload = null }) {
   // 📜 بوابة التعهد للكابتن (وقبول التعهد)
   try {
@@ -3315,10 +3336,20 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
       const { markDepositPaid } = await import('./captainAccount.js');
       try { markDepositPaid(captain.id, amt); } catch (e) { console.error('CAP_DEPOSIT_MARK_FAIL', e.message); }
       q.run("UPDATE captains SET status='available' WHERE id=?", captain.id);
+      notifyDepositPaid(captain, amt, 'paid').catch(() => {});
       return send(captain.phone, null, null, 'text', `🧪 *وضع تجريبي:* تم دفع التأمين ✅\n\n💰 التأمين: ${rls(amt)} ر.س (يُحفظ رصيداً لك)\n🟢 *حسابك مفعّل ومتاح للطلبات* — بتصلك عروض الطلبات 🛵`);
     }
-    if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `💰 كابتن يريد دفع التأمين: ${captain.name || ''} — ${captain.phone || ''} (${rls(amt)} ر.س)` }).catch(() => {});
-    return send(captain.phone, null, null, 'text', '💳 لإتمام الدفع تواصل مع الإدارة وسنرسل لك رابط الدفع فوراً 🌸');
+    // دفع حقيقي: ننشئ رابط دفع ونرسله للكابتن + نبلّغ المشرف ببياناته كاملة
+    try {
+      const { createDepositInvoice } = await import('./payments.js');
+      const inv = await createDepositInvoice(captain, amt);
+      if (inv?.ok && inv.payment_url) {
+        notifyDepositPaid(captain, amt, 'request').catch(() => {});
+        return send(captain.phone, null, null, 'text', `💳 *رابط دفع التأمين (${rls(amt)} ر.س)*\n${inv.payment_url}\n\nبعد إتمام الدفع يتفعّل حسابك تلقائياً ✅`);
+      }
+    } catch (e) { console.error('CAP_DEPOSIT_LINK_FAIL', e.message); }
+    notifyDepositPaid(captain, amt, 'request').catch(() => {});
+    return send(captain.phone, null, null, 'text', '💳 سيتواصل معك فريق الإدارة لإتمام الدفع ويرسل لك الرابط فوراً 🌸');
   }
   if (p === 'capdep:how') {
     return send(captain.phone, null, null, 'text', '💳 *طرق دفع التأمين*\n• إلكتروني (مدى/Apple Pay) — نرسل لك رابطاً\n• تحويل بنكي — نرسل لك الآيبان\n\nاضغط *ادفع التأمين* ونكمل معك ✅');
