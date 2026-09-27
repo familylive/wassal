@@ -2427,6 +2427,11 @@ _(أو مباشرة: *انضمام* لنشاط · *انضمام كابتن* لل
 // اختيار الخدمة: 1 عميل · 2 نشاط · 3 استفسارات
 function handleWelcomeMenu(phone, rid, session, b, p, customer) {
   const raw = (p && String(p).startsWith('svc:')) ? String(p).slice(4) : String(b || '').trim();
+  // 🔧 مسار الكابتن/الانضمام يجب أن يشتغل من قائمة الترحيب أيضاً:
+  // سابقاً كانت القائمة تحجز كل الرسائل غير (1/2/3) وتعيد نفسها → طريق مسدود لمن يريد التسجيل ككابتن.
+  const wantCaptain = /^(انضمام|انضم|تسجيل)\s*(كابتن|مندوب|توصيل)$/.test(raw) || (/كابتن|مندوب/.test(raw) && /^(انضم|انضمام|تسجيل|كيف|أريد|اريد|ابغى|أبغى)/.test(raw));
+  if (wantCaptain) return startCaptainReg(phone, rid, session);
+  if (/^(انضمام|انضم)$/.test(raw) || /^(انضمام|انضم|تسجيل)\s*(نشاط|مطعم|بقالة|سوبر\s?ماركت|صيدلية|متجر|محل|أسرة منتجة|اسر منتجة)$/.test(raw)) return startBusinessReg(phone, rid, session);
   const num = Number(raw.replace(/[^\d١٢٣]/g, '').replace(/[١٢٣]/g, d => '١٢٣'.indexOf(d) + 1));
   const text = String(raw);
   const pick = num === 1 || /^(عميل|اطلب|أطلب|طلب|طلبات)$/.test(text) ? 1
