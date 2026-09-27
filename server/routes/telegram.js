@@ -33,13 +33,11 @@ function askContact(chatId, text) {
   }).catch(() => {});
 }
 
-// ---------- استقبال تحديثات تليجرام ----------
-router.post('/webhook', async (req, res) => {
-  res.sendStatus(200);                       // نرد فوراً لتليجرام
+// ---------- معالجة أي تحديث من تليجرام (مشتركة بين الويبهوك ووضع السحب) ----------
+export async function handleUpdate(updIn, { checkSecret = false, gotSecret = '' } = {}) {
   try {
     const secret = String(config.telegram.secret || '');
-    const gotSecret = req.get('x-telegram-bot-api-secret-token') || '';
-    const upd = req.body || {};
+    const upd = updIn || {};
     // 🔎 تسجيل كل تحديث وارد (قبل الفحوص) — لتشخيص «لا يصل شيء» من تليجرام
     try {
       const kind = upd.callback_query ? 'callback' : upd.message?.location ? 'location' : upd.message?.contact ? 'contact' : upd.message?.photo ? 'photo' : upd.message ? 'message' : Object.keys(upd)[0] || 'unknown';
@@ -47,7 +45,7 @@ router.post('/webhook', async (req, res) => {
         `${kind}${upd.callback_query?.data ? ':' + String(upd.callback_query.data).slice(0, 60) : ''}`,
         JSON.stringify({ secret_ok: secret ? gotSecret === secret : null, has_secret_header: Boolean(gotSecret), upd_id: upd.update_id }).slice(0, 300));
     } catch (e) {}
-    if (secret && gotSecret !== secret) {
+    if (checkSecret && secret && gotSecret !== secret) {
       try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('webhook-error', ?, ?)", 'secret_mismatch — تم تجاهل التحديث', JSON.stringify({ has_header: Boolean(gotSecret) }).slice(0, 200)); } catch (e) {}
       return;
     }
@@ -96,7 +94,55 @@ router.post('/webhook', async (req, res) => {
     console.error('TELEGRAM_HANDLE_FAIL', e.message);
     try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('webhook-error', ?, ?)", String(e.message).slice(0, 160), String(e.stack || '').slice(0, 400)); } catch (_) {}
   }
+}
+
+// ويبهوك (يبقى متاحًا للتوافق) — يفوّض كل شيء لـ handleUpdate
+router.post('/webhook', async (req, res) => {
+  res.sendStatus(200);
+  handleUpdate(req.body || {}, { checkSecret: true, gotSecret: req.get('x-telegram-bot-api-secret-token') || '' })
+    .catch(e => console.error('TELEGRAM_WEBHOOK_HANDLE_FAIL', e.message));
 });
+
+// ---------- 🔄 وضع السحب (long polling) — لا يعتمد على أي POST وارد ⇒ محصّن ضد حجب Cloudflare ----------
+let polling = false;
+const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
+export const isPolling = () => polling;
+export function stopPolling() { polling = false; }
+
+export async function startPolling() {
+  if (polling) return true;
+  if (!config.telegram.token) return false;
+  polling = true;
+  try {
+    const w = await post('getWebhookInfo', {}).catch(() => null);
+    if (w?.result?.url) {
+      await post('deleteWebhook', { drop_pending_updates: false });
+      console.log('TG_WEBHOOK_DELETED_FOR_POLLING', w.result.url);
+    }
+  } catch (e) { console.warn('TG_DELETE_WEBHOOK_FAIL', e.message); }
+  console.log('TG_POLLING_STARTED');
+  (async () => {
+    let offset = 0;
+    while (polling) {
+      try {
+        const r = (await axios.post(tg('getUpdates'),
+          { offset, timeout: 25, allowed_updates: ['message', 'edited_message', 'callback_query'] },
+          { timeout: 40000 })).data;
+        if (!r || r.ok === false) { await sleepMs(3000); continue; }
+        const list = r.result || [];
+        for (const u of list) {
+          offset = Math.max(offset, (Number(u.update_id) || 0) + 1);
+          handleUpdate(u).catch(e => console.error('TG_POLL_UPDATE_FAIL', e.message));
+        }
+      } catch (e) {
+        const m = String(e.message || '');
+        if (/409|terminated by other getUpdates/.test(m)) await sleepMs(8000);
+        else { console.error('TG_POLL_FAIL', m); await sleepMs(4000); }
+      }
+    }
+  })();
+  return true;
+}
 
 // ---------- ربط الويب هوك ببوت تليجرام (تُفتح بالمتصفح بعد وضع التوكن) ----------
 // 🔒 خاص بالمشرف فقط — لا يُسمح لأي زائر بإعادة توجيه webhook البوت
@@ -116,6 +162,7 @@ router.get('/setup-webhook', requireAuth, requireRole('admin'), async (req, res)
 // 🔧 ضبط الويب هوك تلقائياً (يصلح انحراف الرابط أو السرّ) — يُستدعى عند الإقلاع ودوريًا
 export async function ensureWebhook() {
   try {
+    if (polling) return { ok: true, skipped: 'polling' };
     if (!config.telegram.token) return { ok: false, error: 'no_token' };
     const base = String(config.publicUrl || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
     const url = `${base}/api/telegram/webhook`;

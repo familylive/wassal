@@ -147,10 +147,28 @@ import('./services/reporting.js').then(({ runDueReports }) => {
   setTimeout(() => runDueReports().then(n => { if (n) console.log('REPORTS_CATCHUP', n); }).catch(() => {}), 25000);
 });
 
-// 🔧 ضبط الويب هوك تلقائياً: عند الإقلاع ثم كل 30 دقيقة (يصلح أي انحراف في الرابط/السرّ)
-import('./routes/telegram.js').then(({ ensureWebhook }) => {
-  setTimeout(() => ensureWebhook().catch(() => {}), 12000);
-  setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
+// 🔄 قناة تليجرام: وضع السحب (polling) هو الافتراضي — لا يعتمد على ويبهوك ولا يتأثر بحجب Cloudflare للطلبات POST
+// (لو TELEGRAM_MODE=webhook نرجع للويبهوك كما كان)
+import('./routes/telegram.js').then(({ startPolling, ensureWebhook }) => {
+  const mode = String(process.env.TELEGRAM_MODE || '').toLowerCase();
+  if (mode === 'webhook') {
+    setTimeout(() => ensureWebhook().catch(() => {}), 12000);
+    setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
+    return;
+  }
+  setTimeout(async () => {
+    let ok = false;
+    for (let i = 0; i < 3 && !ok; i += 1) {
+      ok = await startPolling().catch(() => false);
+      if (!ok) await new Promise(r => setTimeout(r, 8000));
+    }
+    if (ok) console.log('TELEGRAM_MODE_POLLING ✓');
+    else {
+      console.warn('TELEGRAM_POLLING_FAILED → fallback webhook');
+      ensureWebhook().catch(() => {});
+      setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
+    }
+  }, 15000);
 }).catch(() => {});
 
 // ⏰ نبضة ذاتية كل 10 دقائق — تمنع «نوم» الخدمة على الخطة المجانية (فتضيع رسائل تليجرام)
