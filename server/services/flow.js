@@ -275,6 +275,14 @@ export async function handleCustomerMenu(phone, rid, payload, customer = null) {
 
 // ================= 🏪 قائمة صاحب النشاط =================
 // ================= 🧾 قائمة الكاشير =================
+// 📱 رقم محلي للعرض: 966531522388 ⇒ 0531522388
+function localPhone(p) {
+  const d = String(p || '').replace(/\D/g, '');
+  if (d.startsWith('966')) return '0' + d.slice(3);
+  if (d.startsWith('0')) return d;
+  return d.length === 9 ? '0' + d : d;
+}
+
 function restaurantClosedMsg(rid) {
   const r = q.get("SELECT name_ar, orders_paused, open_hour FROM restaurants WHERE id=?", rid);
   if (!r || !Number(r.orders_paused)) return null;
@@ -298,6 +306,7 @@ function cashierMenuRows() {
   return [
     { id: 'st:orders', title: '🧾 الطلبات الحالية', description: 'طلبات اليوم وحالتها' },
     { id: 'st:findcap', title: '🛵 ابحث عن كابتن', description: 'أعِد عرض الطلبات بلا كابتن' },
+    { id: 'st:ready', title: '🍳 الطلب جاهز', description: 'أبلغ الكابتن أن الطلب جاهز للاستلام' },
     { id: 'st:hand', title: '🛵 سلّمت الطلب للكابتن', description: 'تأكيد تسليم الطلب للكابتن' },
     { id: 'stc:hours', title: '⏰ وقت العمل', description: 'ساعات عمل النشاط' },
     { id: 'stc:report', title: '📊 تقرير يومي', description: 'مبيعات اليوم — نص + PDF' },
@@ -386,6 +395,24 @@ export async function handleStaffMenu(phone, rid, p, staff) {
   const ridr = staff.restaurant_id;
   if (p === 'st:menu') return showStaffMenu(phone, rid, staff);
   // 🛵 إعادة البحث عن كابتن من تليجرام (بلا دخول اللوحة)
+  // 🍳 «الطلب جاهز»: خطوة مستقلة بعد قبول الكابتن ⇒ يُبلَّغ الكابتن لاستلامه
+  if (p === 'st:ready') {
+    const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NOT NULL
+      AND status IN ('confirmed','preparing') ORDER BY id DESC LIMIT 8`, ridr);
+    if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلب معه كابتن وينتظر «جاهز» 🍳', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+    return send(phone, rid, null, 'list', '🍳 *اختر الطلب الجاهز* — بنبلّغ الكابتن يجي يستلمه:', { list: [{ title: 'الطلبات الجاهزة', rows: rows.map(o => ({ id: 'st:rd:' + o.id, title: `📦 ${o.order_no}`, description: `${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س` })) }] });
+  }
+  if (p.startsWith('st:rd:')) {
+    const orderId = Number(p.split(':')[2]);
+    const o = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, ridr);
+    if (!o?.captain_id) return send(phone, rid, null, 'text', 'الطلب ما حجز له كابتن بعد 🙏');
+    await setStatus(orderId, 'ready', 'restaurant', staff.user?.id || null);
+    const cap = q.get("SELECT * FROM captains WHERE id=?", o.captain_id);
+    if (cap?.phone) waSend({ phone: cap.phone, restaurantId: ridr, orderId, type: 'buttons',
+      body: `🍳 *الطلب جاهز للاستلام!*\n📦 ${o.order_no}\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ridr)?.name_ar || ''}\n📍 ${q.get("SELECT national_address FROM orders WHERE id=?", orderId)?.national_address || ''}\n\n👇 اضغط «استلام الطلب» لما تستلمه من المحل:`,
+      buttons: [{ id: 'cap:stage:transferred', title: '📦 استلام الطلب' }] }).catch(() => {});
+    return send(phone, rid, null, 'buttons', `✅ *تم إبلاغ الكابتن أن الطلب جاهز*\n📦 ${o.order_no}\n🛵 ${cap?.name || ''}\n\n⏱️ نبّهنا الكابتن يجي يستلمه.`, { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+  }
   // 🛵 تأكيد تسليم الطلب للكابتن (يوقف مهلة النشاط ويبدأ مهلة الكابتن ويُبلغ العميل)
   if (p === 'st:hand') {
     const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NOT NULL
@@ -4123,7 +4150,7 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
         const cust = q.get("SELECT phone FROM customers WHERE id=?", ord.customer_id);
         if (cust?.phone) {
           waSend({ phone: cust.phone, restaurantId: ord.restaurant_id, orderId, type: 'buttons',
-            body: `✅ *تم قبول طلبك*\n📦 ${ord.order_no}\n🛵 الكابتن: *${captain.name || ''}*\n📱 للتواصل: ${captain.phone || ''}\n⏱️ جاري تجهيز طلبك وتسليمه للكابتن 🍽️`,
+            body: `✅ *تم قبول طلبك*\n📦 ${ord.order_no}\n🛵 الكابتن: *${captain.name || ''}*\n📱 للتواصل: *${localPhone(captain.phone)}*\n⏱️ جاري تجهيز طلبك وتسليمه للكابتن 🍽️`,
             buttons: [{ id: 'track', title: '📦 متابعة حالة الطلب' }] }).catch(() => {});
         }
       } catch (e) { console.error('CAP_ACCEPT_NOTIFY_CUSTOMER_FAIL', e.message); }
