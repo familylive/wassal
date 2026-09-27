@@ -85,28 +85,64 @@ async function historyShas(maxVersions) {
   return shas;
 }
 
+// تنزيل إصدار من التاريخ والتحقق من سلامته — يرجّع المحتوى السليم أو null
+async function fetchHistoryVersion(sha) {
+  const r = await axios.get(`${API}?ref=${sha}`, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 30000 });
+  const content = Buffer.from(r.data?.content || '', 'base64');
+  if (content.length < 60000) return null;
+  if (!content.slice(0, 16).toString('ascii').includes('SQLite format 3')) return null;
+  const tmp = config.dbPath + '.cand';
+  writeFileSync(tmp, content);
+  if (!dbLooksSane(tmp)) { try { rmSync(tmp, { force: true }); } catch {} return null; }
+  return { content, tmp };
+}
+
+function installCandidate(cand) {
+  try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
+  try { rmSync(config.dbPath + '-shm', { force: true }); } catch {}
+  try { if (existsSync(config.dbPath)) writeFileSync(config.dbPath + '.bak', readFileSync(config.dbPath)); } catch {}
+  try { rmSync(config.dbPath, { force: true }); } catch {}
+  writeFileSync(config.dbPath, cand.content);
+  try { rmSync(cand.tmp, { force: true }); } catch {}
+}
+
 export async function restoreFromHistory(maxVersions = 400) {
   if (!TOKEN) { console.error('DB_HISTORY_NO_TOKEN'); return false; }
   let shas = [];
   try { shas = await historyShas(maxVersions); } catch (e) { console.error('DB_HISTORY_LIST_FAIL', e.message); return false; }
   console.log('DB_HISTORY_SCAN', shas.length);
-  for (const sha of shas) {
-    try {
-      const r = await axios.get(`${API}?ref=${sha}`, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json' }, timeout: 30000 });
-      const content = Buffer.from(r.data?.content || '', 'base64');
-      if (content.length < 60000) continue;
-      if (!content.slice(0, 16).toString('ascii').includes('SQLite format 3')) continue;
-      const tmp = config.dbPath + '.cand';
-      writeFileSync(tmp, content);
-      if (!dbLooksSane(tmp)) { try { rmSync(tmp, { force: true }); } catch {} continue; }
-      try { rmSync(config.dbPath + '-wal', { force: true }); } catch {}
-      try { rmSync(config.dbPath + '-shm', { force: true }); } catch {}
-      try { if (existsSync(config.dbPath)) writeFileSync(config.dbPath + '.bak', readFileSync(config.dbPath)); } catch {}
-      writeFileSync(config.dbPath, content);
-      try { rmSync(tmp, { force: true }); } catch {}
-      console.log('DB_RESTORED_FROM_HISTORY', sha.slice(0, 7), content.length);
-      return true;
-    } catch (e) { /* جرّب الإصدار الأقدم */ }
+  if (!shas.length) return false;
+
+  const test = async (i) => (i >= 0 && i < shas.length ? await fetchHistoryVersion(shas[i]).catch(() => null) : null);
+
+  // ١) الأحدث سليم؟ (الحالة الطبيعية)
+  const head = await test(0);
+  if (head) { installCandidate(head); console.log('DB_RESTORED_FROM_HISTORY', shas[0].slice(0, 7), head.content.length); return true; }
+
+  // ٢) تلف متصل ← تضاعف الفهرس لإيجاد أول إصدار سليم (requests أقل بكثير من المسح الخطي)
+  let lastBad = 0, firstGood = -1, cand = null;
+  for (let k = 1; k < shas.length && k <= 256; k *= 2) {
+    const c = await test(k);
+    if (c) { firstGood = k; cand = c; break; }
+    lastBad = k;
+  }
+  if (cand) {
+    // ٣) بحث ثنائي بين آخر تالف وأول سليم = أحدث إصدار سليم
+    let lo = lastBad, hi = firstGood;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      const c = await test(mid);
+      if (c) { hi = mid; cand = c; } else { lo = mid; }
+    }
+    installCandidate(cand);
+    console.log('DB_RESTORED_FROM_HISTORY_BIN', shas[hi].slice(0, 7), cand.content.length);
+    return true;
+  }
+
+  // ٤) احتياط: مسح خطي (لو كان التلف غير متصل)
+  for (let i = 0; i < shas.length; i++) {
+    const c = await test(i);
+    if (c) { installCandidate(c); console.log('DB_RESTORED_FROM_HISTORY_LINEAR', shas[i].slice(0, 7), c.content.length); return true; }
   }
   console.error('DB_HISTORY_NO_GOOD_VERSION');
   return false;
@@ -115,13 +151,32 @@ export async function restoreFromHistory(maxVersions = 400) {
 // استعادة عند الإقلاع
 // القاعدة: نستعيد النسخة الاحتياطية إذا (١) القاعدة المحلية فاضية، أو (٢) النسخة الاحتياطية أحدث من الملف المحلي
 // هكذا لا يضيع أي شي بعد كل نشر (Render يمسح القرص)، وفي نفس الوقت لا نستبدل بيانات أحدث بنسخة أقدم.
+let _historyTried = false;
+async function historyOnce() {
+  if (_historyTried) return false;
+  _historyTried = true;
+  return restoreFromHistory();
+}
+
+// استرجاع أحدث نسخة احتياطية (السلوك القديم) — قد تكون تالفة، لذا نفحص بعدها
 export async function restoreIfNeeded() {
   // ٠) إن كانت القاعدة المحلية تالفة → استرجع آخر نسخة سليمة من التاريخ
   // (بدون هذا: النسخة التالفة تُرفع كل دقيقتين وتُستعاد عند كل إقلاع — حلقة تلف لا تنتهي)
   if (existsSync(config.dbPath) && !dbLooksSane(config.dbPath)) {
     console.error('DB_LOCAL_MALFORMED scanning_backup_history');
-    if (await restoreFromHistory()) return true;
+    if (await historyOnce()) return true;
   }
+  const did = await restoreFromLatest();
+  // ١) بوابة أخيرة: أي قاعدة تالفة على القرص — حتى القادمة من «أحدث نسخة»
+  // (حاوية Render الجديدة تبدأ بلا ملف، فكانت تستعيد أحدث نسخة وهى التالفة)
+  if (existsSync(config.dbPath) && !dbLooksSane(config.dbPath)) {
+    console.error('DB_STILL_MALFORMED after_latest scanning_backup_history');
+    if (await historyOnce()) return true;
+  }
+  return did;
+}
+
+async function restoreFromLatest() {
   const local = localInfo();
   const remote = await fetchBackup();
   if (!remote) {
