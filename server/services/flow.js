@@ -653,6 +653,28 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // ===== المشرف: اعتماد/رفض طلبات التسجيل من أزرار الإشعار =====
   try {
     const isSupervisor = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone));
+    // 🗑 أوامر المشرف النصية على الطلبات: إلغاء أو حذف بالرقم
+    if (isSupervisor && b) {
+      const pick = (n) => q.get("SELECT * FROM orders WHERE order_no=? OR id=?", String(n), Number(n));
+      const mc = b.match(/^(?:الغ|إلغاء|الغاء|الغاء الطلب|إلغاء الطلب)\s*#?\s*(\d{2,7})$/);
+      if (mc) {
+        const o = pick(mc[1].replace(/^0+/, ''));
+        if (!o) return send(phone, rid, null, 'text', `ما لقيت طلب برقم ${mc[1]} 🙏`);
+        const { cancelOrder } = await import('./orderService.js');
+        try { cancelOrder(o.id, 'إلغاء من الإدارة', { actorType: 'admin' }); } catch (e) { console.error('ADMIN_CANCEL_FAIL', e.message); }
+        return send(phone, rid, null, 'text', `✅ *تم إلغاء الطلب ${o.order_no}*\nما عاد يوصلك عنه أي تنبيه، وتوقفت محاولات عرضه على الكباتن.`);
+      }
+      const md = b.match(/^(?:حذف|احذف|احذفه|حذف الطلب|امسح|امسح الطلب)\s*#?\s*(\d{2,7})$/);
+      if (md) {
+        const o = pick(md[1].replace(/^0+/, ''));
+        if (!o) return send(phone, rid, null, 'text', `ما لقيت طلب برقم ${md[1]} 🙏`);
+        try { q.run("DELETE FROM captain_offers WHERE order_id=?", o.id); } catch (e) {}
+        try { q.run("DELETE FROM order_events WHERE order_id=?", o.id); } catch (e) {}
+        try { q.run("DELETE FROM orders WHERE id=?", o.id); } catch (e) {}
+        return send(phone, rid, null, 'text', `🗑 *تم حذف الطلب ${o.order_no} نهائيًا*`);
+      }
+    }
+
     if (isSupervisor && p) {
       // 💰 تسعير إعلان
       const am = p.match(/^adprice:(\d+)$/);
