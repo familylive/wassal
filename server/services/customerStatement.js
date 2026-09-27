@@ -69,7 +69,7 @@ export async function renderCustomerStatementPng(customerId) {
   const W = 1000, H = 1414;
   const canvas = createCanvas(W, H);
   const c = canvas.getContext('2d');
-  const GREEN = '#1FA855', DARK = '#0B2545', GREY = '#5b6b7c', LINE = '#e3e8ee', LIGHT = '#f5f8fa';
+  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
 
   const R = 850;
@@ -115,7 +115,7 @@ export async function renderCustomerStatementPng(customerId) {
   ar('الطلبات السابقة', 'bold 27px Cairo', DARK, y + 6);
   en(`(${s.rows.length})`, 'bold 22px Cairo', GREY, y + 6, 78, 'left');
   y += 22;
-  c.fillStyle = '#e8f5ee'; c.fillRect(50, y, W - 100, 42);
+  c.fillStyle = '#E3F2FB'; c.fillRect(50, y, W - 100, 42);
   ar('الطلب', 'bold 20px Cairo', DARK, y + 28, 850);
   ar('التاريخ', 'bold 20px Cairo', DARK, y + 28, 700);
   ar('النشاط / القسم', 'bold 20px Cairo', DARK, y + 28, 560);
@@ -128,7 +128,7 @@ export async function renderCustomerStatementPng(customerId) {
   let i = 0;
   for (const o of list) {
     const rowH = 38;
-    if (i % 2 === 1) { c.fillStyle = '#fbfdfc'; c.fillRect(50, y, W - 100, rowH); }
+    if (i % 2 === 1) { c.fillStyle = '#F8FBFD'; c.fillRect(50, y, W - 100, rowH); }
     const cancelled = String(o.status) === 'cancelled';
     const dt = String(o.created_at || '').slice(0, 10);
     ar(String(o.order_no || ('#' + o.id)), 'bold 19px Cairo', cancelled ? '#9aa7b3' : DARK, y + 26, 850);
@@ -146,11 +146,11 @@ export async function renderCustomerStatementPng(customerId) {
 
   // صندوق المجموع النهائي (مختوم)
   const boxH = 132;
-  c.fillStyle = '#0f2e1d'; c.fillRect(50, y, W - 100, boxH);
+  c.fillStyle = '#17212B'; c.fillRect(50, y, W - 100, boxH);
   ar('المجموع النهائي', 'bold 30px Cairo', '#ffffff', y + 48, 850);
-  en(`${rls(s.total)} SAR`, 'bold 40px Cairo', '#7fe0a5', y + 52, 70, 'left');
-  ar(`المدفوع: ${rls(s.paid)} ر.س   ·   المتبقي: ${rls(s.unpaid)} ر.س`, '23px Cairo', '#cfe9d8', y + 96, 850);
-  en(`PAID ${rls(s.paid)}  /  DUE ${rls(s.unpaid)}`, '20px Cairo', '#cfe9d8', y + 98, 70, 'left');
+  en(`${rls(s.total)} SAR`, 'bold 40px Cairo', '#8ED8F8', y + 52, 70, 'left');
+  ar(`المدفوع: ${rls(s.paid)} ر.س   ·   المتبقي: ${rls(s.unpaid)} ر.س`, '23px Cairo', '#CFE9F6', y + 96, 850);
+  en(`PAID ${rls(s.paid)}  /  DUE ${rls(s.unpaid)}`, '20px Cairo', '#CFE9F6', y + 98, 70, 'left');
   y += boxH + 34;
 
   // تفصيل حسب الأقسام
@@ -170,7 +170,7 @@ export async function renderCustomerStatementPng(customerId) {
   const sx = 70 + stampW / 2, sy = H - 350;
   c.save();
   c.translate(sx, sy); c.rotate(-12 * Math.PI / 180); c.globalAlpha = 0.8;
-  c.strokeStyle = '#c0392b'; c.lineWidth = 5;
+  c.strokeStyle = '#1B7FB8'; c.lineWidth = 5;
   const rx = -stampW / 2, ry = -stampH / 2;
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
@@ -181,11 +181,11 @@ export async function renderCustomerStatementPng(customerId) {
     c.save();
     c.beginPath(); c.arc(rx + 70, ry + 78, 50, 0, Math.PI * 2); c.closePath();
     c.fillStyle = '#ffffff'; c.fill();
-    c.globalAlpha = 1; c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.globalAlpha = 1; c.lineWidth = 3; c.strokeStyle = '#1B7FB8'; c.stroke();
     c.beginPath(); c.arc(rx + 70, ry + 78, 46, 0, Math.PI * 2); c.clip();
     c.drawImage(img, rx + 24, ry + 32, 92, 92); c.restore();
   }
-  c.globalAlpha = 0.85; c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
+  c.globalAlpha = 0.85; c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
   c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 24, ry + 56);
   c.font = 'bold 24px Cairo'; c.fillText('كشف حساب العميل', rx + stampW - 24, ry + 106);
   c.font = 'bold 20px Cairo'; c.fillText(`تاريخ ووقت الإصدار: ${today} — ${hhmm}`, rx + stampW - 24, ry + 152);

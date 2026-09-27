@@ -78,7 +78,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   const W = 1000, H = 1414;
   const canvas = createCanvas(W, H);
   const c = canvas.getContext('2d');
-  const GREEN = '#1FA855', DARK = '#0B2545', GREY = '#5b6b7c', LINE = '#e3e8ee', LIGHT = '#f5f8fa';
+  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
 
   // خلفية
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
@@ -129,7 +129,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   ar('الأصناف المبيعة (مجمّعة)', 'bold 27px Cairo', DARK, y + 8);
   y += 28;
   // رأس الجدول
-  c.fillStyle = '#e8f5ee'; c.fillRect(50, y, W - 100, 46);
+  c.fillStyle = '#E3F2FB'; c.fillRect(50, y, W - 100, 46);
   ar('الصنف', 'bold 24px Cairo', DARK, y + 32, W - 80);
   ar('الكمية', 'bold 24px Cairo', DARK, y + 32, 330);
   ar('الإجمالي (ر.س)', 'bold 24px Cairo', DARK, y + 32, 150);
@@ -185,7 +185,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   c.translate(sx, sy);
   c.rotate(-13 * Math.PI / 180);
   c.globalAlpha = 0.68;
-  c.strokeStyle = '#c0392b'; c.lineWidth = 5;
+  c.strokeStyle = '#1B7FB8'; c.lineWidth = 5;
   const rx = -stampW / 2, ry = -stampH / 2;
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
@@ -196,12 +196,12 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
     c.save();
     c.beginPath(); c.arc(rx + 62, ry + 70, 42, 0, Math.PI * 2); c.closePath();
     c.fillStyle = '#ffffff'; c.fill();
-    c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.lineWidth = 3; c.strokeStyle = '#1B7FB8'; c.stroke();
     c.beginPath(); c.arc(rx + 62, ry + 70, 38, 0, Math.PI * 2); c.clip();
     c.globalAlpha = 1; c.drawImage(img, rx + 24, ry + 32, 76, 76); c.restore();
   }
   c.globalAlpha = 0.85;
-  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
+  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
   c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 50);
   c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 104);
   c.font = '20px Cairo'; c.fillText('منصة الطلبات والتوصيل · Wassal Order', rx + stampW - 22, ry + 138);
@@ -268,7 +268,7 @@ export async function renderOrderInvoicePng(order) {
   const W = 1000, H = 1414;
   const canvas = createCanvas(W, H);
   const c = canvas.getContext('2d');
-  const GREEN = '#1FA855', DARK = '#0B2545', GREY = '#5b6b7c', LINE = '#e3e8ee', LIGHT = '#f5f8fa';
+  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
   const R = 850;
   const ar = (t, font, color, y, x = R, align = 'right') => { c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = align; c.fillText(String(t), x, y); };
@@ -311,7 +311,7 @@ export async function renderOrderInvoicePng(order) {
   // جدول الأصناف
   ar('تفاصيل الأصناف', 'bold 27px Cairo', DARK, y + 6);
   y += 26;
-  c.fillStyle = '#e8f5ee'; c.fillRect(50, y, W - 100, 46);
+  c.fillStyle = '#E3F2FB'; c.fillRect(50, y, W - 100, 46);
   ar('الصنف', 'bold 24px Cairo', DARK, y + 32, W - 80);
   ar('الكمية', 'bold 24px Cairo', DARK, y + 32, 330);
   ar('السعر', 'bold 24px Cairo', DARK, y + 32, 220);
@@ -358,7 +358,7 @@ export async function renderOrderInvoicePng(order) {
   c.translate(sx, sy);
   c.rotate(-12 * Math.PI / 180);
   c.globalAlpha = 0.7;
-  c.strokeStyle = '#c0392b'; c.lineWidth = 5;
+  c.strokeStyle = '#1B7FB8'; c.lineWidth = 5;
   const rx = -stampW / 2, ry = -stampH / 2;
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
@@ -366,12 +366,12 @@ export async function renderOrderInvoicePng(order) {
   if (logo) {
     c.save();
     c.beginPath(); c.arc(rx + 60, ry + 58, 36, 0, Math.PI * 2); c.closePath(); c.fillStyle = '#ffffff'; c.fill();
-    c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.lineWidth = 3; c.strokeStyle = '#1B7FB8'; c.stroke();
     c.beginPath(); c.arc(rx + 60, ry + 58, 32, 0, Math.PI * 2); c.clip();
     c.globalAlpha = 1; c.drawImage(logo, rx + 28, ry + 26, 64, 64); c.restore();
   }
   c.globalAlpha = 0.85;
-  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
+  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
   c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 52);
   c.font = 'bold 32px Cairo'; c.fillText('معتمد من منصة واتس هم', rx + stampW - 22, ry + 100);
   c.font = 'bold 24px Cairo'; c.fillText(String(r?.name_ar || '').slice(0, 26), rx + stampW - 22, ry + 140);
@@ -468,7 +468,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
   const W = 1000, H = 1414;
   const canvas = createCanvas(W, H);
   const c = canvas.getContext('2d');
-  const GREEN = '#1FA855', DARK = '#0B2545', GREY = '#5b6b7c', LINE = '#e3e8ee', LIGHT = '#f5f8fa';
+  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
   const R = 850;
   const ar = (text, font, color, y, x = R, align = 'right') => { c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = align; c.fillText(String(text), x, y); };
@@ -499,7 +499,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
 
   ar('مبيعات الأنشطة', 'bold 27px Cairo', DARK, y + 8);
   y += 28;
-  c.fillStyle = '#e8f5ee'; c.fillRect(50, y, W - 100, 46);
+  c.fillStyle = '#E3F2FB'; c.fillRect(50, y, W - 100, 46);
   ar('نوع النشاط', 'bold 24px Cairo', DARK, y + 32, W - 80);
   ar('عدد الطلبات', 'bold 24px Cairo', DARK, y + 32, 330);
   ar('المبلغ (ر.س)', 'bold 24px Cairo', DARK, y + 32, 150);
@@ -537,7 +537,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
   c.translate(sx, sy);
   c.rotate(-13 * Math.PI / 180);
   c.globalAlpha = 0.68;
-  c.strokeStyle = '#c0392b'; c.lineWidth = 5;
+  c.strokeStyle = '#1B7FB8'; c.lineWidth = 5;
   const rx = -stampW / 2, ry = -stampH / 2;
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
@@ -545,12 +545,12 @@ export async function renderPlatformReportPng(dateStr, stats) {
   if (logo) {
     c.save();
     c.beginPath(); c.arc(rx + 58, ry + 56, 34, 0, Math.PI * 2); c.closePath(); c.fillStyle = '#ffffff'; c.fill();
-    c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.lineWidth = 3; c.strokeStyle = '#1B7FB8'; c.stroke();
     c.beginPath(); c.arc(rx + 58, ry + 56, 30, 0, Math.PI * 2); c.clip();
     c.globalAlpha = 1; c.drawImage(logo, rx + 28, ry + 26, 60, 60); c.restore();
   }
   c.globalAlpha = 0.85;
-  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
+  c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
   c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 54);
   c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 106);
   c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
