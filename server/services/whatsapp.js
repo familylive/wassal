@@ -67,7 +67,11 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
     keyboard = { inline_keyboard: buttons.slice(0, 10).map(b => [{ text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60) }]) };
   } else if (type === 'list' && Array.isArray(list) && list.length) {
     const rows = [];
-    for (const sec of list) for (const r of (sec.rows || [])) rows.push([{ text: String(r.title || '').slice(0, 60), callback_data: String(r.id || '').slice(0, 60) }]);
+    for (const sec of list) for (const r of (sec.rows || [])) {
+      // 🎛 عنوان الصف يحمل الوصف كذلك (الوصف لا يظهر في أزرار تليجرام)
+      const label = [r.title, r.description].filter(Boolean).join(' — ');
+      rows.push([{ text: String(label || '').slice(0, 60), callback_data: String(r.id || '').slice(0, 60) }]);
+    }
     if (rows.length) keyboard = { inline_keyboard: rows.slice(0, 30) };
   }
   if (type === 'image' && image) return post('sendPhoto', { photo: image, caption: String(body || '').slice(0, 1000) });
