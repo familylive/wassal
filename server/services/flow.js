@@ -593,8 +593,9 @@ function selectRestaurant(phone, rid) {
     q.run("UPDATE whatsapp_sessions SET restaurant_id=? WHERE phone=?", rid, phone);
     q.run("UPDATE conversations SET restaurant_id=? WHERE phone=? AND restaurant_id IS NULL", rid, phone);
   } catch (e) {}
-  send(phone, rid, null, 'text', `✅ تم اختيار *${rest.name_ar}* 🍽️`);
-  return mainMenu(phone, rid);
+  // 🍽 بعد اختيار النشاط: نعرض الأقسام والأصناف مباشرة (كان يرجع لقائمة العميل فتظهر كأن المنيو لا يعمل)
+  send(phone, rid, null, 'text', `✅ تم اختيار *${rest.name_ar}* 🍽️\n👇 هذا المنيو — اختر اللي تبي:`);
+  return showMenu(phone, rid);
 }
 
 // هل يحتاج ترحيب؟ (مرة كل 6 ساعات)
