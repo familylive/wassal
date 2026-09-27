@@ -344,6 +344,7 @@ function staffMenuRows(kind) {
     { id: 'st:orders', title: '🧾 الطلبات الحالية', description: 'طلبات اليوم وحالتها' },
     { id: 'st:report', title: '📊 تقرير اليوم', description: 'مبيعات اليوم — نص + PDF' },
     { id: 'st:hour', title: '⏰ موعد تقريري', description: 'تغيير ساعة التقرير' },
+    { id: 'st:findcap', title: '🛵 ابحث عن كابتن', description: 'أعِد عرض الطلبات بلا كابتن' },
     { id: 'st:contact', title: '📞 صاحب النشاط', description: 'للتواصل والاستفسار' }
   ];
   if (kind === 'manager') return [
@@ -381,6 +382,28 @@ export async function showStaffMenu(phone, rid, staff) {
 export async function handleStaffMenu(phone, rid, p, staff) {
   const ridr = staff.restaurant_id;
   if (p === 'st:menu') return showStaffMenu(phone, rid, staff);
+  // 🛵 إعادة البحث عن كابتن من تليجرام (بلا دخول اللوحة)
+  if (p === 'st:findcap') {
+    const rows = q.all(`SELECT * FROM orders WHERE restaurant_id=? AND captain_id IS NULL
+      AND status IN ('confirmed','preparing','ready') AND COALESCE(order_type,'delivery')<>'pickup'
+      ORDER BY id DESC LIMIT 8`, ridr);
+    if (!rows.length) return send(phone, rid, null, 'buttons', '✅ ما فيه طلب مؤكّد يحتاج كابتن الآن 🛵', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+    return send(phone, rid, null, 'list', '🛵 *طلبات بلا كابتن* — اختر الطلب لإعادة عرضه على الكباتن:', { list: [{ title: 'طلبات تحتاج كابتن', rows: rows.map(o => ({ id: 'st:rc:' + o.id, title: `📦 ${o.order_no}`, description: `${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س` })) }] });
+  }
+  if (p.startsWith('st:rc:')) {
+    const orderId = Number(p.split(':')[2]);
+    const o = q.get("SELECT * FROM orders WHERE id=? AND restaurant_id=?", orderId, ridr);
+    if (!o) return send(phone, rid, null, 'text', 'الطلب غير موجود 🙏');
+    const avail = Number(q.get("SELECT COUNT(*) c FROM captains WHERE status='available' AND is_active=1 AND COALESCE(blocked,0)=0")?.c || 0);
+    try { const { broadcastToCaptains } = await import('./dispatch.js'); broadcastToCaptains(o); }
+    catch (e) { console.error('STAFF_REDISPATCH_FAIL', e.message); }
+    const after = q.get("SELECT status FROM orders WHERE id=?", orderId);
+    return send(phone, rid, null, 'buttons',
+      `🛵 *إعادة البحث عن كابتن*\n📦 ${o.order_no}\n\n${after?.status === 'offered'
+        ? `✅ عُرض الطلب على *${avail}* كابتن متاح`
+        : `⚠️ ما فيه كابتن «متاح» الآن (المتاحون: ${avail}) — بنعيد تلقائيًا كل 5 دقائق`}`,
+      { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }, { id: 'st:orders', title: '🧾 الطلبات' }] });
+  }
   if (p === 'st:orders') {
     const rows = staff.branch_id
       ? q.all("SELECT * FROM orders WHERE restaurant_id=? AND branch_id=? AND date(created_at)=date('now') AND COALESCE(order_no,'')!='DRAFT' ORDER BY id DESC LIMIT 12", ridr, staff.branch_id)
