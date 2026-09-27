@@ -273,6 +273,163 @@ export async function handleCustomerMenu(phone, rid, payload, customer = null) {
   return showCustomerMainMenu(phone, rid, c);
 }
 
+// ================= 🏪 قائمة صاحب النشاط =================
+function ownerRestaurantOf(phone) {
+  const v = validatePhone(phone);
+  try {
+    const u = q.get("SELECT restaurant_id FROM restaurant_users WHERE (phone=? OR phone=?) AND is_active=1 ORDER BY id LIMIT 1", phone, v);
+    if (u?.restaurant_id) {
+      const r = q.get("SELECT * FROM restaurants WHERE id=?", u.restaurant_id);
+      if (r) return r;
+    }
+  } catch (e) {}
+  return q.get("SELECT * FROM restaurants WHERE phone=? OR phone=? OR whatsapp_number=?", phone, v, phone) || null;
+}
+
+function ownerMenuRows() {
+  return { list: [{ title: 'قائمة صاحب النشاط', rows: [
+    { id: 'om:order', title: '🛒 طلب', description: 'اطلب مثل العميل' },
+    { id: 'om:info', title: '🏪 بيانات النشاط', description: 'بيانات نشاطك وفروعه' },
+    { id: 'om:branch', title: '➕ إضافة فرع جديد', description: 'بيانات الفرع وموقعه ورخصته' },
+    { id: 'om:reports', title: '📊 التقارير', description: 'يومي · أسبوعي · شهري · سنوي' },
+    { id: 'om:notes', title: '📨 استفسارات وملاحظات', description: 'أرسل ملاحظتك للإدارة' }
+  ] }] };
+}
+
+export async function showOwnerMainMenu(phone, rid = null, rest = null) {
+  const r = rest || ownerRestaurantOf(phone);
+  if (!r) return showCustomerMainMenu(phone, rid, null);
+  const branches = q.all("SELECT id FROM branches WHERE restaurant_id=? ORDER BY id", r.id);
+  const body = `🏪 *أهلًا بك يا صاحب النشاط* 🌸\n\n*${r.name_ar}* (#${r.id})${r.city ? ' — ' + r.city : ''}\n🏬 الفروع: ${branches.length}\n\n👇 *قائمة النشاط* — اختر اللي تبي:`;
+  return send(phone, rid, null, 'list', body, ownerMenuRows());
+}
+
+function ownerInfoText(r) {
+  const bt = r.business_type_id ? q.get("SELECT name_ar, icon FROM business_types WHERE id=?", r.business_type_id) : null;
+  const branches = q.all("SELECT * FROM branches WHERE restaurant_id=? ORDER BY id", r.id);
+  const items = Number(q.get("SELECT COUNT(*) c FROM items WHERE restaurant_id=?", r.id)?.c || 0);
+  const hours = r.open_hour ? `${r.open_hour} — ${r.close_hour || ''}` : '—';
+  let t = `🏪 *بيانات النشاط*\n\n${bt?.icon || ''} الاسم: *${r.name_ar}*\n🔢 رقم النشاط: #${r.id}\n🏷 النوع: ${bt?.name_ar || '—'}\n📱 الجوال: ${r.phone || '—'}\n🏙 المدينة: ${r.city || '—'}${r.address ? '\n📍 العنوان: ' + r.address : ''}\n🕐 ساعات العمل: ${hours}\n💳 الاشتراك: ${Number(r.subscription_paid) ? '✅ مدفوع' : '⏳ غير مدفوع'}\n🍽 عدد الأصناف: ${items}\n`;
+  t += `\n🏬 *الفروع (${branches.length}):*\n`;
+  if (!branches.length) t += '• لا توجد فروع بعد — أضف فرعك من زر *➕ إضافة فرع جديد*';
+  for (const b of branches) {
+    t += `• *${b.name}*${b.city ? ' — ' + b.city : ''}`;
+    if (b.licence_no || b.licence_expiry) t += `\n  🧾 رخصة: ${b.licence_no || '—'}${b.licence_expiry ? ' (تنتهي ' + b.licence_expiry + ')' : ''}`;
+    if (b.cr_no) t += `\n  📋 سجل تجاري: ${b.cr_no}`;
+    t += `\n  📍 ${b.lat && b.lng ? b.lat.toFixed(5) + ', ' + b.lng.toFixed(5) : (b.address || 'بلا موقع')}\n`;
+  }
+  return t;
+}
+
+// 🧾 إنشاء فرع جديد + إشعار الإدارة
+async function createOwnerBranch(phone, rid, rest, d, lat = null, lng = null, address = null) {
+  const res = q.run(`INSERT INTO branches (restaurant_id, name, city, district, address, lat, lng, phone, cr_no, licence_no, licence_expiry, is_active)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
+    rest.id, String(d.obrName || 'فرع جديد').slice(0, 60), d.obrCity || rest.city || null, d.obrDistrict || null,
+    address || null, lat, lng, rest.phone || phone, d.obrCr || null, d.obrLic || null, d.obrLicExp || null);
+  const branchId = Number(res.lastInsertRowid);
+  saveSession(phone, 'idle', {});
+  send(phone, rid, null, 'text', `✅ *تم إضافة الفرع* إلى *${rest.name_ar}* 🌸\n\n🏬 الاسم: ${d.obrName || 'فرع جديد'}\n🏙 المدينة: ${d.obrCity || rest.city || '—'}\n${d.obrLic ? '🧾 الرخصة: ' + d.obrLic + (d.obrLicExp ? ' (تنتهي ' + d.obrLicExp + ')' : '') + '\n' : ''}${d.obrCr ? '📋 السجل: ' + d.obrCr + '\n' : ''}📍 ${lat && lng ? lat.toFixed(5) + ', ' + lng.toFixed(5) : (address || 'بلا موقع')}\n\n🔢 رقم الفرع: ${branchId}`);
+  if (config.adminPhone) {
+    const ownerName = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", rest.id)?.name || '';
+    waSend({ phone: config.adminPhone, type: 'text', body: `➕ *فرع جديد*\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n👤 صاحبه: ${ownerName || '—'} — 📱 ${phone}\n\n🏬 الفرع: *${d.obrName || 'فرع جديد'}*\n🏙 ${d.obrCity || rest.city || '—'}\n${d.obrLic ? '🧾 رخصة: ' + d.obrLic + (d.obrLicExp ? ' — تنتهي ' + d.obrLicExp : '') + '\n' : ''}${d.obrCr ? '📋 سجل: ' + d.obrCr + '\n' : ''}📍 ${lat && lng ? lat.toFixed(5) + ', ' + lng.toFixed(5) : (address || 'بلا موقع')}` }).catch(() => {});
+  }
+  return send(phone, rid, null, 'buttons', 'وش تحب بعد؟', { buttons: [
+    { id: 'om:branch', title: '➕ فرع آخر' }, { id: 'om:info', title: '🏪 بيانات النشاط' }, { id: 'om:back', title: '⬅️ القائمة' }
+  ] });
+}
+
+// 📊 التقارير: يومي · أسبوعي · شهري · سنوي (نص + PDF) + إشعار الإدارة
+const OWNER_REPORT_LABEL = { day: 'اليومي', week: 'الأسبوعي', month: 'الشهري', year: 'السنوي' };
+async function sendOwnerReport(phone, rid, rest, kind) {
+  const label = OWNER_REPORT_LABEL[kind];
+  await send(phone, rid, null, 'text', `📊 جاري تجهيز التقرير *${label}* — نجهّز لك ملف PDF مختوم ⏳`);
+  let ok = false;
+  try {
+    const { sendRangeReportTo, reportRange } = await import('./reporting.js');
+    const res = await sendRangeReportTo(phone, rest.id, kind);
+    ok = !!res?.ok;
+    if (config.adminPhone) {
+      const rng = reportRange(kind);
+      const ownerName = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", rest.id)?.name || '';
+      waSend({ phone: config.adminPhone, type: 'text', body: `📊 *طلب تقرير ${label}*\n\n👤 صاحب النشاط: *${ownerName || '—'}*\n🏪 النشاط: *${rest.name_ar}* (#${rest.id})\n🗓 نوع التقرير: *${label}* (${rng.label})\n📱 ${phone}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}` }).catch(() => {});
+    }
+  } catch (e) { console.error('OWNER_REPORT_FAIL', e.message); }
+  return send(phone, rid, null, 'buttons', ok ? `✅ تم إرسال التقرير *${label}* لك (نص + PDF مختوم)` : '⚠️ تعذّر إرسال التقرير — جرّب بعد قليل', { buttons: [
+    { id: 'om:reports', title: '📊 تقارير أخرى' }, { id: 'om:back', title: '⬅️ القائمة' }
+  ] });
+}
+
+// خطوات إضافة فرع: اسم → مدينة → رخصة → انتهاء الرخصة → سجل → موقع
+export async function handleOwnerBranchStep(phone, rid, b, state, data, rest, ctx = {}) {
+  const d = { ...(data || {}) };
+  const skip = DOC_SKIP.test(String(b || ''));
+  if (state === 'obr_name') {
+    if (String(b).length < 2) return send(phone, rid, null, 'text', 'اكتب *اسم الفرع* 🙏 (مثال: فرع المنسك)');
+    d.obrName = String(b).slice(0, 60);
+    saveSession(phone, 'obr_city', d);
+    return send(phone, rid, null, 'text', `🏙 *مدينة الفرع*؟${rest.city ? `\n_(اكتب *تخطى* لاستخدام: ${rest.city})_` : ''}`);
+  }
+  if (state === 'obr_city') {
+    d.obrCity = skip ? (rest.city || null) : String(b).slice(0, 40);
+    saveSession(phone, 'obr_lic', d);
+    return send(phone, rid, null, 'text', '🧾 *رقم رخصة الفرع*؟ (أو *تخطى*)');
+  }
+  if (state === 'obr_lic') {
+    d.obrLic = skip ? null : String(b).slice(0, 40);
+    saveSession(phone, 'obr_licexp', d);
+    return send(phone, rid, null, 'text', '📅 *تاريخ انتهاء الرخصة*؟ (مثال: 2027-05-30 · أو *تخطى*)');
+  }
+  if (state === 'obr_licexp') {
+    d.obrLicExp = skip ? null : String(b).slice(0, 20);
+    saveSession(phone, 'obr_cr', d);
+    return send(phone, rid, null, 'text', '📋 *رقم السجل التجاري*؟ (أو *تخطى*)');
+  }
+  if (state === 'obr_cr') {
+    d.obrCr = skip ? null : String(b).slice(0, 40);
+    saveSession(phone, 'obr_loc', d);
+    return send(phone, rid, null, 'text', '📍 *موقع الفرع*:\n• أرسل *الموقع* من زر المشاركة 📎 (الأفضل)\n• أو اكتب عنوان الفرع نصاً\n\n_(أو *تخطى*)_');
+  }
+  if (state === 'obr_loc') {
+    if (ctx.type === 'location' && ctx.lat && ctx.lng) return createOwnerBranch(phone, rid, rest, d, Number(ctx.lat), Number(ctx.lng), null);
+    if (skip) return createOwnerBranch(phone, rid, rest, d, null, null, null);
+    return createOwnerBranch(phone, rid, rest, d, null, null, String(b).slice(0, 140));
+  }
+  return null;
+}
+
+// 🏪 موزّع قائمة صاحب النشاط
+export async function handleOwnerMenu(phone, rid, payload, rest = null) {
+  const p = String(payload || '');
+  const r = rest || ownerRestaurantOf(phone);
+  if (!r) return showCustomerMainMenu(phone, rid, null);
+  if (p === 'om:order') { const c = ensureCustomer(phone); return showCustomerMainMenu(phone, rid, c); }
+  if (p === 'om:info') return send(phone, rid, null, 'buttons', ownerInfoText(r), { buttons: [
+    { id: 'om:branch', title: '➕ إضافة فرع' }, { id: 'om:reports', title: '📊 التقارير' }, { id: 'om:back', title: '⬅️ القائمة' }
+  ] });
+  if (p === 'om:branch') {
+    saveSession(phone, 'obr_name', {});
+    return send(phone, rid, null, 'text', `➕ *إضافة فرع جديد* لـ *${r.name_ar}*\n\n🏬 اكتب *اسم الفرع* (مثال: فرع المنسك)`);
+  }
+  if (p === 'om:reports') return send(phone, rid, null, 'list', '📊 *التقارير* — اختر النوع:', { list: [{ title: 'نوع التقرير', rows: [
+    { id: 'om:rep:day', title: '📅 تقرير يومي', description: 'اليوم — نص + PDF' },
+    { id: 'om:rep:week', title: '🗓 تقرير أسبوعي', description: 'آخر ٧ أيام' },
+    { id: 'om:rep:month', title: '📆 تقرير شهري', description: 'هذا الشهر' },
+    { id: 'om:rep:year', title: '📈 تقرير سنوي', description: 'هذا العام' }
+  ] }] });
+  if (p.startsWith('om:rep:')) {
+    const kind = p.split(':')[2];
+    if (!OWNER_REPORT_LABEL[kind]) return send(phone, rid, null, 'text', 'نوع تقرير غير معروف 🙏');
+    return sendOwnerReport(phone, rid, r, kind);
+  }
+  if (p === 'om:notes') {
+    saveSession(phone, 'om_note', { omRestId: r.id });
+    return send(phone, rid, null, 'text', '📨 *استفسارات وملاحظات*\n\nاكتب رسالتك للإدارة وأنا أوصلها لهم فوراً ✍️\n_(أو اكتب *إلغاء* للتراجع)_');
+  }
+  if (p === 'om:back') return showOwnerMainMenu(phone, rid, r);
+  return showOwnerMainMenu(phone, rid, r);
+}
+
 function selectRestaurant(phone, rid) {
   const rest = q.get("SELECT * FROM restaurants WHERE id=? AND is_active=1", rid);
   if (!rest) return showRestaurants(phone);
@@ -337,6 +494,32 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   const customer = ensureCustomer(phone);
   // 🏠 أزرار قائمة العميل
   if (payload && String(payload).startsWith('cmenu:')) return handleCustomerMenu(phone, restaurantId, String(payload), customer);
+  // 🏪 صاحب النشاط: قائمته الخاصة (كان لا يراها أصلاً)
+  {
+    const _owner = ownerRestaurantOf(phone);
+    if (_owner) {
+      const _st = getSession(phone).state;
+      if (payload && String(payload).startsWith('om:')) {
+        if (String(payload) === 'om:cancel_note') { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
+        return handleOwnerMenu(phone, restaurantId, String(payload), _owner);
+      }
+      if (!payload && /^(مرحبا|هلا|السلام عليكم|لوحتي|لوحة|نشاطي|إدارة نشاطي|القائمة|قائمه|menu|start)$/i.test(String(body || '').trim()))
+        return showOwnerMainMenu(phone, restaurantId, _owner);
+      // تدفّق إضافة فرع
+      if (['obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc'].includes(_st)) {
+        return handleOwnerBranchStep(phone, restaurantId, String(body || '').trim(), _st, getSession(phone).data || {}, _owner, { type, lat, lng });
+      }
+      // ملاحظة للإدارة
+      if (_st === 'om_note') {
+        const txt = String(body || '').trim() || String(payload || '').trim();
+        if (/^(الغاء|إلغاء|cancel)$/.test(txt)) { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
+        saveSession(phone, 'idle', {});
+        const ownerName = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", _owner.id)?.name || '';
+        if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📨 *استفسار/ملاحظة من صاحب نشاط*\n\n🏪 النشاط: *${_owner.name_ar}* (#${_owner.id})\n👤 صاحبه: ${ownerName || '—'} — 📱 ${phone}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}\n\n💬 ${txt}` }).catch(() => {});
+        return send(phone, restaurantId, null, 'buttons', '✅ *وصلت ملاحظتك للإدارة* — شكراً لك 🌸\nبنرجع لك بأقرب وقت.', { buttons: [{ id: 'om:back', title: '⬅️ القائمة' }] });
+      }
+    }
+  }
   // فتح قائمة العميل بالكتابة (للعملاء المعروفين)
   {
     const _b = String(body || '').trim();
@@ -469,7 +652,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['welcome', 'reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_nid', 'cash_dob', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
+    'reg_id_doc', 'obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc', 'om_note', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name' && state !== 'welcome') {
     saveSession(phone, 'welcome', { ...data });
     return send(phone, rid, null, 'text', WELCOME_TEXT);
