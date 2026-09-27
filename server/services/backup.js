@@ -225,6 +225,14 @@ export async function restoreIfNeeded() {
 }
 
 async function restoreFromLatest() {
+  // 🚫 لا تستبدل قاعدة محلية صالحة أبداً.
+  // النسخة الاحتياطية «للطوارئ» (قرص Render يُمسح بين الحاويات) — ليست مصدر الحقيقة.
+  // سابقاً كان يُستبدل الملف المحلي بأحدث نسخة عند كل إقلاع → يمحو الإعدادات والبيانات المكتوبة بعدها.
+  if (existsSync(config.dbPath) && dbUsable(config.dbPath)) {
+    const st = (() => { try { return statSync(config.dbPath).mtime.toISOString(); } catch (e) { return 'n/a'; } })();
+    console.log('DB_KEEP_LOCAL_USABLE', { mtime: st, sane: dbLooksSane(config.dbPath) });
+    return false;
+  }
   const local = localInfo();
   const remote = await fetchBackup();
   if (!remote) {
