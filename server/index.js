@@ -147,6 +147,12 @@ import('./services/reporting.js').then(({ runDueReports }) => {
   setTimeout(() => runDueReports().then(n => { if (n) console.log('REPORTS_CATCHUP', n); }).catch(() => {}), 25000);
 });
 
+// 🔧 ضبط الويب هوك تلقائياً: عند الإقلاع ثم كل 30 دقيقة (يصلح أي انحراف في الرابط/السرّ)
+import('./routes/telegram.js').then(({ ensureWebhook }) => {
+  setTimeout(() => ensureWebhook().catch(() => {}), 12000);
+  setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
+}).catch(() => {});
+
 import('./services/backup.js').then(({ scheduleBackup, backupNow }) => {
   setInterval(scheduleBackup, 2 * 60 * 1000);
   console.log('🔄 النسخ الاحتياطي التلقائي مفعّل (كل دقيقتين)');
