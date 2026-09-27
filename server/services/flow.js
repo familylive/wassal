@@ -276,14 +276,20 @@ export async function handleCustomerMenu(phone, rid, payload, customer = null) {
 // ================= 🏪 قائمة صاحب النشاط =================
 function ownerRestaurantOf(phone) {
   const v = validatePhone(phone);
+  const last9 = String(v || '').replace(/\D/g, '').slice(-9);
+  const like = '%' + last9;
   try {
-    const u = q.get("SELECT restaurant_id FROM restaurant_users WHERE (phone=? OR phone=?) AND is_active=1 ORDER BY id LIMIT 1", phone, v);
+    const u = q.get(`SELECT restaurant_id FROM restaurant_users
+        WHERE (phone=? OR phone=? OR phone LIKE ?) AND is_active=1
+        ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'restaurant' THEN 1 ELSE 2 END, id LIMIT 1`, phone, v, like);
     if (u?.restaurant_id) {
       const r = q.get("SELECT * FROM restaurants WHERE id=?", u.restaurant_id);
       if (r) return r;
     }
   } catch (e) {}
-  return q.get("SELECT * FROM restaurants WHERE phone=? OR phone=? OR whatsapp_number=?", phone, v, phone) || null;
+  return q.get(`SELECT * FROM restaurants
+      WHERE phone=? OR phone=? OR phone LIKE ? OR whatsapp_number=? OR whatsapp_number LIKE ? LIMIT 1`,
+    phone, v, like, phone, like) || null;
 }
 
 function ownerMenuRows() {
@@ -3604,6 +3610,17 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
   const b = String(body || '').trim();
   const p = payload ? String(payload) : '';
 
+  // 🛵 ترحيب/مساعدة الكابتن — كان الصمت هو الرد على أي كلمة غير معروفة
+  if (!p && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|ابدأ|ابدا|مساعدة|help|menu|start)$/.test(b)) {
+    let acc = null;
+    try { const { captainAccount } = await import('./captainAccount.js'); acc = captainAccount(captain.id); } catch (e) {}
+    const st = captain.status === 'available' ? '🟢 متاح للطلبات' : captain.status === 'busy' ? '🟠 مشغول بطلب' : '⚪ غير متصل';
+    let t = `🛵 *أهلًا كابتن ${captain.name || ''}* 🌸\n\n${st}\n`;
+    if (acc) t += `💰 رصيد التأمين: ${rls(acc.deposit || 0)} ر.س${acc.blocked ? '\n⛔ حسابك موقوف — ' + (acc.blockedReason || '') : ''}\n`;
+    t += `\n*أوامرك:*\n• *متاح* / *مشغول* — حالة الاتصال (لازم تكون «متاح» عشان تصلك الطلبات)\n• *اقبل* / *رفض* — عند عرض طلب عليك\n• *استلمت* — استلمت الطلب من الفرع\n• *انطلقت* — في الطريق للعميل\n• *وصلت* — وصلت باب العميل\n• *صورة* — أرسل صورة التسليم\n• *رمز 1234* — رمز الاستلام لإغلاق الطلب\n• *رصيدي* — حسابك والمبالغ\n• *تأميني* — التأمين وحالة الحساب`;
+    return send(captain.phone, null, null, 'text', t);
+  }
+
   // 💳 دفع التأمين من داخل البوت (وضع تجريبي: فوري)
   if (p === 'capdep:pay' || /^(ادفع|دفع)\s*(التأمين|تأميني)$/.test(b) || /^(تأميني|تأمين حسابي)$/.test(b)) {
     const amt = Number(captain.deposit_amount || config.captainDeposit || 50000);
@@ -3682,6 +3699,22 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
   }
 
   // 2) قبول الطلب
+  // 🟢 حالة الاتصال: متاح / مشغول / غير متصل (شرط وصول العروض)
+  if (/^(أنا\s*)?(متاح|متواجد|جاهز|فاضي|شغال|شغّال)$/.test(b) || p === 'cap:online') {
+    q.run("UPDATE captains SET status='available' WHERE id=?", captain.id);
+    const c2 = q.get("SELECT status, blocked, blocked_reason FROM captains WHERE id=?", captain.id);
+    if (Number(c2?.blocked)) return send(captain.phone, null, null, 'text', `⛔ حسابك موقوف — ${c2.blocked_reason || 'سلّم التأمين/سوِّ المبالغ'}\nاكتب *تأميني* للمتابعة.`);
+    return send(captain.phone, null, null, 'text', '🟢 *صارت حالتك: متاح* — بوصلك أي طلب في نطاقك 🛵');
+  }
+  if (/^(أنا\s*)?(مشغول|مو\s*فاضي|مش\s*غال|عندي\s*طلب)$/.test(b) || p === 'cap:busy') {
+    q.run("UPDATE captains SET status='busy' WHERE id=?", captain.id);
+    return send(captain.phone, null, null, 'text', '🟠 *صارت حالتك: مشغول* — ما بوصلك طلبات جديدة لين تكتب *متاح*.');
+  }
+  if (/^(أنا\s*)?(غير\s*متصل|أوقف|اوقف|إيقاف|اطفي|أطفي|offline)$/.test(b) || p === 'cap:offline') {
+    q.run("UPDATE captains SET status='offline' WHERE id=?", captain.id);
+    return send(captain.phone, null, null, 'text', '⚪ *صارت حالتك: غير متصل.*\nاكتب *متاح* أول ما ترجع للعمل 🛵');
+  }
+
   if (['اقبل', 'قبول', 'accept', 'اقبل الطلب'].includes(b) || p === 'accept' || p.startsWith('accept:')) {
     const offer = q.get("SELECT * FROM captain_offers WHERE captain_id=? AND status='offered' ORDER BY id DESC LIMIT 1", captain.id);
     if (!offer) return send(captain.phone, null, null, 'text', 'لا توجد طلبات متاحة للقبول حالياً 📭');
