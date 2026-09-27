@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { api, sar, statusAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
-import { Card, Stat, Modal, Fld, Badge, Money, Pay } from '../components/ui.jsx';
+import { Card, Stat, Modal, Fld, Badge, Money, Pay, OrdersTable } from '../components/ui.jsx';
 
-const TABS = ['dashboard', 'restaurants', 'captains', 'customers', 'users', 'ads', 'loyalty', 'chats', 'regs', 'reports', 'types', 'settings'];
-const TAB_AR = { dashboard: '📊 لوحة القيادة', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', users: '👥 المستخدمون والأدوار', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', reports: '📊 تقارير المبيعات', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
+const TABS = ['dashboard', 'orders', 'restaurants', 'captains', 'customers', 'users', 'ads', 'loyalty', 'chats', 'regs', 'reports', 'types', 'settings'];
+const TAB_AR = { dashboard: '📊 لوحة القيادة', orders: '📦 الطلبات', restaurants: '🍽 المطاعم', captains: '🛵 الكباتن', customers: '👥 العملاء', users: '👥 المستخدمون والأدوار', ads: '📣 الإعلانات', loyalty: '⭐ الولاء', chats: '💬 المحادثات', regs: '📝 طلبات التسجيل', reports: '📊 تقارير المبيعات', types: '🏷 أنواع الأنشطة', settings: '⚙️ إعدادات واتساب' };
 
 // 👥 المستخدمون والأدوار
 function UsersTab() {
@@ -113,6 +113,11 @@ export default function Admin() {
         {menuOpen && <div className="backdrop" onClick={() => setMenuOpen(false)} />}
         <button className="btn red logout-float" onClick={logout}>🚪 تسجيل الخروج</button>
         {tab === 'dashboard' && <Dashboard stats={stats} orders={orders} captains={captains} onOpen={setSel} onChange={load} />}
+        {tab === 'orders' && (
+          <Card title={`📦 كل الطلبات (${orders.length})`}>
+            <OrdersTable orders={orders} onOpen={setSel} />
+          </Card>
+        )}
         {tab === 'restaurants' && <RestTab data={restaurants} onChange={load} />}
         {tab === 'captains' && <CaptainsTab data={captains} onChange={load} />}
         {tab === 'customers' && <CustomersTab data={customers} />}
@@ -1068,11 +1073,26 @@ function SettingsTab() {
 }
 
 function OrderModal({ o, onClose, refresh }) {
+  const { notify } = useApp();
   const [d, setD] = useState(null);
   useEffect(() => { api('/orders/' + o.id).then(setD); }, [o.id]);
+  const act = async (fn) => {
+    try { await fn(); const fresh = await api('/orders/' + o.id); setD(fresh); refresh && refresh(); notify('✅ تم التنفيذ'); }
+    catch (e) { notify(e.message); }
+  };
   if (!d) return <Modal title={o.order_no} onClose={onClose}><div className="empty">…</div></Modal>;
   return (
     <Modal title={`${d.order_no} — ${d.restaurant_name}`} onClose={onClose} wide>
+      {/* 🔧 إجراءات الإدارة على الطلب */}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {d.status === 'new' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'confirmed' } }))}>✔️ تأكيد الطلب</button>}
+        {d.status === 'confirmed' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'preparing' } }))}>👨‍🍳 بدء التحضير</button>}
+        {d.status === 'preparing' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'ready' } }))}>📦 جاهز</button>}
+        {d.status !== 'delivered' && d.status !== 'cancelled' && (
+          <button className="btn red" onClick={() => act(() => api('/orders/' + d.id + '/cancel', { method: 'POST', body: { reason: 'إلغاء من الإدارة' } }))}>🗑 إلغاء الطلب</button>
+        )}
+        {['delivered', 'cancelled'].includes(d.status) && <span className="badge b-gray">الطلب منتهٍ — لا إجراءات</span>}
+      </div>
       <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
         <Badge s={d.status} /> <Pay m={d.payment_method} />
         {d.payment_status === 'paid' ? <span className="badge b-green">مدفوع ✅</span> : <span className="badge b-red">غير مدفوع</span>}
