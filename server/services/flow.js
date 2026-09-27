@@ -274,6 +274,43 @@ export async function handleCustomerMenu(phone, rid, payload, customer = null) {
 }
 
 // ================= 🏪 قائمة صاحب النشاط =================
+// ================= 🧾 قائمة الكاشير =================
+function restaurantClosedMsg(rid) {
+  const r = q.get("SELECT name_ar, orders_paused, open_hour FROM restaurants WHERE id=?", rid);
+  if (!r || !Number(r.orders_paused)) return null;
+  const opens = r.open_hour ? prettyHour(r.open_hour) : null;
+  return `🏪 *${r.name_ar}* مغلق الآن 🔒${opens ? `\n⏰ يفتح الساعة *${opens}*` : ''}\n\nبنبلغك أول ما يفتح بإذن الله 🌸`;
+}
+function staffEntryButtons() {
+  return { buttons: [
+    { id: 'stc:customer', title: '👤 عميل', group: 'e' },
+    { id: 'stc:cashier', title: '🧾 كاشير', group: 'e' }
+  ] };
+}
+export async function showStaffEntryMenu(phone, rid, staff) {
+  const r = q.get("SELECT name_ar FROM restaurants WHERE id=?", staff.restaurant_id);
+  const roleName = staff.kind === 'cashier' ? 'الكاشير' : staff.kind === 'manager' ? 'مدير الفرع' : 'صاحب النشاط';
+  return send(phone, rid, null, 'buttons',
+    `🏪 *أهلًا بك في تلي هم* 🌸\nخدمة الطلبات والتوصيل 🍽️🛵\n\n👋 *${r?.name_ar || ''}* — أنت مسجّل كـ *${roleName}*\n\nاختر نوع الدخول:`,
+    staffEntryButtons());
+}
+function cashierMenuRows() {
+  return [
+    { id: 'stc:hours', title: '⏰ وقت العمل', description: 'ساعات عمل النشاط' },
+    { id: 'stc:report', title: '📊 تقرير يومي', description: 'مبيعات اليوم — نص + PDF' },
+    { id: 'stc:open', title: '🟢 استقبال الطلبات', description: 'افتح الاستقبال الآن' },
+    { id: 'stc:close', title: '🔒 الإغلاق اليومي', description: 'إغلاق اليوم + إرسال التقرير' }
+  ];
+}
+export async function showCashierMenu(phone, rid, staff) {
+  const r = q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id);
+  const paused = Number(r?.orders_paused || 0);
+  const body = `🏪 *${r?.name_ar || ''}* (#${staff.restaurant_id})\n`
+    + `🕐 وقت العمل: ${r?.open_hour ? prettyHour(r.open_hour) : '—'} — ${r?.close_hour ? prettyHour(r.close_hour) : '—'}\n`
+    + `📥 حالة الاستقبال: ${paused ? '🔒 *مغلق الآن*' : '🟢 *يستقبل الطلبات*'}\n\n👇 *قائمة الكاشير* — اختر:`;
+  return send(phone, rid, null, 'list', body, { list: [{ title: 'قائمة الكاشير', rows: cashierMenuRows() }] });
+}
+
 // 🧑‍💼 سياق الموظف: صاحب النشاط (owner/restaurant) · مدير الفرع · الكاشير
 function staffContext(phone) {
   const v = validatePhone(phone);
@@ -616,6 +653,34 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
       const _st = getSession(phone).state;
       const _b = String(body || '').trim();
       const isOwner = staff.kind === 'owner';
+      if (payload && String(payload).startsWith('stc:')) {
+        const pv = String(payload);
+        const _r = q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id);
+        if (pv === 'stc:customer') { const c = ensureCustomer(phone); return showCustomerMainMenu(phone, restaurantId, c); }
+        if (pv === 'stc:cashier') return showCashierMenu(phone, restaurantId, staff);
+        if (pv === 'stc:hours') {
+          saveSession(phone, 'cash_hours', {});
+          return send(phone, restaurantId, null, 'text',
+            `⏰ *وقت العمل*\n\nالحالي: ${_r?.open_hour ? prettyHour(_r.open_hour) : '—'} — ${_r?.close_hour ? prettyHour(_r.close_hour) : '—'}\n\nاكتب الفترة الجديدة، مثال:\n*من 9 صباحاً إلى 11 مساءً*\n_(أو اكتب *إلغاء* للتراجع)_`);
+        }
+        if (pv === 'stc:report') {
+          await send(phone, restaurantId, null, 'text', '📊 جاري تجهيز تقرير اليوم — نص + PDF مختوم ⏳');
+          try { const { sendRangeReportTo } = await import('./reporting.js'); await sendRangeReportTo(phone, staff.restaurant_id, 'day'); } catch (e) { console.error('CASH_REPORT_FAIL', e.message); }
+          return showCashierMenu(phone, restaurantId, staff);
+        }
+        if (pv === 'stc:open') {
+          q.run("UPDATE restaurants SET orders_paused=0, paused_at=NULL WHERE id=?", staff.restaurant_id);
+          await send(phone, restaurantId, null, 'text', `🟢 *النشاط يستقبل الطلبات الآن*\n\n🏪 ${_r?.name_ar || ''}\nكل طلب يجي من الحين بيوصل للنشاط ✅`);
+          return showCashierMenu(phone, restaurantId, staff);
+        }
+        if (pv === 'stc:close') {
+          q.run("UPDATE restaurants SET orders_paused=1, paused_at=datetime('now') WHERE id=?", staff.restaurant_id);
+          await send(phone, restaurantId, null, 'text', `🔒 *الإغلاق اليومي*\n\n🏪 ${_r?.name_ar || ''} — مغلق الآن\n⏰ يفتح غدًا الساعة *${_r?.open_hour ? prettyHour(_r.open_hour) : 'وقت العمل'}*\n\n📊 جاري إرسال تقرير اليوم ⏳`);
+          try { const { sendRangeReportTo } = await import('./reporting.js'); await sendRangeReportTo(phone, staff.restaurant_id, 'day'); } catch (e) { console.error('CASH_CLOSE_REPORT_FAIL', e.message); }
+          await send(phone, restaurantId, null, 'text', '🌸 *شكرًا لاستقبالك الطلبات على تلي هم* — يومًا موفقًا!\n_(افتح الاستقبال بكرة من زر «استقبال الطلبات»)_');
+          return showStaffEntryMenu(phone, restaurantId, staff);
+        }
+      }
       if (payload && String(payload).startsWith('st:')) return handleStaffMenu(phone, restaurantId, String(payload), staff);
       if (isOwner) {
         if (payload && String(payload).startsWith('om:')) {
@@ -636,13 +701,30 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
           return send(phone, restaurantId, null, 'buttons', '✅ *وصلت ملاحظتك للإدارة* — شكرًا لك 🌸', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
         }
       }
-      if (!payload && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|لوحتي|لوحة|نشاطي|وش صار|الوضع|حالة النشاط|أوامري|اوامري|menu|start|ابدأ|ابدا)$/i.test(_b)) {
+      if (!payload && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|لوحتي|لوحة|نشاطي|وش صار|الوضع|حالة النشاط|أوامري|اوامري|menu|start|ابدأ|ابدا|هاي|هالو|hi|hello)$/i.test(_b)) {
+        // نُنهي أي حالة عالقة (تعهد/تسجيل) — كان الكاشير يوصله سؤال فرد/مؤسسة/شركة أو تعهد بلا علاقة
+        if (_st && _st !== 'idle') saveSession(phone, 'idle', {});
+        if (staff.kind !== 'owner') return showStaffEntryMenu(phone, restaurantId, staff);
         return showStaffMenu(phone, restaurantId, staff);
       }
+      // 🧹 الكاشير/مدير الفرع: إنهاء أي تدفّق تسجيل عالق (كان يوصله سؤال «فرد/مؤسسة/شركة» بلا علاقة)
+      if (staff.kind !== 'owner' && /^(reg_|rep_|ad_|pad_|mgr_)/.test(String(_st))) saveSession(phone, 'idle', {});
     }
   }
   const session = getSession(phone);
   const { state, data } = session;
+  // ⏰ وقت العمل من قائمة الكاشير
+  if (state === 'cash_hours') {
+    const _staff = staffContext(phone);
+    const b0 = String(body || '').trim();
+    if (/^(الغاء|إلغاء|cancel)$/.test(b0)) { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
+    const range = parseTimeRange(b0);
+    if (!range || !range.from || !range.to) return send(phone, restaurantId, null, 'text', TIME_HINT);
+    if (_staff) q.run("UPDATE restaurants SET open_hour=?, close_hour=? WHERE id=?", range.from, range.to, _staff.restaurant_id);
+    saveSession(phone, 'idle', {});
+    send(phone, restaurantId, null, 'text', `✅ *تم تحديث وقت العمل*\n⏰ ${prettyHour(range.from)} — ${prettyHour(range.to)}`);
+    return _staff ? showCashierMenu(phone, restaurantId, _staff) : null;
+  }
   // المطعم الفعال: المطعم الذي اختاره العميل من الدليل (أو الذي أرسل له كبديل)
   const rid = data.currentRestaurantId || restaurantId || 1;
   const b = String(body || '').trim();
@@ -717,8 +799,11 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
 
   // ===== 📜 بوابة التعهد: كل مستخدم مسجّل (عميل · مالك · كاشير · مدير · كابتن) لازم يوقّع قبل أي خدمة =====
   const isSupervisorPhone = config.adminPhone && validatePhone(phone) === validatePhone(config.adminPhone);
+  // 🧑‍💼 الموظف المسجّل (كاشير/مدير/صاحب نشاط) لا يُطالب بتعهد العميل — النشاط وقّع عند التسجيل
+  let _isStaff = false;
+  try { _isStaff = Boolean(staffContext(phone)); } catch (e) {}
   // (نتخطى البوابة أثناء التعهد نفسه وأثناء خطوات تسجيل العميل — لأنها تنتهي بالتعهد)
-  if (!isSupervisorPhone && !['pledge', 'ask_nid', 'ask_dob'].includes(state)) {
+  if (!isSupervisorPhone && !_isStaff && !['pledge', 'ask_nid', 'ask_dob'].includes(state)) {
     const need = pledgeNeeded(phone);
     if (need && !findPledge(need.kind, phone)) {
       return askPledge(phone, rid, { ...need, next: 'resume', resumeState: state, data: { ...data } });
@@ -1197,6 +1282,9 @@ function buildMenu(rid, cart = null) {
 
 // عرض المنيو كامل بترتيب مرقّم
 function showMenu(phone, rid) {
+  // 🔒 النشاط مغلق الآن؟ نبلغ العميل ونوقف الطلب
+  const _closedMsg = restaurantClosedMsg(rid);
+  if (_closedMsg) return send(phone, rid, null, 'text', _closedMsg);
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
   const { text, map } = buildMenu(rid, cart);

@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS restaurants (
   rating_avg REAL DEFAULT 0,
   rating_count INTEGER DEFAULT 0,
   orders_count INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  orders_paused INTEGER DEFAULT 0,
+  paused_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS restaurant_users (
