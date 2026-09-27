@@ -19,6 +19,9 @@ function linkPhone(chatId, phoneRaw, username = null) {
   q.run(`INSERT INTO telegram_links (chat_id, phone, username, updated_at) VALUES (?,?,?,datetime('now'))
          ON CONFLICT(chat_id) DO UPDATE SET phone=excluded.phone, username=excluded.username, updated_at=datetime('now')`,
     String(chatId), norm, username);
+  // رقم واحد = محادثة واحدة: نحذف أي ربط قديم لنفس الرقم بمحادثة أخرى
+  // (وإلا قد يُرسل الرد لمحادثة قديمة فيظهر «العميل ما تصله القائمة»)
+  try { q.run("DELETE FROM telegram_links WHERE phone=? AND chat_id<>?", norm, String(chatId)); } catch (e) {}
   return norm;
 }
 function phoneOf(chatId) {
@@ -160,6 +163,9 @@ router.get('/status', async (req, res) => {
       const lc = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='callback' ORDER BY id DESC LIMIT 1");
       out.lastCallback = lc || null;
       out.lastInbound = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='inbound' ORDER BY id DESC LIMIT 1") || null;
+      out.lastOutbound = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='outbound' ORDER BY id DESC LIMIT 1") || null;
+      out.lastOutError = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='out-error' ORDER BY id DESC LIMIT 1") || null;
+      out.outErrors24h = q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='out-error' AND created_at >= datetime('now','-1 day')")?.c || 0;
       out.inbound24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='inbound' AND created_at > datetime('now','-1 day')")?.c || 0);
       out.lastWebhookSet = q.get("SELECT created_at, summary, raw FROM webhook_log WHERE kind='webhook-set' ORDER BY id DESC LIMIT 1") || null;
       out.callbacks24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='callback' AND created_at > datetime('now','-1 day')")?.c || 0);
