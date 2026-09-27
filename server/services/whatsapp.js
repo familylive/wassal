@@ -64,7 +64,15 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
 
   let keyboard = null;
   if (type === 'buttons' && Array.isArray(buttons) && buttons.length) {
-    keyboard = { inline_keyboard: buttons.slice(0, 10).map(b => [{ text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60) }]) };
+    // 🎛 صفّان في السطر عندما تكون العناوين قصيرة (شكل أنظف للسلة: الصنف + 🗑)
+    const items = buttons.slice(0, 12).map(b => ({ text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60) }));
+    const rows = [];
+    for (let i = 0; i < items.length; i += 2) {
+      const a = items[i], b = items[i + 1];
+      if (b && String(a.text).length + String(b.text).length <= 46) rows.push([a, b]);
+      else { rows.push([a]); if (b) rows.push([b]); }
+    }
+    keyboard = { inline_keyboard: rows };
   } else if (type === 'list' && Array.isArray(list) && list.length) {
     const rows = [];
     for (const sec of list) for (const r of (sec.rows || [])) {

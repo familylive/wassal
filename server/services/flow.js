@@ -996,6 +996,19 @@ function showCart(phone, rid, customer) {
   }
   saveSession(phone, 'cart', session.data);
   send(phone, rid, null, 'text', cartText(rid, cart));
+  // 🧺 تليجرام: كل صنف زر (لتعديل الكمية) وبجواره 🗑 للحذف، ثم «صنف آخر» و«إرسال الطلب»
+  if (config.whatsapp.provider === 'telegram') {
+    const btns = [];
+    for (const it of (cart.items || []).slice(0, 6)) {
+      const nm = q.get("SELECT name, price FROM items WHERE id=?", it.item_id);
+      const label = `${nm?.name || it.name || 'صنف'} ×${it.quantity} — ${rls((nm?.price ?? it.price ?? 0) * it.quantity)} ر.س`;
+      btns.push({ id: 'edit:' + it.item_id, title: label.slice(0, 55) });
+      btns.push({ id: 'del:' + it.item_id, title: '🗑 حذف' });
+    }
+    btns.push({ id: 'menu', title: '➕ صنف آخر' });
+    btns.push({ id: 'checkout', title: '✅ إرسال الطلب' });
+    return send(phone, rid, null, 'buttons', '🧺 *سلتك* — اضغط الصنف لتعديل كميته، أو 🗑 لحذفه:', { buttons: btns });
+  }
   return send(phone, rid, null, 'buttons', 'نكمل أو نرسل الطلب؟ 👇', { buttons: [
     { id: 'checkout', title: '✅ إرسال الطلب' }, { id: 'menu', title: '📂 المنيو' }, { id: 'manage', title: '🔢 تعديل الكميات' }
   ] });
@@ -1075,6 +1088,21 @@ function handleOrderReview(phone, rid, customer, data, p, b) {
   return sendOrderReview(phone, rid, customer);
 }
 function handleCart(phone, rid, customer, data, p, b) {
+  if (p.startsWith('edit:')) {
+    const id = Number(p.split(':')[1]);
+    const session = getSession(phone);
+    saveSession(phone, 'cart_item', { ...session.data, manageItemId: id });
+    return showCartItem(phone, rid, customer, session.data, id);
+  }
+  if (p.startsWith('del:')) {
+    const id = Number(p.split(':')[1]);
+    const session = getSession(phone);
+    const cart = { ...(session.data.cart || { items: [] }) };
+    cart.items = (cart.items || []).filter(i => i.item_id !== id);
+    saveSession(phone, 'cart', { ...session.data, cart });
+    send(phone, rid, null, 'text', '🗑 تم حذف الصنف من السلة');
+    return showCart(phone, rid, customer);
+  }
   if (p === 'checkout' || p === 'send_order') return sendOrderReview(phone, rid, customer);
   if (p === 'manage') return showCartManage(phone, rid, customer);
   if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
