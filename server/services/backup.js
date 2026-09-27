@@ -70,6 +70,32 @@ export function dbLooksSane(file = config.dbPath, useCache = false) {
   return val;
 }
 
+// ✅ هل القاعدة قابلة للاستخدام فعلاً (فتح + قراءة)؟ — قد يكون الملف «تالفاً» في الفحص البنيوي لكن العمل عليه يعمل
+export function dbUsable(file = config.dbPath) {
+  try {
+    if (!existsSync(file)) return false;
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      const r = db.prepare('SELECT COUNT(*) AS c FROM sqlite_master').get();
+      return r !== undefined && Number(Object.values(r)[0]) >= 0;
+    } finally { try { db.close(); } catch {} }
+  } catch (e) { return false; }
+}
+
+// 🛠 إصلاح موضعي: VACUUM INTO يكتب نسخة نظيفة مرتّبة من نفس البيانات (بلا فقدان صفوف)
+export async function repairInPlace() {
+  const tmp = config.dbPath + '.vacuum';
+  try {
+    const db = new DatabaseSync(config.dbPath);
+    try { db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`); } finally { try { db.close(); } catch {} }
+    if (!dbLooksSane(tmp)) { try { rmSync(tmp, { force: true }); } catch {} console.error('DB_VACUUM_STILL_BAD'); return false; }
+    const content = readFileSync(tmp);
+    installCandidate({ content, tmp });
+    console.log('DB_REPAIRED_BY_VACUUM', content.length);
+    return true;
+  } catch (e) { console.error('DB_VACUUM_FAIL', e.message); return false; }
+}
+
 // ♻️ استرجاع آخر نسخة سليمة من تاريخ المستودع (نتجاوز النسخ التالفة واحدة واحدة)
 // ملاحظة: النسخة التالفة تُرفع كل دقيقتين، فالنسخة السليمة قد تكون مئات الإصدارات للخلف → نجلب الصفحات
 async function historyShas(maxVersions) {
@@ -163,7 +189,8 @@ export async function restoreIfNeeded() {
   // ٠) إن كانت القاعدة المحلية تالفة → استرجع آخر نسخة سليمة من التاريخ
   // (بدون هذا: النسخة التالفة تُرفع كل دقيقتين وتُستعاد عند كل إقلاع — حلقة تلف لا تنتهي)
   if (existsSync(config.dbPath) && !dbLooksSane(config.dbPath)) {
-    console.error('DB_LOCAL_MALFORMED scanning_backup_history');
+    console.error('DB_LOCAL_MALFORMED trying_vacuum_repair');
+    if (await repairInPlace()) return true;
     if (await historyOnce()) return true;
   }
   const did = await restoreFromLatest();
@@ -208,8 +235,11 @@ export async function backupNow() {
   if (!TOKEN) return false;
   try {
     if (!existsSync(config.dbPath)) return false;
-    // 🛡 لا ترفع قاعدة تالفة أبداً — وإلا طمست النسخة السليمة في المستودع
-    if (!dbLooksSane(config.dbPath)) { console.error('DB_BACKUP_SKIP_MALFORMED'); return false; }
+    // 🛡 لا ترفع قاعدة تالفة إلا إن كانت قابلة للاستخدام فعلاً (فتح + قراءة) — حمايةً من طمس نسخة سليمة
+    if (!dbLooksSane(config.dbPath)) {
+      if (dbUsable(config.dbPath)) console.warn('DB_BACKUP_WARN_MALFORMED_BUT_USABLE');
+      else { console.error('DB_BACKUP_SKIP_MALFORMED'); return false; }
+    }
     // ⚠️ مهم: تدقيق WAL قبل القراءة (وإلا تفوت النسخة أحدث الطلبات)
     try {
       const { q } = await import('../db.js');

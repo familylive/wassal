@@ -27,7 +27,9 @@ app.use('/sim', express.static(path.join(__dirname, 'public/sim')));
 app.get('/api/health', async (req, res) => {
   try {
     const { dbLooksSane } = await import('./services/backup.js');
-    return res.json({ ok: true, db: dbLooksSane(undefined, true) ? 'sane' : 'malformed', at: new Date().toISOString() });
+    const { dbUsable } = await import('./services/backup.js');
+    const sane = dbLooksSane(undefined, true), usable = dbUsable();
+    return res.json({ ok: true, db: sane ? 'sane' : (usable ? 'malformed_usable' : 'broken'), sane, usable, at: new Date().toISOString() });
   } catch (e) { return res.json({ ok: false, error: e.message }); }
 });
 
