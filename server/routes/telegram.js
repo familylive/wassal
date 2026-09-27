@@ -38,8 +38,19 @@ router.post('/webhook', async (req, res) => {
   res.sendStatus(200);                       // نرد فوراً لتليجرام
   try {
     const secret = String(config.telegram.secret || '');
-    if (secret && req.get('x-telegram-bot-api-secret-token') !== secret) return;
+    const gotSecret = req.get('x-telegram-bot-api-secret-token') || '';
     const upd = req.body || {};
+    // 🔎 تسجيل كل تحديث وارد (قبل الفحوص) — لتشخيص «لا يصل شيء» من تليجرام
+    try {
+      const kind = upd.callback_query ? 'callback' : upd.message?.location ? 'location' : upd.message?.contact ? 'contact' : upd.message?.photo ? 'photo' : upd.message ? 'message' : Object.keys(upd)[0] || 'unknown';
+      q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('inbound', ?, ?)",
+        `${kind}${upd.callback_query?.data ? ':' + String(upd.callback_query.data).slice(0, 60) : ''}`,
+        JSON.stringify({ secret_ok: secret ? gotSecret === secret : null, has_secret_header: Boolean(gotSecret), upd_id: upd.update_id }).slice(0, 300));
+    } catch (e) {}
+    if (secret && gotSecret !== secret) {
+      try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('webhook-error', ?, ?)", 'secret_mismatch — تم تجاهل التحديث', JSON.stringify({ has_header: Boolean(gotSecret) }).slice(0, 200)); } catch (e) {}
+      return;
+    }
 
     // ١) ضغط زر
     const cb = upd.callback_query;
@@ -102,6 +113,30 @@ router.get('/setup-webhook', requireAuth, requireRole('admin'), async (req, res)
   }
 });
 
+// 🔧 ضبط الويب هوك تلقائياً (يصلح انحراف الرابط أو السرّ) — يُستدعى عند الإقلاع ودوريًا
+export async function ensureWebhook() {
+  try {
+    if (!config.telegram.token) return { ok: false, error: 'no_token' };
+    const base = String(config.publicUrl || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+    const url = `${base}/api/telegram/webhook`;
+    if (!/^https:\/\//.test(url)) return { ok: false, error: 'no_public_url', url };
+    const r = await post('setWebhook', {
+      url, secret_token: config.telegram.secret || undefined,
+      allowed_updates: ['message', 'edited_message', 'callback_query'], drop_pending_updates: false
+    });
+    const info = await post('getWebhookInfo', {}).catch(() => null);
+    try {
+      q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('webhook-set', ?, ?)",
+        url, JSON.stringify({ ok: r?.ok, pending: info?.result?.pending_update_count, last_error: info?.result?.last_error_message }).slice(0, 300));
+    } catch (e) {}
+    console.log('TELEGRAM_WEBHOOK_SET', url, r?.ok, 'pending:', info?.result?.pending_update_count);
+    return { ok: true, url, telegram: r };
+  } catch (e) {
+    console.error('TELEGRAM_WEBHOOK_SET_FAIL', e.response?.data?.description || e.message);
+    return { ok: false, error: e.response?.data?.description || e.message };
+  }
+}
+
 // ---------- حالة القناة ----------
 router.get('/status', async (req, res) => {
   const out = { ok: false, tokenSet: Boolean(config.telegram.token), provider: config.whatsapp.provider };
@@ -124,6 +159,9 @@ router.get('/status', async (req, res) => {
     try {
       const lc = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='callback' ORDER BY id DESC LIMIT 1");
       out.lastCallback = lc || null;
+      out.lastInbound = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='inbound' ORDER BY id DESC LIMIT 1") || null;
+      out.inbound24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='inbound' AND created_at > datetime('now','-1 day')")?.c || 0);
+      out.lastWebhookSet = q.get("SELECT created_at, summary, raw FROM webhook_log WHERE kind='webhook-set' ORDER BY id DESC LIMIT 1") || null;
       out.callbacks24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='callback' AND created_at > datetime('now','-1 day')")?.c || 0);
       out.webhookErrors24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='webhook-error' AND created_at > datetime('now','-1 day')")?.c || 0);
       out.lastWebhookError = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='webhook-error' ORDER BY id DESC LIMIT 1") || null;
