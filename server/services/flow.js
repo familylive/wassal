@@ -212,6 +212,67 @@ function handleDirectory(phone, p, b, type, lat, lng) {
   }
   return showRestaurants(phone);
 }
+// 🏠 قائمة العميل: الأقسام (طلب جديد · ملفي · طلباتي السابقة · الولاء)
+function customerMenuRows() {
+  return { list: [{ title: 'قائمة العميل', rows: [
+    { id: 'cmenu:new', title: '🛒 طلب جديد', description: 'اطلب من نشاط قريب منك' },
+    { id: 'cmenu:profile', title: '👤 ملفي الشخصي', description: 'بياناتك ومستواك ونقاطك' },
+    { id: 'cmenu:orders', title: '🧾 طلباتي السابقة', description: 'كشف حساب PDF بكل طلباتك' },
+    { id: 'cmenu:loyalty', title: '🎁 برنامج الولاء', description: 'رصيد نقاطك وصلاحيتها' }
+  ] }] };
+}
+
+export async function showCustomerMainMenu(phone, rid = null, customer = null) {
+  const c = customer || q.get("SELECT * FROM customers WHERE phone=?", validatePhone(phone));
+  const lastOrder = c ? q.get("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 1", c.id) : null;
+  const extra = lastOrder ? `\n\n🔁 أو اكتب *نفس طلبي* وأرجّع لك طلبك السابق 😉` : '';
+  const body = `هلا *${c?.name || 'فيك'}* 🌸 كيف حالك؟ عساك طيب؟\n*أمرني* — وش تبي تطلب اليوم؟ 😋${extra}\n\n👇 *قائمة العميل* — اختر اللي تبي:`;
+  return send(phone, rid, null, 'list', body, customerMenuRows());
+}
+
+// 👤 ملفي الشخصي
+function customerProfileText(c) {
+  const nid = String(c.national_id || '');
+  const masked = nid ? nid.slice(0, 2) + '••••' + nid.slice(-2) : '—';
+  return `👤 *ملفي الشخصي*\n\n`
+    + `الاسم: *${c.name || '—'}*\n`
+    + `📱 الجوال: ${c.phone || '—'}\n`
+    + `🆔 الهوية: ${masked}\n`
+    + (c.birth_date ? `🎂 الميلاد: ${c.birth_date}\n` : '')
+    + `🏅 المستوى: *${c.tier || 'برونزي'}*\n`
+    + `🎁 رصيد النقاط: *${Number(c.points_balance || 0)}*\n`
+    + `🧮 عدد طلباتك: ${Number(c.total_orders || 0)}\n`
+    + `💵 إجمالي مشترياتك: ${rls(Number(c.total_spent || 0))} ر.س`;
+}
+
+// 🧾 طلباتي السابقة: ملخص فوري + كشف حساب PDF يُرسل مباشرة
+export async function showCustomerOrders(phone, rid, customer) {
+  const { customerOrdersSummary, sendCustomerStatement } = await import('./customerStatement.js');
+  const s = customerOrdersSummary(customer.id);
+  if (!s.orders) return send(phone, rid, null, 'buttons', 'ما عندك طلبات سابقة بعد 🧾\nيالله نبدأ أول طلب؟ 😋', { buttons: [{ id: 'cmenu:new', title: '🛒 طلب جديد' }] });
+  const parts = Object.entries(s.byCat).map(([k, v]) => `• ${v.icon} *${k}*: ${v.count} طلب — ${rls(v.total)} ر.س`);
+  await send(phone, rid, null, 'text', `🧾 *طلباتي السابقة*\n\n📦 عدد الطلبات: *${s.orders}*\n💰 *المجموع النهائي: ${rls(s.total)} ر.س*\n✅ المدفوع: ${rls(s.paid)} ر.س\n⏳ المتبقي: ${rls(s.unpaid)} ر.س\n\n*حسب الأقسام:*\n${parts.join('\n')}\n\n⏳ جاري تجهيز كشف الحساب (PDF)…`);
+  const r = await sendCustomerStatement(customer.id, { phone: customer.phone || phone, restaurantId: rid });
+  if (r?.error) await send(phone, rid, null, 'text', '⚠️ تعذّر إنشاء الكشف حالياً — جرّب بعد قليل.');
+  return send(phone, rid, null, 'buttons', 'وش تحب بعد؟ 🌸', { buttons: [
+    { id: 'cmenu:back', title: '⬅️ القائمة' }, { id: 'cmenu:loyalty', title: '🎁 برنامج الولاء' }, { id: 'cmenu:new', title: '🛒 طلب جديد' }
+  ] });
+}
+
+// 🏠 موزّع قائمة العميل
+export async function handleCustomerMenu(phone, rid, payload, customer = null) {
+  const p = String(payload || '');
+  const c = customer || q.get("SELECT * FROM customers WHERE phone=?", validatePhone(phone));
+  if (!c) return showCustomerMainMenu(phone, rid, null);
+  if (p === 'cmenu:new') return showRestaurants(phone);
+  if (p === 'cmenu:profile') return send(phone, rid, null, 'buttons', customerProfileText(c), { buttons: [
+    { id: 'cmenu:orders', title: '🧾 طلباتي' }, { id: 'cmenu:loyalty', title: '🎁 الولاء' }, { id: 'cmenu:back', title: '⬅️ القائمة' }
+  ] });
+  if (p === 'cmenu:orders') return showCustomerOrders(phone, rid, c);
+  if (p === 'cmenu:loyalty') return showLoyalty(phone, rid, c);
+  return showCustomerMainMenu(phone, rid, c);
+}
+
 function selectRestaurant(phone, rid) {
   const rest = q.get("SELECT * FROM restaurants WHERE id=? AND is_active=1", rid);
   if (!rest) return showRestaurants(phone);
@@ -239,6 +300,8 @@ function sendGreeting(phone, rid, customer) {
   const lastOrder = q.get("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 1", customer.id);
   const extra = lastOrder ? `\n\n🔁 أو اكتب *نفس طلبي* وأرجّع لك طلبك السابق 😉` : '';
   send(phone, rid, null, 'text', `هلا *${customer.name}* 🌸 كيف حالك؟ عساك طيب؟\n*أمرني* — وش تبي تطلب اليوم؟ 😋${extra}`);
+  // 🏠 قائمة العميل بالأقسام (أزرار)
+  return send(phone, rid, null, 'list', '👇 *قائمة العميل* — اختر اللي تبي:', customerMenuRows());
   return true;
 }
 
@@ -272,6 +335,14 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
     }
   } catch (e) { console.error('CAPTAIN_ROUTE_FAIL', e.message); }
   const customer = ensureCustomer(phone);
+  // 🏠 أزرار قائمة العميل
+  if (payload && String(payload).startsWith('cmenu:')) return handleCustomerMenu(phone, restaurantId, String(payload), customer);
+  // فتح قائمة العميل بالكتابة (للعملاء المعروفين)
+  {
+    const _b = String(body || '').trim();
+    if (!payload && customer?.name && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|ابدأ|ابدا|القائمة|قائمه|menu|start|الرئيسية)$/i.test(_b))
+      return showCustomerMainMenu(phone, restaurantId, customer);
+  }
   const session = getSession(phone);
   const { state, data } = session;
   // المطعم الفعال: المطعم الذي اختاره العميل من الدليل (أو الذي أرسل له كبديل)
@@ -1791,9 +1862,21 @@ function sendOrderStatus(phone, rid, o) {
 }
 
 // ---------- الولاء والعناوين ----------
-function showLoyalty(phone, rid, customer) {
+async function showLoyalty(phone, rid, customer) {
   const tier = computeTier(customer.total_points_earned || 0);
-  send(phone, rid, null, 'text', `⭐ *برنامج الولاء*\nرصيد نقاطك: *${customer.points_balance || 0}*\nمستواك: *${customer.tier || tier.name}*\nعدد طلباتك: ${customer.total_orders || 0}\n\n💡 كل ريال = نقطة. استبدل نقاطك بخصومات في طلباتك القادمة!`);
+  const { loyaltySummary } = await import('./loyalty.js');
+  const L = loyaltySummary(customer.id);
+  const fmtD = (d) => d ? new Date(d).toISOString().slice(0, 10) : '—';
+  let txt = `🎁 *برنامج الولاء*\n\n💰 رصيدك الحالي: *${L.balance}* نقطة\n🏅 مستواك: *${customer.tier || tier.name}*\n🧮 عدد طلباتك: ${customer.total_orders || 0}\n\n`;
+  txt += `🗓️ *الصلاحية:* كل نقطة صالحة *سنة كاملة* من تاريخ كسبها.\n`;
+  if (L.expiringSoon > 0) txt += `⚠️ *${L.expiringSoon}* نقطة ستنتهي قبل *${fmtD(L.expiringAt)}* — استخدمها قبل التاريخ!\n`;
+  else if (L.expiringAt) txt += `⏳ أقرب نقاط تنتهي: *${fmtD(L.expiringAt)}* — والباقي صالح سنة كاملة من كسبه.\n`;
+  if (L.expired > 0) txt += `ℹ️ نقاط انتهت سابقاً: ${L.expired}\n`;
+  txt += `\n💡 كل ريال = نقطة، و*${L.redeemPerRiyal}* نقطة = 1 ريال خصم.`;
+  send(phone, rid, null, 'text', txt);
+  return send(phone, rid, null, 'buttons', 'تحب تكمل؟', { buttons: [
+    { id: 'cmenu:orders', title: '🧾 طلباتي السابقة' }, { id: 'cmenu:back', title: '⬅️ القائمة' }
+  ] });
   return mainMenu(phone, rid);
 }
 function showAddresses(phone, rid, customer) {
