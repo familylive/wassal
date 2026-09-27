@@ -274,6 +274,115 @@ export async function handleCustomerMenu(phone, rid, payload, customer = null) {
 }
 
 // ================= 🏪 قائمة صاحب النشاط =================
+// 🧑‍💼 سياق الموظف: صاحب النشاط (owner/restaurant) · مدير الفرع · الكاشير
+function staffContext(phone) {
+  const v = validatePhone(phone);
+  const last9 = String(v || '').replace(/\D/g, '').slice(-9);
+  const like = '%' + last9;
+  let u = null;
+  try {
+    u = q.get(`SELECT ru.*, r.name_ar AS rest_name, b.name AS branch_name
+        FROM restaurant_users ru
+        LEFT JOIN restaurants r ON r.id = ru.restaurant_id
+        LEFT JOIN branches b ON b.id = ru.branch_id
+        WHERE (ru.phone = ? OR ru.phone = ? OR ru.phone LIKE ?) AND ru.is_active = 1
+        ORDER BY CASE ru.role WHEN 'owner' THEN 0 WHEN 'restaurant' THEN 1 WHEN 'manager' THEN 2 WHEN 'cashier' THEN 3 ELSE 4 END, ru.id
+        LIMIT 1`, phone, v, like);
+  } catch (e) { console.error('STAFF_LOOKUP_FAIL', e.message); }
+  if (u) {
+    const kind = u.role === 'cashier' ? 'cashier' : (u.role === 'manager' ? 'manager' : 'owner');
+    return { kind, user: u, restaurant_id: u.restaurant_id, branch_id: u.branch_id || null };
+  }
+  const r = q.get(`SELECT * FROM restaurants
+      WHERE phone = ? OR phone = ? OR phone LIKE ? OR whatsapp_number = ? OR whatsapp_number LIKE ? LIMIT 1`,
+    phone, v, like, phone, like);
+  if (r) return { kind: 'owner', user: null, restaurant_id: r.id, branch_id: null };
+  return null;
+}
+
+const ORDER_STATUS_AR = { new: 'جديد', confirmed: 'مؤكد', preparing: 'يُحضّر', ready: 'جاهز', offered: 'معروض على كباتن', accepted: 'كابتن قبله', transferred: 'مع كابتن', with_captain: 'مع الكابتن', on_the_way: 'في الطريق', arrived: 'وصل', delivered: 'سُلّم', cancelled: 'ملغي' };
+
+function staffMenuRows(kind) {
+  if (kind === 'cashier') return [
+    { id: 'st:orders', title: '🧾 الطلبات الحالية', description: 'طلبات اليوم وحالتها' },
+    { id: 'st:report', title: '📊 تقرير اليوم', description: 'مبيعات اليوم — نص + PDF' },
+    { id: 'st:hour', title: '⏰ موعد تقريري', description: 'تغيير ساعة التقرير' },
+    { id: 'st:contact', title: '📞 صاحب النشاط', description: 'للتواصل والاستفسار' }
+  ];
+  if (kind === 'manager') return [
+    { id: 'st:orders', title: '🧾 طلبات فرعي', description: 'طلبات فرعك اليوم' },
+    { id: 'st:report', title: '📊 تقرير الفرع', description: 'مبيعات اليوم — نص + PDF' },
+    { id: 'st:hour', title: '⏰ موعد تقريري', description: 'تغيير ساعة التقرير' },
+    { id: 'st:team', title: '👥 فريقي', description: 'موظفو النشاط وفروعهم' },
+    { id: 'st:contact', title: '📞 صاحب النشاط' }
+  ];
+  return [
+    { id: 'om:order', title: '🛒 طلب', description: 'اطلب مثل العميل' },
+    { id: 'st:orders', title: '🧾 طلبات اليوم', description: 'طلبات نشاطك وحالتها' },
+    { id: 'om:info', title: '🏪 بيانات النشاط', description: 'بياناتك وفروعك' },
+    { id: 'om:branch', title: '➕ إضافة فرع جديد', description: 'بيانات الفرع ورخصته' },
+    { id: 'om:reports', title: '📊 التقارير', description: 'يومي · أسبوعي · شهري · سنوي' },
+    { id: 'om:notes', title: '📨 استفسارات وملاحظات', description: 'أرسل للإدارة' }
+  ];
+}
+
+export async function showStaffMenu(phone, rid, staff) {
+  const r = q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id);
+  const roleName = staff.kind === 'cashier' ? 'الكاشير' : staff.kind === 'manager' ? 'مدير الفرع' : 'صاحب النشاط';
+  const branches = q.all("SELECT id FROM branches WHERE restaurant_id=?", staff.restaurant_id);
+  const cashRec = q.get("SELECT report_hour FROM report_recipients WHERE restaurant_id=? AND phone LIKE ? LIMIT 1", staff.restaurant_id, '%' + String(validatePhone(phone)).slice(-9));
+  let body = `🏪 *أهلًا بك* — أنت مسجّل عندنا كـ *${roleName}* 🌸\n\n*${r?.name_ar || ''}* (#${staff.restaurant_id})`;
+  if (staff.kind === 'manager' && staff.branch_id) body += ` — فرع ${q.get("SELECT name FROM branches WHERE id=?", staff.branch_id)?.name || ''}`;
+  else if (r?.city) body += ' — ' + r.city;
+  body += '\n';
+  if (staff.kind === 'owner') body += `🏬 الفروع: ${branches.length}\n`;
+  if (cashRec?.report_hour) body += `🕐 موعد تقريرك: ${cashRec.report_hour}\n`;
+  body += `\n👇 *قائمة ${roleName}*:`;
+  return send(phone, rid, null, 'list', body, { list: [{ title: `قائمة ${roleName}`, rows: staffMenuRows(staff.kind) }] });
+}
+
+export async function handleStaffMenu(phone, rid, p, staff) {
+  const ridr = staff.restaurant_id;
+  if (p === 'st:menu') return showStaffMenu(phone, rid, staff);
+  if (p === 'st:orders') {
+    const rows = staff.branch_id
+      ? q.all("SELECT * FROM orders WHERE restaurant_id=? AND branch_id=? AND date(created_at)=date('now') AND COALESCE(order_no,'')!='DRAFT' ORDER BY id DESC LIMIT 12", ridr, staff.branch_id)
+      : q.all("SELECT * FROM orders WHERE restaurant_id=? AND date(created_at)=date('now') AND COALESCE(order_no,'')!='DRAFT' ORDER BY id DESC LIMIT 12", ridr);
+    if (!rows.length) return send(phone, rid, null, 'buttons', 'ما فيه طلبات اليوم بعد 🧾', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+    const t = `🧾 *طلبات اليوم (${rows.length})*\n\n` + rows.slice(0, 10).map(o =>
+      `• *${o.order_no}* — ${ORDER_STATUS_AR[o.status] || o.status} — ${rls(o.total)} ر.س${o.payment_status === 'paid' ? ' ✅' : ' ⏳'}`).join('\n');
+    return send(phone, rid, null, 'buttons', t, { buttons: [
+      { id: 'st:report', title: '📊 تقرير اليوم' }, { id: 'st:menu', title: '⬅️ القائمة' }
+    ] });
+  }
+  if (p === 'st:report') {
+    await send(phone, rid, null, 'text', '📊 جاري تجهيز تقرير اليوم — نص + PDF مختوم ⏳');
+    let ok = false;
+    try {
+      const { sendRangeReportTo } = await import('./reporting.js');
+      const res = await sendRangeReportTo(phone, ridr, 'day');
+      ok = !!res?.ok;
+    } catch (e) { console.error('STAFF_REPORT_FAIL', e.message); }
+    return send(phone, rid, null, 'buttons', ok ? '✅ تم إرسال تقرير اليوم' : '⚠️ تعذّر إرسال التقرير — جرّب بعد قليل', { buttons: [
+      { id: 'st:orders', title: '🧾 الطلبات' }, { id: 'st:menu', title: '⬅️ القائمة' }
+    ] });
+  }
+  if (p === 'st:hour') return startChangeReportHour(phone, rid);
+  if (p === 'st:contact') {
+    const op = ownerPhone(ridr) || '';
+    const oname = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", ridr)?.name || '';
+    return send(phone, rid, null, 'buttons', `📞 *صاحب النشاط*\n${oname}${op ? ' — ' + op : ''}`, { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+  }
+  if (p === 'st:team') {
+    const users = q.all("SELECT name, role, phone, branch_id FROM restaurant_users WHERE restaurant_id=? AND is_active=1 ORDER BY id", ridr);
+    const roleArL = { owner: 'صاحب النشاط', restaurant: 'صاحب النشاط', manager: 'مدير فرع', cashier: 'كاشير' };
+    const t = `👥 *فريق النشاط (${users.length})*\n\n` + users.map(u =>
+      `• ${u.name || '—'} — ${roleArL[u.role] || u.role}${u.branch_id ? ' · فرع ' + (q.get("SELECT name FROM branches WHERE id=?", u.branch_id)?.name || u.branch_id) : ''}`).join('\n');
+    return send(phone, rid, null, 'buttons', t, { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+  }
+  return showStaffMenu(phone, rid, staff);
+}
+
 function ownerRestaurantOf(phone) {
   const v = validatePhone(phone);
   const last9 = String(v || '').replace(/\D/g, '').slice(-9);
@@ -500,37 +609,37 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   const customer = ensureCustomer(phone);
   // 🏠 أزرار قائمة العميل
   if (payload && String(payload).startsWith('cmenu:')) return handleCustomerMenu(phone, restaurantId, String(payload), customer);
-  // 🏪 صاحب النشاط: قائمته الخاصة (كان لا يراها أصلاً)
+  // 🧑‍💼 الموظفون: صاحب النشاط · مدير الفرع · الكاشير — قوائم مرتّبة بدل قائمة الخدمات 1/2/3
   {
-    const _owner = ownerRestaurantOf(phone);
-    if (_owner) {
+    const staff = staffContext(phone);
+    if (staff) {
       const _st = getSession(phone).state;
-      if (payload && String(payload).startsWith('om:')) {
-        if (String(payload) === 'om:cancel_note') { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
-        return handleOwnerMenu(phone, restaurantId, String(payload), _owner);
+      const _b = String(body || '').trim();
+      const isOwner = staff.kind === 'owner';
+      if (payload && String(payload).startsWith('st:')) return handleStaffMenu(phone, restaurantId, String(payload), staff);
+      if (isOwner) {
+        if (payload && String(payload).startsWith('om:')) {
+          if (String(payload) === 'om:cancel_note') { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
+          return handleOwnerMenu(phone, restaurantId, String(payload), q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id));
+        }
+        if (['obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc'].includes(_st)) {
+          return handleOwnerBranchStep(phone, restaurantId, _b, _st, getSession(phone).data || {},
+            q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id), { type, lat, lng });
+        }
+        if (_st === 'om_note') {
+          const txt = _b || String(payload || '').trim();
+          if (/^(الغاء|إلغاء|cancel)$/.test(txt)) { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
+          saveSession(phone, 'idle', {});
+          const _r = q.get("SELECT * FROM restaurants WHERE id=?", staff.restaurant_id);
+          const ownerName = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", staff.restaurant_id)?.name || '';
+          if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📨 *استفسار/ملاحظة من صاحب نشاط*\n\n🏪 النشاط: *${_r?.name_ar || ''}* (#${staff.restaurant_id})\n👤 صاحبه: ${ownerName || '—'} — 📱 ${phone}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}\n\n💬 ${txt}` }).catch(() => {});
+          return send(phone, restaurantId, null, 'buttons', '✅ *وصلت ملاحظتك للإدارة* — شكرًا لك 🌸', { buttons: [{ id: 'st:menu', title: '⬅️ القائمة' }] });
+        }
       }
-      if (!payload && /^(مرحبا|هلا|السلام عليكم|لوحتي|لوحة|نشاطي|إدارة نشاطي|القائمة|قائمه|menu|start)$/i.test(String(body || '').trim()))
-        return showOwnerMainMenu(phone, restaurantId, _owner);
-      // تدفّق إضافة فرع
-      if (['obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc'].includes(_st)) {
-        return handleOwnerBranchStep(phone, restaurantId, String(body || '').trim(), _st, getSession(phone).data || {}, _owner, { type, lat, lng });
-      }
-      // ملاحظة للإدارة
-      if (_st === 'om_note') {
-        const txt = String(body || '').trim() || String(payload || '').trim();
-        if (/^(الغاء|إلغاء|cancel)$/.test(txt)) { saveSession(phone, 'idle', {}); return send(phone, restaurantId, null, 'text', 'تم التراجع 👍'); }
-        saveSession(phone, 'idle', {});
-        const ownerName = q.get("SELECT name FROM restaurant_users WHERE restaurant_id=? AND role IN ('owner','restaurant') ORDER BY id LIMIT 1", _owner.id)?.name || '';
-        if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📨 *استفسار/ملاحظة من صاحب نشاط*\n\n🏪 النشاط: *${_owner.name_ar}* (#${_owner.id})\n👤 صاحبه: ${ownerName || '—'} — 📱 ${phone}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}\n\n💬 ${txt}` }).catch(() => {});
-        return send(phone, restaurantId, null, 'buttons', '✅ *وصلت ملاحظتك للإدارة* — شكراً لك 🌸\nبنرجع لك بأقرب وقت.', { buttons: [{ id: 'om:back', title: '⬅️ القائمة' }] });
+      if (!payload && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|لوحتي|لوحة|نشاطي|وش صار|الوضع|حالة النشاط|أوامري|اوامري|menu|start|ابدأ|ابدا)$/i.test(_b)) {
+        return showStaffMenu(phone, restaurantId, staff);
       }
     }
-  }
-  // فتح قائمة العميل بالكتابة (للعملاء المعروفين)
-  {
-    const _b = String(body || '').trim();
-    if (!payload && customer?.name && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|ابدأ|ابدا|القائمة|قائمه|menu|start|الرئيسية)$/i.test(_b))
-      return showCustomerMainMenu(phone, restaurantId, customer);
   }
   const session = getSession(phone);
   const { state, data } = session;
@@ -3717,7 +3826,14 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
 
   if (['اقبل', 'قبول', 'accept', 'اقبل الطلب'].includes(b) || p === 'accept' || p.startsWith('accept:')) {
     const offer = q.get("SELECT * FROM captain_offers WHERE captain_id=? AND status='offered' ORDER BY id DESC LIMIT 1", captain.id);
-    if (!offer) return send(captain.phone, null, null, 'text', 'لا توجد طلبات متاحة للقبول حالياً 📭');
+    if (!offer) {
+      const stNow = captain.status === 'available' ? 'متاح' : captain.status === 'busy' ? 'مشغول' : 'غير متصل';
+      return send(captain.phone, null, null, 'text',
+        `📭 *ما فيه عرض طلب عليك حاليًا*\n\n📍 حالتك الآن: *${stNow}*\n`
+        + (captain.status === 'available'
+          ? 'وبما أنك *متاح* — أول ما يتوفر طلب في نطاقك بيوصلك عرض هنا مباشرة 🛵'
+          : '⚠️ عشان تصلك العروض لازم تكون *متاح* — اكتب *متاح* الآن ✅'));
+    }
     const r = captainAccept(offer.order_id, captain.id);
     if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
     const o = q.get("SELECT order_no FROM orders WHERE id=?", offer.order_id);

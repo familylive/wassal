@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS orders (
   scheduled_for TEXT,
   scheduled_time TEXT,
   preorder_dispatched_at TEXT,
+  no_captain_notified_at TEXT,
   bid_until TEXT,
   chosen_captain_id INTEGER,
   promised_at TEXT,

@@ -183,8 +183,14 @@ export async function dispatchDuePreorders() {
       // ما فيه كابتن متاح؟ نلغي العلم لإعادة المحاولة كل 5 دقائق (بدل ما يعلق الطلب للأبد)
       q.run(offered ? "UPDATE orders SET preorder_dispatched_at=datetime('now') WHERE id=?"
                     : "UPDATE orders SET preorder_dispatched_at=NULL WHERE id=?", order.id);
-      if (!offered && config.adminPhone) {
-        waSend({ phone: config.adminPhone, type: 'text', body: `⚠️ *طلب مسبق بلا كابتن* ${order.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id)?.name_ar || ''}\nأعدنا المحاولة تلقائياً كل 5 دقائق 🛵` }).catch(() => {});
+      if (!offered) {
+        // تنبيه واحد فقط لكل طلب (كان يتكرر كل 5 دقائق) — والمحاولات تستمر بصمت
+        const seen = q.get("SELECT no_captain_notified_at FROM orders WHERE id=?", order.id)?.no_captain_notified_at;
+        if (!seen) {
+          if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `⚠️ *طلب بلا كابتن* ${order.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", order.restaurant_id)?.name_ar || ''}
+ما فيه كابتن *متاح* حاليًا. النظام يعيد المحاولة كل 5 دقائق بصمت، وبيوصلك عرض أول ما يتوفر كابتن 🛵` }).catch(() => {});
+          q.run("UPDATE orders SET no_captain_notified_at=datetime('now') WHERE id=?", order.id);
+        }
       }
       if (offered) {
         const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
