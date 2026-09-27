@@ -767,7 +767,7 @@ export async function handleIncoming({ phone, restaurantId, body = '', type = 't
   // أول زيارة: نطلب اسم العميل ثم نعرض له كل المطاعم
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['welcome', 'reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_nid', 'cash_dob', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
-    'reg_id_doc', 'obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc', 'om_note', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
+    'reg_id_doc', 'cap_rej_reason', 'cap_busy_no', 'obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc', 'om_note', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
   if (!IN_REG_FLOW && !customer.name && state !== 'ask_name' && state !== 'welcome') {
     saveSession(phone, 'welcome', { ...data });
     return send(phone, rid, null, 'text', WELCOME_TEXT);
@@ -3702,6 +3702,194 @@ export async function notifyDepositPaid(captain, amount, kind = 'paid') {
   return body;
 }
 
+// ================= 🛵 قائمة الكابتن =================
+const CAP_MAX_REJECTS = 5;
+const CAP_FINE_HALALA = 10000;   // غرامة إغلاق الحساب: 100 ر.س
+
+function captainRejectStats(captainId) {
+  const used = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE captain_id=? AND status='rejected'", captainId)?.c || 0);
+  return { used, remaining: Math.max(0, CAP_MAX_REJECTS - used), max: CAP_MAX_REJECTS };
+}
+
+function capDistanceKm(captain, order) {
+  try {
+    const { haversineKm } = requireHaversine();
+    const r = q.get("SELECT * FROM restaurants WHERE id=?", order.restaurant_id);
+    const b = order.branch_id ? q.get("SELECT * FROM branches WHERE id=?", order.branch_id) : null;
+    const from = (b && b.lat && b.lng) ? b : (r && r.lat && r.lng ? r : null);
+    if (!from || !order.lat || !order.lng) return null;
+    return haversineKm(from.lat, from.lng, order.lat, order.lng);
+  } catch (e) { return null; }
+}
+let _hav = null;
+function requireHaversine() {
+  if (!_hav) _hav = { haversineKm: (a, b, c, d) => { const R = 6371, t = (x) => x * Math.PI / 180; const dLat = t(c - a), dLng = t(d - b); const h = Math.sin(dLat / 2) ** 2 + Math.cos(t(a)) * Math.cos(t(c)) * Math.sin(dLng / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); } };
+  return _hav;
+}
+
+function capFeeEstimate(captain, order) {
+  const km = capDistanceKm(captain, order);
+  const base = Number(order.delivery_fee || 0);
+  const perKm = 150; // 1.50 ر.س لكل كم
+  const est = km ? Math.max(base, Math.round(km * perKm)) : base;
+  return { km, fee: est };
+}
+
+function captainMenuButtons() {
+  return { buttons: [
+    { id: 'cap:orders', title: '🧾 طلبات', group: 'r1' },
+    { id: 'cap:deliveries', title: '🛵 طلبات توصيل', group: 'r1' },
+    { id: 'cap:auctions', title: '⚖️ مزاد الكابتن', group: 'r2' },
+    { id: 'cap:busy_now', title: '🟠 مشغول', group: 'r3' },
+    { id: 'cap:invoices', title: '🧾 فواتيري', group: 'r3' },
+    { id: 'cap:wallet', title: '💰 حسابي', group: 'r4' },
+    { id: 'cap:idle', title: '🟢 متاح', group: 'r4' }
+  ] };
+}
+
+export async function showCaptainMenu(phone, captain) {
+  const st = captain.status === 'available' ? '🟢 متاح للطلبات' : captain.status === 'busy' ? '🟠 مشغول بطلب' : '⚪ غير متصل';
+  let acc = null;
+  try { const { captainAccount } = await import('./captainAccount.js'); acc = captainAccount(captain.id); } catch (e) {}
+  const rj = captainRejectStats(captain.id);
+  let body = `🛵 *أهلًا كابتن ${captain.name || ''}* 🌸\n\n${st}\n`;
+  if (acc) body += `💰 التأمين: ${rls(acc.deposit || 0)} ر.س${acc.blocked ? '\n⛔ حسابك موقوف — ' + (acc.blockedReason || '') : ''}\n`;
+  body += `⚠️ مرات الرفض المتبقية: *${rj.remaining}* من ${rj.max}\n\n👇 *قائمة الكابتن*:`;
+  return send(phone, null, null, 'buttons', body, captainMenuButtons());
+}
+
+function captainOrdersMenuRows() {
+  return [
+    { id: 'cap:new_order', title: '🆕 طلب جديد', description: 'اطلب مثل العميل' },
+    { id: 'cap:track', title: '🔎 متابعة الطلب', description: 'حالة طلبك الحالي' },
+    { id: 'cap:my_orders', title: '🧾 طلباتي السابقة', description: 'فواتير وكشوف طلباتك' },
+    { id: 'cap:points', title: '🎁 نقاط الولاء', description: 'رصيدك وصلاحيته' },
+    { id: 'cap:menu', title: '⬅️ رجوع', description: 'القائمة الرئيسية' }
+  ];
+}
+function captainDeliveriesMenuRows() {
+  return [
+    { id: 'cap:find', title: '🔎 البحث عن طلبات', description: 'الطلبات المتاحة للتوصيل' },
+    { id: 'cap:active', title: '🚚 متابعة طلب للتوصيل', description: 'الطلب الذي قبلته' },
+    { id: 'cap:menu', title: '⬅️ رجوع', description: 'القائمة الرئيسية' }
+  ];
+}
+function captainInvoicesMenuRows() {
+  return [
+    { id: 'cap:inv:day', title: '📅 فواتير اليوم', description: 'توصيلاتك اليوم' },
+    { id: 'cap:inv:week', title: '🗓 فواتير الأسبوع', description: 'آخر ٧ أيام' },
+    { id: 'cap:inv:month', title: '📆 فواتير الشهر', description: 'هذا الشهر' },
+    { id: 'cap:inv:year', title: '📈 فواتير السنة', description: 'هذا العام' },
+    { id: 'cap:menu', title: '⬅️ رجوع' }
+  ];
+}
+
+export async function showCaptainAuction(phone, captain) {
+  const offers = q.all(`SELECT o.*, ord.order_no, ord.total, ord.delivery_fee, ord.lat, ord.lng, ord.branch_id, ord.restaurant_id, ord.order_type
+    FROM captain_offers o JOIN orders ord ON ord.id = o.order_id
+    WHERE o.captain_id=? AND o.status='offered' AND ord.status NOT IN ('delivered','cancelled')
+    ORDER BY o.id DESC LIMIT 5`, captain.id);
+  if (!offers.length) {
+    const rj = captainRejectStats(captain.id);
+    return send(phone, null, null, 'buttons',
+      `⚖️ *مزاد الكابتن*\n\nما فيه طلب معروض عليك حاليًا 📭\n${captain.status === 'available' ? 'أنت *متاح* — بوصلك العرض أول ما يتوفر طلب في نطاقك ✅' : '⚠️ حالتك غير «متاح» — اكتب *متاح* عشان تصلك العروض'}\n\n⚠️ مرات الرفض المتبقية: *${rj.remaining}* من ${rj.max}`,
+      { buttons: [{ id: 'cap:idle', title: '🟢 متاح' }, { id: 'cap:menu', title: '⬅️ رجوع' }] });
+  }
+  const lines = [];
+  for (const o of offers) {
+    const est = capFeeEstimate(captain, o);
+    const rn = q.get("SELECT name_ar FROM restaurants WHERE id=?", o.restaurant_id)?.name_ar || '';
+    const btns = [
+      { id: 'cap:acc:' + o.order_id, title: '✅ قبول الطلب', group: 'o' + o.order_id },
+      { id: 'cap:rej:' + o.order_id, title: '❌ رفض الطلب', group: 'o' + o.order_id }
+    ];
+    await send(phone, null, o.order_id, 'buttons',
+      `📦 *طلب ${o.order_no}* — ${rn}\n💰 قيمة الطلب: ${rls(o.total)} ر.س\n🛵 التوصيل: ${est.km ? est.km.toFixed(1) + ' كم' : 'غير محدد'} — ${rls(est.fee)} ر.س\n${String(o.order_type) === 'pickup' ? '🏪 استلام من الفرع' : '🚚 توصيل للعميل'}\n\nتقبل الطلب أو ترفضه؟`,
+      { buttons: btns });
+    lines.push(o.order_no);
+  }
+  return true;
+}
+
+export async function showCaptainDeliveries(phone, captain) {
+  const active = q.get(`SELECT * FROM orders WHERE captain_id=? AND status IN ('transferred','with_captain','on_the_way','arrived') ORDER BY id DESC LIMIT 1`, captain.id);
+  if (!active) return send(phone, null, null, 'text', '🚚 *ما فيه طلب توصيل نشط عندك حاليًا* 📭\nأول ما تقبل عرضًا ويحوّله النشاط عليك بيوصلك هنا ✅');
+  const st = ORDER_STATUS_AR[active.status] || active.status;
+  const rn = q.get("SELECT name_ar FROM restaurants WHERE id=?", active.restaurant_id)?.name_ar || '';
+  const cn = q.get("SELECT name, phone FROM customers WHERE id=?", active.customer_id);
+  return send(phone, null, active.id, 'buttons',
+    `🚚 *طلبك الحالي* ${active.order_no}\n\n${ORDER_EMOJI_SAFE(active.status)} *${st}*\n🏪 ${rn}\n👤 ${cn?.name || 'العميل'}\n💰 ${rls(active.total)} ر.س\n\nمراحل التوصيل: *استلمت* ← *انطلقت* ← *وصلت* — ولإغلاق الطلب أرسل *رمز* رمز الاستلام 🔐`,
+    { buttons: [
+      { id: 'cap:stage:transferred', title: '✅ استلمت', group: 'a' },
+      { id: 'cap:stage:on_the_way', title: '🚀 انطلقت', group: 'a' },
+      { id: 'cap:stage:arrived', title: '📍 وصلت', group: 'a' },
+      { id: 'cap:code', title: '🔐 رمز الاستلام' }
+    ] });
+}
+
+function ORDER_EMOJI_SAFE(s) {
+  return s === 'arrived' ? '📍' : s === 'on_the_way' ? '🚀' : s === 'with_captain' || s === 'transferred' ? '🛵' : '📦';
+}
+
+export async function captainOrderSearch(phone, captain) {
+  const offers = q.all(`SELECT ord.order_no, ord.total, ord.delivery_fee, ord.lat, ord.lng, ord.branch_id, ord.restaurant_id
+    FROM captain_offers o JOIN orders ord ON ord.id=o.order_id
+    WHERE o.captain_id=? AND o.status='offered' AND ord.status NOT IN ('delivered','cancelled') ORDER BY o.id DESC LIMIT 10`, captain.id);
+  if (!offers.length) {
+    return send(phone, null, null, 'buttons',
+      `🔎 *البحث عن طلبات*\n\nما فيه طلبات متاحة لك الآن 📭\n${captain.status === 'available' ? 'أنت متاح ✅ — بنعرض عليك أول ما يتوفر طلب.' : '⚠️ اكتب *متاح* عشان تصلك الطلبات.'}`,
+      { buttons: [{ id: 'cap:idle', title: '🟢 متاح' }, { id: 'cap:menu', title: '⬅️ رجوع' }] });
+  }
+  const t = `🔎 *طلبات متاحة لك (${offers.length})*\n\n` + offers.map(o => {
+    const est = capFeeEstimate(captain, o);
+    return `• *${o.order_no}* — ${rls(o.total)} ر.س — توصيل ${est.km ? est.km.toFixed(1) + ' كم' : '؟'} (${rls(est.fee)} ر.س)`;
+  }).join('\n');
+  return send(phone, null, null, 'buttons', t + '\n\nللقبول أو الرفض افتح *⚖️ مزاد الكابتن*.', { buttons: [
+    { id: 'cap:auctions', title: '⚖️ مزاد الكابتن' }, { id: 'cap:menu', title: '⬅️ رجوع' }
+  ] });
+}
+
+export async function showCaptainInvoices(phone, captain, kind = 'month') {
+  const { sendCaptainStatement } = await import('./captainStatement.js');
+  await send(phone, null, null, 'text', '🧾 جاري تجهيز فواتيرك — PDF مختوم ⏳');
+  const r = await sendCaptainStatement(captain.id, kind, { phone });
+  const s = r?.summary;
+  return send(phone, null, null, 'buttons',
+    r?.error ? '⚠️ تعذّر إنشاء الكشف — جرّب بعد قليل'
+      : `✅ *فواتير ${({ day: 'اليوم', week: 'الأسبوع', month: 'الشهر', year: 'السنة', yesterday: 'أمس', lastweek: 'الأسبوع الماضي', lastmonth: 'الشهر الماضي', lastyear: 'العام الماضي' })[kind] || ''}*\n\n🛵 توصيلات: ${s?.count || 0}\n💰 الإجمالي: ${rls(s?.total || 0)} ر.س\n🎁 مجاني: ${s?.freeCount || 0}`,
+    { buttons: [
+      { id: 'cap:inv:' + (kind === 'day' ? 'week' : 'day'), title: kind === 'day' ? '🗓 الأسبوع' : '📅 اليوم' },
+      { id: 'cap:invoices', title: '📆 فترة أخرى' }, { id: 'cap:menu', title: '⬅️ رجوع' }
+    ] });
+}
+
+export async function handleCaptainMenu(phone, rid, p, captain) {
+  if (p === 'cap:menu') return showCaptainMenu(phone, captain);
+  if (p === 'cap:orders') return send(phone, null, null, 'list', '🧾 *طلبات* — اختر:', { list: [{ title: 'طلبات', rows: captainOrdersMenuRows() }] });
+  if (p === 'cap:deliveries') return send(phone, null, null, 'list', '🛵 *طلبات توصيل* — اختر:', { list: [{ title: 'طلبات توصيل', rows: captainDeliveriesMenuRows() }] });
+  if (p === 'cap:invoices') return send(phone, null, null, 'list', '🧾 *فواتيري* — اختر الفترة:', { list: [{ title: 'فواتيري', rows: captainInvoicesMenuRows() }] });
+  if (p.startsWith('cap:inv:')) return showCaptainInvoices(phone, captain, p.split(':')[2]);
+  if (p === 'cap:auctions') return showCaptainAuction(phone, captain);
+  if (p === 'cap:find') return captainOrderSearch(phone, captain);
+  if (p === 'cap:active') return showCaptainDeliveries(phone, captain);
+  if (p === 'cap:new_order') return showRestaurants(phone);
+  if (p === 'cap:my_orders') {
+    const c = ensureCustomer(phone);
+    const { customerOrdersSummary } = await import('./customerStatement.js');
+    const s = customerOrdersSummary(c.id);
+    return send(phone, null, null, 'text', `🧾 *طلباتي السابقة*\n\n📦 ${s.orders} طلب · المجموع ${rls(s.total)} ر.س\n_(كشف الطلبات تجده في قائمة العميل)_`);
+  }
+  if (p === 'cap:points') { const c = ensureCustomer(phone); return showLoyalty(phone, rid, c); }
+  if (p === 'cap:wallet') return send(phone, null, null, 'text', (await import('./captainAccount.js')).captainAccount(captain.id)?.transactions?.length ? '💰 افتح *فواتيري* للتفاصيل، و*حسابي* في الإشعارات.' : '💰 ما فيه حركات بعد.');
+  if (p === 'cap:idle') { q.run("UPDATE captains SET status='available' WHERE id=?", captain.id); return send(phone, null, null, 'text', '🟢 *صارت حالتك: متاح* — بوصلك أي طلب في نطاقك 🛵'); }
+  if (p === 'cap:code') return send(phone, null, null, 'text', '🔐 أرسل: *رمز* ثم رمز الاستلام الذي يعطيك العميل — مثال: *رمز 1234*');
+  if (p.startsWith('cap:stage:')) {
+    const map = { transferred: 'استلمت', with_captain: 'استلمت', on_the_way: 'انطلقت', arrived: 'وصلت' };
+    return handleCaptainIncoming({ phone, body: map[p.split(':')[2]] || '', payload: null });
+  }
+  return showCaptainMenu(phone, captain);
+}
+
 export async function handleCaptainIncoming({ phone, body = '', payload = null }) {
   // 📜 بوابة التعهد للكابتن (وقبول التعهد)
   try {
@@ -3719,15 +3907,76 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
   const b = String(body || '').trim();
   const p = payload ? String(payload) : '';
 
-  // 🛵 ترحيب/مساعدة الكابتن — كان الصمت هو الرد على أي كلمة غير معروفة
-  if (!p && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|ابدأ|ابدا|مساعدة|help|menu|start)$/.test(b)) {
-    let acc = null;
-    try { const { captainAccount } = await import('./captainAccount.js'); acc = captainAccount(captain.id); } catch (e) {}
-    const st = captain.status === 'available' ? '🟢 متاح للطلبات' : captain.status === 'busy' ? '🟠 مشغول بطلب' : '⚪ غير متصل';
-    let t = `🛵 *أهلًا كابتن ${captain.name || ''}* 🌸\n\n${st}\n`;
-    if (acc) t += `💰 رصيد التأمين: ${rls(acc.deposit || 0)} ر.س${acc.blocked ? '\n⛔ حسابك موقوف — ' + (acc.blockedReason || '') : ''}\n`;
-    t += `\n*أوامرك:*\n• *متاح* / *مشغول* — حالة الاتصال (لازم تكون «متاح» عشان تصلك الطلبات)\n• *اقبل* / *رفض* — عند عرض طلب عليك\n• *استلمت* — استلمت الطلب من الفرع\n• *انطلقت* — في الطريق للعميل\n• *وصلت* — وصلت باب العميل\n• *صورة* — أرسل صورة التسليم\n• *رمز 1234* — رمز الاستلام لإغلاق الطلب\n• *رصيدي* — حسابك والمبالغ\n• *تأميني* — التأمين وحالة الحساب`;
-    return send(captain.phone, null, null, 'text', t);
+  // 🛵 قائمة الكابتن: أزرارها وأوامرها
+  if (p && String(p).startsWith('cap:')) {
+    const pv = String(p);
+    // ✅ قبول عرض
+    if (pv.startsWith('cap:acc:')) {
+      const orderId = Number(pv.split(':')[2]);
+      const ord = q.get("SELECT * FROM orders WHERE id=?", orderId);
+      const offer = q.get("SELECT * FROM captain_offers WHERE order_id=? AND captain_id=? AND status='offered' ORDER BY id DESC LIMIT 1", orderId, captain.id);
+      if (!ord || !offer) return send(captain.phone, null, null, 'text', '⚠️ هذا العرض انتهى أو حُوّل لكابتن آخر — افتح *مزاد الكابتن* للطلبات المتاحة.');
+      if (Number(captain.blocked)) return send(captain.phone, null, null, 'text', '⛔ حسابك موقوف — لا يمكنك قبول الطلبات. اكتب *تأميني* للمتابعة.');
+      const est = capFeeEstimate(captain, ord);
+      let acceptFn = null;
+      try { const d = await import('./dispatch.js'); acceptFn = d.captainAccept; if (est.fee) d.bidOnOrder(captain.id, est.fee); } catch (e) { console.error('CAP_ACCEPT_IMPORT_FAIL', e.message); }
+      if (!acceptFn) return send(captain.phone, null, null, 'text', '⚠️ تعذّر إتمام القبول — جرّب بعد قليل.');
+      const r = acceptFn(orderId, captain.id);
+      if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
+      if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `✅ *كابتن قبل طلب*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 ${ord.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n💰 التوصيل: ${rls(est.fee)} ر.س${est.km ? ' (' + est.km.toFixed(1) + ' كم)' : ''}` }).catch(() => {});
+      return send(captain.phone, null, orderId, 'text',
+        `✅ *قبلت الطلب ${ord.order_no}*\n\n💰 سعر التوصيل: *${rls(est.fee)} ر.س*${est.km ? ` (${est.km.toFixed(1)} كم)` : ''}\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n\nبانتظار تحويل النشاط الطلب عليك — وبيوصلك هنا مباشرة 🛵`);
+    }
+    // ❌ رفض عرض → كتابة السبب
+    if (pv.startsWith('cap:rej:')) {
+      const orderId = Number(pv.split(':')[2]);
+      const rj = captainRejectStats(captain.id);
+      saveSession(phone, 'cap_rej_reason', { rejectOrderId: orderId });
+      const warn = rj.remaining <= 1 ? '\n\n⚠️ *تحذير:* هذي آخر مرة تقدر ترفض — وبعدها يُغلق حسابك ولا يُفتح إلا بغرامة *' + rls(CAP_FINE_HALALA) + ' ر.س*.' : '';
+      return send(captain.phone, null, orderId, 'text',
+        `❌ *رفض الطلب*\n\nاكتب *سبب الرفض* (مطلوب) — وبعدها نرسله للإدارة ⏳\n\n⚠️ مرات الرفض المتبقية: *${rj.remaining}* من ${rj.max}${warn}`);
+    }
+    return handleCaptainMenu(phone, rid, pv, captain);
+  }
+  // حالات الكابتن: سبب الرفض · رقم الطلب المشغول
+  {
+    const _sess = getSession(phone);
+    if (_sess.state === 'cap_rej_reason') {
+      const reason = String(b || '').trim();
+      if (reason.length < 3) return send(captain.phone, null, null, 'text', 'اكتب *سبب الرفض* بوضوح 🙏 (٣ أحرف على الأقل)');
+      const orderId = Number(_sess.data?.rejectOrderId || 0);
+      const offer = q.get("SELECT * FROM captain_offers WHERE order_id=? AND captain_id=? AND status='offered' ORDER BY id DESC LIMIT 1", orderId, captain.id);
+      if (offer) q.run("UPDATE captain_offers SET status='rejected', responded_at=datetime('now'), reject_reason=? WHERE id=?", reason.slice(0, 200), offer.id);
+      saveSession(phone, 'idle', {});
+      const rj = captainRejectStats(captain.id);
+      const ord = q.get("SELECT * FROM orders WHERE id=?", orderId);
+      if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `❌ *رفض كابتن لطلب*\n\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 ${ord?.order_no || ''} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord?.restaurant_id)?.name_ar || ''}\n📝 السبب: ${reason}\n⚠️ المتبقي له: ${rj.remaining} من ${rj.max}` }).catch(() => {});
+      let tail = '✅ *تم إرسال الرفض للإدارة* — شكرًا لكتابة السبب.';
+      if (rj.used >= rj.max) {
+        q.run("UPDATE captains SET blocked=1, blocked_reason=?, penalty_total=COALESCE(penalty_total,0)+? WHERE id=?",
+          `تجاوز حد رفض الطلبات (${rj.max}) — غرامة ${rls(CAP_FINE_HALALA)} ر.س`, CAP_FINE_HALALA, captain.id);
+        tail += `\n\n⛔ *تم إغلاق حسابك* لتجاوزك حد الرفض (${rj.max} مرات).\n💳 لإعادة فتحه: سداد غرامة *${rls(CAP_FINE_HALALA)} ر.س*.`;
+        if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `⛔ *إغلاق حساب كابتن*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📝 السبب: تجاوز حد الرفض (${rj.max})\n💳 الغرامة: ${rls(CAP_FINE_HALALA)} ر.س` }).catch(() => {});
+      } else if (rj.remaining === 1) {
+        tail += `\n\n⚠️ *تحذير أخير:* باقي لك مرة واحدة فقط — وبعدها يُغلق حسابك وتُفرض غرامة *${rls(CAP_FINE_HALALA)} ر.س*.`;
+      } else {
+        tail += `\n\n⚠️ مرات الرفض المتبقية: *${rj.remaining}* من ${rj.max}`;
+      }
+      return send(captain.phone, null, orderId, 'text', tail);
+    }
+    if (_sess.state === 'cap_busy_no') {
+      const no = String(b || '').replace(/[^\dA-Za-z-]/g, '').slice(0, 24);
+      saveSession(phone, 'idle', {});
+      q.run("UPDATE captains SET status='busy' WHERE id=?", captain.id);
+      if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🟠 *كابتن مشغول بتوصيل طلب*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 الطلب: ${no || '—'}\n🕐 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}` }).catch(() => {});
+      return send(captain.phone, null, null, 'buttons',
+        `✅ *تم تسجيلك «مشغول»* بالطلب *${no || '—'}*\n\nما بوصلك طلبات جديدة لين تكتب *متاح*.`,
+        { buttons: [{ id: 'cap:idle', title: '🟢 متاح' }, { id: 'cap:menu', title: '⬅️ القائمة' }] });
+    }
+  }
+  // 🛵 أي كلمة ترحيب → قائمة الكابتن
+  if (!p && /^(مرحبا|مرحبتين|هلا|هلا والله|السلام عليكم|سلام|صباح الخير|مساء الخير|القائمة|قائمه|ابدأ|ابدا|مساعدة|help|menu|start|أوامري|اوامري)$/.test(b)) {
+    return showCaptainMenu(phone, captain);
   }
 
   // 💳 دفع التأمين من داخل البوت (وضع تجريبي: فوري)
