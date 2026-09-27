@@ -4145,6 +4145,17 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
       const r = acceptFn(orderId, captain.id);
       if (r.error) return send(captain.phone, null, null, 'text', '❌ ' + r.error);
       if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `✅ *كابتن قبل طلب*\n🛵 ${captain.name || ''} — ${captain.phone || ''}\n📦 ${ord.order_no} — ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n💰 التوصيل: ${rls(est.fee)} ر.س${est.km ? ' (' + est.km.toFixed(1) + ' كم)' : ''}` }).catch(() => {});
+      // 🧾 إبلاغ الكاشير/النشاط بأن الكابتن قبل الطلب + زر تسليم الطلب للكابتن
+      try {
+        const _r = q.get("SELECT name_ar, phone FROM restaurants WHERE id=?", ord.restaurant_id);
+        const _cash = q.get("SELECT phone FROM restaurant_users WHERE restaurant_id=? AND role IN ('cashier','manager') AND COALESCE(is_active,1)=1 ORDER BY id LIMIT 1", ord.restaurant_id);
+        const _to = _cash?.phone || _r?.phone || null;
+        if (_to) {
+          waSend({ phone: _to, restaurantId: ord.restaurant_id, orderId, type: 'buttons',
+            body: `🛵 *الكابتن قبل الطلب*\n📦 ${ord.order_no}\n👤 ${captain.name || ''} — 📱 ${localPhone(captain.phone)}\n🏪 ${_r?.name_ar || ''}\n\nجهّز الطلب، ومتى ما صار جاهز اضغط الزر:`,
+            buttons: [{ id: 'st:hd:' + orderId, title: '🛵 سلّمت الطلب للكابتن' }] }).catch(() => {});
+        }
+      } catch (e) { console.error('CAP_ACCEPT_NOTIFY_STAFF_FAIL', e.message); }
       // 📱 إبلاغ العميل بقبول الطلب + جوال الكابتن للتواصل + زر متابعة الحالة
       try {
         const cust = q.get("SELECT phone FROM customers WHERE id=?", ord.customer_id);
