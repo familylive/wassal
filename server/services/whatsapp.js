@@ -64,14 +64,30 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
 
   let keyboard = null;
   if (type === 'buttons' && Array.isArray(buttons) && buttons.length) {
-    // 🎛 صفّان في السطر عندما تكون العناوين قصيرة (شكل أنظف للسلة: الصنف + 🗑)
-    const items = buttons.slice(0, 12).map(b => ({ text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60) }));
-    const rows = [];
-    for (let i = 0; i < items.length; i += 2) {
-      const a = items[i], b = items[i + 1];
-      if (b && String(a.text).length + String(b.text).length <= 46) rows.push([a, b]);
-      else { rows.push([a]); if (b) rows.push([b]); }
+    // 🎛 تجميع الأزرار:
+    //  • أزرار لها نفس group → صف واحد (مثال السلة: [الصنف][العدد][🗑])
+    //  • أزرار قصيرة (short) → حتى 3 في السطر
+    //  • غير ذلك → سطر لكل زر
+    const items = buttons.slice(0, 18).map(b => ({
+      text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60),
+      short: !!b.short, group: b.group ? String(b.group) : null
+    }));
+    const rows = []; let bucket = [], lastGroup = null;
+    const flush = () => { if (bucket.length) { rows.push(bucket); bucket = []; } };
+    for (const it of items) {
+      if (it.group) {
+        if (it.group !== lastGroup) { flush(); bucket = [it]; lastGroup = it.group; }
+        else bucket.push(it);
+        if (bucket.length >= 3) { flush(); lastGroup = null; }
+        continue;
+      }
+      if (lastGroup) { flush(); lastGroup = null; }
+      if (!it.short) { flush(); rows.push([it]); continue; }
+      const len = bucket.reduce((a, b) => a + b.text.length + 2, 0) + it.text.length;
+      if (bucket.length >= 3 || len > 46) flush();
+      bucket.push(it);
     }
+    flush();
     keyboard = { inline_keyboard: rows };
   } else if (type === 'list' && Array.isArray(list) && list.length) {
     const rows = [];

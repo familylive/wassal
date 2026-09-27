@@ -1005,9 +1005,12 @@ function showCart(phone, rid, customer) {
     const btns = [];
     for (const it of (cart.items || []).slice(0, 6)) {
       const nm = q.get("SELECT name, price FROM items WHERE id=?", it.item_id);
-      const label = `${nm?.name || it.name || 'صنف'} ×${it.quantity} — ${rls((nm?.price ?? it.price ?? 0) * it.quantity)} ر.س`;
-      btns.push({ id: 'edit:' + it.item_id, title: label.slice(0, 55) });
-      btns.push({ id: 'del:' + it.item_id, title: '🗑 حذف' });
+      const label = `${nm?.name || it.name || 'صنف'} — ${rls((nm?.price ?? it.price ?? 0) * it.quantity)} ر.س`;
+      // [العدد] [🗑] [الاسم — المجموع]  (الترتيب يظهر من اليمين لليسار: الاسم ثم 🗑 ثم العدد)
+      const g = 'i' + it.item_id;
+      btns.push({ id: 'edit:' + it.item_id, title: label.slice(0, 40), group: g });
+      btns.push({ id: 'q:' + it.item_id, title: '🔢 ' + it.quantity, group: g });
+      btns.push({ id: 'del:' + it.item_id, title: '🗑', group: g });
     }
     btns.push({ id: 'menu', title: '➕ صنف آخر' });
     btns.push({ id: 'checkout', title: '✅ إرسال الطلب' });
@@ -1040,7 +1043,7 @@ function showCartItem(phone, rid, customer, data, itemId, head = null) {
   send(phone, rid, null, 'text', `🧺 *${name}*\nالكمية: *${ex.quantity}* — المجموع: ${rls(price * ex.quantity)} ر.س`);
   return send(phone, rid, null, 'buttons', 'عدّل الكمية أو احذف الصنف 👇', { buttons: [
     { id: 'mi_inc', title: '➕ زيادة' }, { id: 'mi_dec', title: '➖ نقصان' },
-    { id: 'mi_del', title: '🗑 حذف' }, { id: 'back_cart', title: '⬅️ رجوع للسلة' }
+    { id: 'mi_del', title: '🗑' }, { id: 'back_cart', title: '⬅️ رجوع للسلة' }
   ] });
 }
 
@@ -1100,6 +1103,33 @@ function handleOrderReview(phone, rid, customer, data, p, b) {
   return sendOrderReview(phone, rid, customer);
 }
 function handleCart(phone, rid, customer, data, p, b) {
+  if (p === 'back_cart' || p === 'cart') return showCart(phone, rid, customer);
+  if (p.startsWith('setq:')) {
+    const [, idRaw, nRaw] = p.split(':');
+    const id = Number(idRaw), n = Math.max(0, Math.min(99, Number(nRaw)));
+    const session = getSession(phone);
+    const cart = { ...(session.data.cart || { items: [] }) };
+    const it = (cart.items || []).find(i => i.item_id === id);
+    if (it) {
+      if (n <= 0) cart.items = cart.items.filter(i => i.item_id !== id);
+      else it.quantity = n;
+    }
+    saveSession(phone, 'cart', { ...session.data, cart });
+    send(phone, rid, null, 'text', n <= 0 ? '🗑 تم حذف الصنف' : `✅ الكمية صارت *${n}*`);
+    return showCart(phone, rid, customer);
+  }
+  if (p.startsWith('q:')) {
+    const id = Number(p.split(':')[1]);
+    const session = getSession(phone);
+    const it = (session.data.cart?.items || []).find(i => i.item_id === id);
+    const nm = q.get("SELECT name FROM items WHERE id=?", id);
+    if (!it) return showCart(phone, rid, customer);
+    const btns = [];
+    for (let n = 1; n <= 9; n++) btns.push({ id: `setq:${id}:${n}`, title: String(n), short: true });
+    btns.push({ id: 'del:' + id, title: '🗑', short: true });
+    btns.push({ id: 'back_cart', title: '⬅️ رجوع' });
+    return send(phone, rid, null, 'buttons', `🔢 *${nm?.name || it.name}* — الكمية الحالية: *${it.quantity}*\nاختر العدد الجديد:`, { buttons: btns });
+  }
   if (p.startsWith('edit:')) {
     const id = Number(p.split(':')[1]);
     const session = getSession(phone);
