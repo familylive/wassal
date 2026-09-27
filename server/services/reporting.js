@@ -177,6 +177,32 @@ export async function sendReportTo(phone, restaurantId, dateStr) {
   return ok;
 }
 
+// 📊 إرسال تقرير فترة (يومي/أسبوعي/شهري/سنوي) لرقم: نص + PDF مختوم
+export async function sendRangeReportTo(phone, restaurantId, kind = 'day') {
+  const text = buildRangeReport(restaurantId, kind);
+  if (!text) return { error: 'لا يوجد نشاط' };
+  // اليومي: sendReportTo يرسل النص + فاتورة اليوم PDF (بلا تكرار)
+  if (kind === 'day') {
+    let ok = false;
+    try { ok = await sendReportTo(phone, restaurantId, localNow().date); } catch (e) { console.error('RANGE_REPORT_DAY_FAIL', e.message); }
+    return { ok, kind };
+  }
+  let ok = false;
+  try { await waSend({ phone, type: 'text', body: text }); ok = true; } catch (e) { console.error('RANGE_REPORT_TEXT_FAIL', e.message); }
+  try {
+    const { buildRangeReportFiles } = await import('./invoice.js');
+    const f = await buildRangeReportFiles(restaurantId, kind);
+    if (f) {
+      const link = `${String(config.publicUrl || '').replace(/\/$/, '')}/uploads/invoices/${f.base}.pdf`;
+      await waSend({ phone, type: 'document',
+        body: `📄 *تقرير ${f.range?.label || kind}* — ${f.restaurant?.name_ar || ''}\n🗓 ${f.range ? reportRangePeriod(f.range) : ''}\n💰 المجموع الختام: ${(Number(f.stats?.salesTotal || 0) / 100).toFixed(2)} ر.س`,
+        document: { link, filename: `Wassal-${f.no}.pdf` } });
+      ok = true;
+    }
+  } catch (e) { console.error('RANGE_REPORT_PDF_FAIL', e.message); }
+  return { ok, kind };
+}
+
 // ---------- مستلمو التقارير ----------
 export function recipientsOf(restaurantId) {
   return q.all("SELECT * FROM report_recipients WHERE restaurant_id=? ORDER BY id", restaurantId);

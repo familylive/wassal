@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import PDFDocument from 'pdfkit';
 import { q } from '../db.js';
-import { dailyStats, localNow, prettyDate, shiftDate } from './reporting.js';
+import { dailyStats, rangeStats, reportRange, reportRangePeriod, localNow, prettyDate, shiftDate } from './reporting.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(__dirname, '..', 'assets');
@@ -54,13 +54,20 @@ function stampDate(dateStr) {
 }
 
 // ---------- الرسم على Canvas ----------
-export async function renderInvoicePng(restaurantId, dateStr) {
+export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   const logo = await ensureAssets();
   const r = q.get("SELECT * FROM restaurants WHERE id=?", restaurantId);
   if (!r) return null;
-  const s = dailyStats(restaurantId, dateStr);
+  // kind: day (افتراضي) | week | month | year … — نفس القالب لتقارير الفترات
+  const kind = opts.kind && opts.kind !== 'day' ? opts.kind : null;
+  const range = kind ? reportRange(kind, opts.today || undefined) : null;
+  const s = range ? rangeStats(restaurantId, range.from, range.to) : dailyStats(restaurantId, dateStr);
   const bt = r.business_type_id ? q.get("SELECT icon, name_ar FROM business_types WHERE id=?", r.business_type_id) : null;
-  const inv = ensureInvoiceRow(restaurantId, dateStr, s);
+  const inv = range
+    ? { no: `RPT-${String(kind).slice(0, 5).toUpperCase()}-${String(dateStr).replace(/-/g, '')}-${restaurantId}`, range }
+    : ensureInvoiceRow(restaurantId, dateStr, s);
+  const periodLine = range ? reportRangePeriod(range) : `${dateStr} — ${prettyDate(dateStr)}`;
+  const emptyWord = range ? 'هذه الفترة' : 'هذا اليوم';
   const { date: today, hhmm } = localNow();
 
   const W = 1000, H = 1414;
@@ -98,9 +105,9 @@ export async function renderInvoicePng(restaurantId, dateStr) {
 
   // جهة اليسار: الفاتورة
   en('SALES INVOICE', 'bold 22px Cairo', GREEN, 62, 60);
-  ar('فاتورة مبيعات — تقرير يومي', 'bold 30px Cairo', DARK, 96, 60, 'left');
-  ar(`رقم الفاتورة: ${inv.no}`, '24px Cairo', GREY, 132, 60, 'left');
-  ar(`التاريخ: ${dateStr} — ${prettyDate(dateStr)}`, '22px Cairo', GREY, 162, 60, 'left');
+  ar(range ? `فاتورة مبيعات — تقرير ${range.label}` : 'فاتورة مبيعات — تقرير يومي', 'bold 30px Cairo', DARK, 96, 60, 'left');
+  ar(`${range ? 'رقم التقرير' : 'رقم الفاتورة'}: ${inv.no}`, '24px Cairo', GREY, 132, 60, 'left');
+  ar(`${range ? 'الفترة' : 'التاريخ'}: ${periodLine}`, '22px Cairo', GREY, 162, 60, 'left');
 
   let y = 220;
 
@@ -126,7 +133,7 @@ export async function renderInvoicePng(restaurantId, dateStr) {
   const maxRows = 16;
   const shown = top.slice(0, maxRows);
   if (!shown.length) {
-    ar('لا توجد مبيعات في هذا اليوم', '24px Cairo', GREY, y + 36);
+    ar(`لا توجد مبيعات في ${emptyWord}`, '24px Cairo', GREY, y + 36);
     y += 60;
   }
   for (const it of shown) {
@@ -194,7 +201,7 @@ export async function renderInvoicePng(restaurantId, dateStr) {
   c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
   c.font = 'bold 20px Cairo'; c.fillText('Wassal Order', rx + stampW - 22, ry + 166);
   c.font = '18px Cairo'; c.fillText(`${inv.no}`, rx + stampW - 22, ry + 194);
-  c.font = '17px Cairo'; c.fillText(`${stampDate(dateStr)}`, rx + stampW - 22, ry + 217);
+  c.font = '17px Cairo'; c.fillText(`${range ? periodLine : stampDate(dateStr)}`, rx + stampW - 22, ry + 217);
   c.restore();
   c.globalAlpha = 1;
 
@@ -205,6 +212,20 @@ export async function renderInvoicePng(restaurantId, dateStr) {
   ar(`تم الإنشاء آلياً بتاريخ ${today} الساعة ${hhmm} (توقيت السعودية)`, '19px Cairo', '#8a97a4', H - 48);
 
   return { png: canvas.toBuffer('image/png'), invoice: inv, stats: s, restaurant: r };
+}
+
+// 📊 ملفات تقرير فترة (أسبوعي/شهري/سنوي) — PNG + PDF
+export async function buildRangeReportFiles(restaurantId, kind = 'week', opts = {}) {
+  const dateStr = (await import('./reporting.js')).localNow().date;
+  const out = await renderInvoicePng(restaurantId, dateStr, { kind, today: opts.today });
+  if (!out) return null;
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const base = `report-${kind}-${restaurantId}-${String(dateStr).replace(/-/g, '')}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`;
+  const pngFile = path.join(OUT_DIR, `${base}.png`);
+  const pdfFile = path.join(OUT_DIR, `${base}.pdf`);
+  fs.writeFileSync(pngFile, out.png);
+  try { fs.writeFileSync(pdfFile, await pngToPdf(out.png, `Report ${out.invoice.no}`)); } catch (e) { console.error('RANGE_INV_PDF_FAIL', e.message); }
+  return { pngFile, pdfFile, base, no: out.invoice.no, stats: out.stats, restaurant: out.restaurant, range: out.invoice.range };
 }
 
 // ---------- 🧾 فاتورة الطلب (تُرسل للعميل بعد الإغلاق) ----------
