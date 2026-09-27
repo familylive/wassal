@@ -1034,7 +1034,8 @@ function showCartItem(phone, rid, customer, data, itemId, head = null) {
   if (head) send(phone, rid, null, 'text', head);
   send(phone, rid, null, 'text', `🧺 *${name}*\nالكمية: *${ex.quantity}* — المجموع: ${rls(price * ex.quantity)} ر.س`);
   return send(phone, rid, null, 'buttons', 'عدّل الكمية أو احذف الصنف 👇', { buttons: [
-    { id: 'mi_inc', title: '➕ زيادة' }, { id: 'mi_dec', title: '➖ نقصان' }, { id: 'mi_del', title: '🗑 حذف' }
+    { id: 'mi_inc', title: '➕ زيادة' }, { id: 'mi_dec', title: '➖ نقصان' },
+    { id: 'mi_del', title: '🗑 حذف' }, { id: 'back_cart', title: '⬅️ رجوع للسلة' }
   ] });
 }
 
@@ -1049,6 +1050,12 @@ function handleCartManage(phone, rid, customer, data, p) {
 }
 function handleCartItem(phone, rid, customer, data, p) {
   const itemId = data.manageItemId;
+  // ⬅️ رجوع للسلة من شاشة الصنف
+  if (p === 'back_cart') {
+    const session = getSession(phone);
+    saveSession(phone, 'cart', { ...session.data, cart: session.data.cart });
+    return showCart(phone, rid, customer);
+  }
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
   const ex = cart.items.find(i => i.item_id === itemId);
