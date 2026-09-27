@@ -801,6 +801,18 @@ function showMenu(phone, rid) {
   if (!map.length) return send(phone, rid, null, 'text', 'المعذرة، المنيو فاضي الحين 🙏');
   saveSession(phone, 'browse_items', { ...session.data, menuMap: map, catItems: map.map(m => m.id), viewAll: true, lastCat: null, itemIndex: 0 });
   for (const part of chunkText(text, 3000)) send(phone, rid, null, 'text', part);
+  // 🎛 أزرار الأصناف: ضغطة = يضاف للسلة (تليجرام). واتساب محدود بـ10 صفوف فنرسله فقط إن كان قليلاً.
+  try {
+    const rows = map.map((m, i) => ({
+      id: 'add:' + m.id,
+      title: `${i + 1}. ${m.name || ''}${m.price ? ' — ' + rls(m.price) + ' ر.س' : ''}`.slice(0, 60),
+      description: ''
+    }));
+    const isTg = config.whatsapp.provider === 'telegram';
+    if (rows.length && (isTg || rows.length <= 10)) {
+      send(phone, rid, null, 'list', '🎛 اضغط أي صنف ليضاف لسلتك مباشرة:', { list: [{ title: 'الأصناف', rows: rows.slice(0, isTg ? 30 : 10) }] });
+    }
+  } catch (e) { console.error('MENU_BUTTONS_FAIL', e.message); }
   return sendItemButtons(phone, rid);
 }
 function showAllItems(phone, rid) { return showMenu(phone, rid); }
@@ -913,6 +925,13 @@ function handleCat(phone, rid, customer, p, b) {
 function handleItems(phone, rid, customer, p, b) {
   const session = getSession(phone);
   const data = session.data;
+  if (p.startsWith('add:')) {
+    const id = Number(p.split(':')[1]);
+    const map = session.data.menuMap || [];
+    const idx = map.findIndex(m => Number(m.id) === id);
+    if (idx >= 0) { const r = applyOrderEntry(phone, rid, session.data, String(idx + 1)); if (r) return r; }
+    return itemDetail(phone, rid, customer, 'item:' + id);
+  }
   if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
   if (p === 'send_order') return sendOrderReview(phone, rid, customer);
   if (p === 'cart') return showCart(phone, rid, customer);
