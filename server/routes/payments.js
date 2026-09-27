@@ -24,6 +24,19 @@ router.post('/webhook/moyasar', async (req, res) => {
           const rid = pay.restaurant_id;
           if (rid) await onPaymentSuccess(pay.phone, rid);
         }
+        // 💰 تأمين كابتن: تفعيل الحساب + إشعار المشرف بالبيانات كاملة
+        const meta = body.data?.metadata || invoice.metadata || {};
+        if (meta.kind === 'captain_deposit' || pay.method === 'deposit') {
+          const cap = q.get("SELECT * FROM captains WHERE id=?", Number(meta.captain_id) || 0)
+                   || q.get("SELECT * FROM captains WHERE phone=?", pay.phone);
+          if (cap) {
+            const { markDepositPaid } = await import('../services/captainAccount.js');
+            try { markDepositPaid(cap.id, Number(pay.amount)); } catch (e) { console.error('CAP_DEPOSIT_MARK_FAIL', e.message); }
+            q.run("UPDATE captains SET status='available' WHERE id=?", cap.id);
+            const { notifyDepositPaid } = await import('../services/flow.js');
+            notifyDepositPaid(cap, Number(pay.amount), 'paid').catch(() => {});
+          }
+        }
       }
     }
   } catch (e) { console.error('moyasar webhook', e.message); }

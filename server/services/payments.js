@@ -17,6 +17,23 @@ async function createMoyasarPayment({ order, method, callbackUrl }) {
   return { gateway: 'moyasar', transaction_id: String(r.data.id), payment_url: r.data.url };
 }
 
+// ---------- فاتورة تأمين كابتن (رابط دفع) ----------
+export async function createDepositInvoice(captain, amount) {
+  if (!config.moyasar?.secretKey) return { error: 'no_gateway' };
+  const amt = Number(amount) || Number(captain.deposit_amount) || 50000;
+  const auth = 'Basic ' + Buffer.from(config.moyasar.secretKey + ':').toString('base64');
+  const r = await axios.post('https://api.moyasar.com/v1/invoices', {
+    amount: amt, currency: 'SAR',
+    description: `تأمين كابتن — ${captain.name || ''} (${captain.phone || ''})`,
+    callback_url: `${config.publicUrl}/api/payments/webhook/moyasar`,
+    metadata: { kind: 'captain_deposit', captain_id: captain.id },
+    source: { type: 'creditcard' }
+  }, { headers: { Authorization: auth } });
+  q.run("INSERT INTO payments (order_id, restaurant_id, phone, gateway, transaction_id, amount, status, method) VALUES (?,?,?,?,?,?,?,?)",
+    null, null, captain.phone || null, 'moyasar', String(r.data.id), amt, 'pending', 'deposit');
+  return { ok: true, amount: amt, transaction_id: String(r.data.id), payment_url: r.data.url };
+}
+
 // ---------- create payment ----------
 export async function createPayment(order, method, ctx = {}) {
   const mode = config.paymentMode;
