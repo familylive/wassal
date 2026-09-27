@@ -213,6 +213,8 @@ router.get('/status', async (req, res) => {
       out.lastOutbound = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='outbound' ORDER BY id DESC LIMIT 1") || null;
       out.lastOutError = q.get("SELECT created_at, summary FROM webhook_log WHERE kind='out-error' ORDER BY id DESC LIMIT 1") || null;
       out.outErrors24h = q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='out-error' AND created_at >= datetime('now','-1 day')")?.c || 0;
+      out.lastNoReply = q.get("SELECT created_at, summary, raw FROM webhook_log WHERE kind='no-reply' ORDER BY id DESC LIMIT 1") || null;
+      out.noReply24h = q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='no-reply' AND created_at >= datetime('now','-1 day')")?.c || 0;
       out.inbound24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='inbound' AND created_at > datetime('now','-1 day')")?.c || 0);
       out.lastWebhookSet = q.get("SELECT created_at, summary, raw FROM webhook_log WHERE kind='webhook-set' ORDER BY id DESC LIMIT 1") || null;
       out.callbacks24h = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='callback' AND created_at > datetime('now','-1 day')")?.c || 0);
