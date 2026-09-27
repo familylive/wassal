@@ -52,6 +52,29 @@ router.post('/:id/status', (req, res) => {
   res.json({ ok: true });
 });
 
+// 🛵 إعادة البحث عن كابتن: نعرض الطلب مرة أخرى على الكباتن المتاحين (زر الكاشير/صاحب النشاط)
+router.post('/:id/redispatch', async (req, res) => {
+  const o = q.get("SELECT * FROM orders WHERE id=? AND order_no != 'DRAFT'", req.params.id);
+  if (!o) return res.status(404).json({ error: 'طلب غير موجود' });
+  const u = req.user || {};
+  if (u.role !== 'admin' && u.restaurant_id && Number(u.restaurant_id) !== Number(o.restaurant_id))
+    return res.status(403).json({ error: 'لا تملك صلاحية على هذا الطلب' });
+  if (['delivered', 'cancelled'].includes(o.status)) return res.status(400).json({ error: 'الطلب منتهٍ — لا حاجة لكابتن' });
+  if (o.captain_id) return res.status(400).json({ error: 'الطلب مُحوَّل لكابتن بالفعل' });
+  try {
+    const { broadcastToCaptains } = await import('../services/dispatch.js');
+    broadcastToCaptains(o);
+    const count = Number(q.get("SELECT COUNT(*) c FROM captain_offers WHERE order_id=? AND status='offered'", o.id)?.c) || 0;
+    // نسمح للطلب المسبق بإعادة العرض لاحقاً إن لم يوجد كابتن
+    if (!count) q.run("UPDATE orders SET preorder_dispatched_at=NULL WHERE id=?", o.id);
+    res.json({
+      ok: true, offered: count,
+      note: count ? `عُرض الطلب على ${count} كابتن متاح 🛵` : 'ما فيه كابتن متاح حالياً — فعّل كابتن أو أعد المحاولة بعد قليل',
+      available: Number(q.get("SELECT COUNT(*) c FROM captains WHERE status='available' AND is_active=1 AND COALESCE(blocked,0)=0")?.c) || 0
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // المطعم يحوّل الطلب على كابتن عبر اللوحة
 router.post('/:id/assign', (req, res) => {
   const { captain_id } = req.body || {};
