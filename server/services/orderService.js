@@ -4,6 +4,7 @@ import { emitTo, emitAll } from './realtime.js';
 import { waSend } from './whatsapp.js';
 import { nextOrderNo, now, validatePhone } from '../utils.js';
 import { broadcastToCaptains } from './dispatch.js';
+import { startCashierSla, startCaptainSla } from './sla.js';
 import { awardPoints } from './loyalty.js';
 import { scheduleBackup } from './backup.js';
 import { ordersPhone } from './restUsers.js';
@@ -115,6 +116,11 @@ export function setStatus(orderId, status, actorType = 'system', actorId = null)
     ready: isPickupOrder ? '📦 طلبك جاهز — تفضل باستلامه من الفرع 🙏' : '📦 طلبك جاهز للتسليم.'
   };
   addEvent(orderId, status, msgs[status] || status, actorType, actorId);
+  // ⏱️ المهل: تأكيد النشاط ⇒ 20 دقيقة للتسليم للكابتن · استلام الكابتن ⇒ 25 دقيقة للتسليم للعميل
+  try {
+    if (status === 'confirmed' && !isPickupOrder) startCashierSla(orderId);
+    if (status === 'with_captain') startCaptainSla(orderId);
+  } catch (e) { console.error('SLA_START_FAIL', e.message); }
   // 🛵 إرسال الطلب للكابتن بعد ما يقول النشاط «استلمت/أكدت» (لا عند إنشاء الطلب)
   if (['confirmed', 'ready'].includes(status) && !order.captain_id && !isPickupOrder) {
     try {
