@@ -8,6 +8,7 @@ import { q } from '../db.js';
 import { handleIncoming } from '../services/flow.js';
 import { validatePhone } from '../utils.js';
 import { waTo } from '../services/whatsapp.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 const tg = (m) => `https://api.telegram.org/bot${config.telegram.token}/${m}`;
@@ -83,7 +84,8 @@ router.post('/webhook', async (req, res) => {
 });
 
 // ---------- ربط الويب هوك ببوت تليجرام (تُفتح بالمتصفح بعد وضع التوكن) ----------
-router.get('/setup-webhook', async (req, res) => {
+// 🔒 خاص بالمشرف فقط — لا يُسمح لأي زائر بإعادة توجيه webhook البوت
+router.get('/setup-webhook', requireAuth, requireRole('admin'), async (req, res) => {
   if (!config.telegram.token) return res.json({ ok: false, error: 'TELEGRAM_BOT_TOKEN غير مضبوط — ضعه من الإعدادات أولاً' });
   const base = String(config.publicUrl || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
   const url = `${base}/api/telegram/webhook`;

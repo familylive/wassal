@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import config from '../config.js';
 import { q } from '../db.js';
 import { handleIncoming, handlePhotoItems, handleCaptainIncoming, isCaptainPhone, onPaymentSuccess, triggerRating, getSessionState } from '../services/flow.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
 import { saveAdImage } from '../services/ads.js';
 import { saveRegDoc } from '../services/docs.js';
 import { setStatus, closeOrderWithCode } from '../services/orderService.js';
@@ -242,7 +243,8 @@ router.get('/voice-test', async (req, res) => {
 // 🧪 فحص الإرسال: يرسل رسالة اختبار إلى رقم المشرف ويرجع رد ميتا كما هو
 // (بلا مصادقة — لكنه يرسل لرقم المشرف فقط، مع مهلة ١٠ ثوانٍ بين الفحوص)
 let _selfTestAt = 0;
-router.get('/selftest', async (req, res) => {
+// 🔒 نقاط تشخيص حساسة (تعرض أرقاماً ومعرّفات) — للمشرف فقط
+router.get('/selftest', requireAuth, requireRole('admin'), async (req, res) => {
   const now = Date.now();
   if (now - _selfTestAt < 10000) return res.status(429).json({ ok: false, error: 'انتظر ١٠ ثوانٍ بين كل فحص' });
   _selfTestAt = now;
@@ -275,7 +277,7 @@ router.get('/selftest', async (req, res) => {
 
 // رسالة من جوال المندوب لواتساب المطعم — رمز الاستلام يغلق الطلب
 // سجل آخر طلبات الويب هوك (تشخيص)
-router.get('/debug', (req, res) => {
+router.get('/debug', requireAuth, requireRole('admin'), (req, res) => {
   try {
     const rows = q.all("SELECT kind, summary, raw, created_at AS t FROM webhook_log ORDER BY id DESC LIMIT 30");
     if (rows.length) return res.json(rows);
