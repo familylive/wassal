@@ -991,15 +991,27 @@ function showCartManage(phone, rid, customer) {
   const rows = cart.items.map(i => ({ id: 'cm:' + i.item_id, title: i.name, description: '×' + i.quantity + ' — ' + rls(i.price * i.quantity) + ' ر.س' }));
   return send(phone, rid, null, 'list', 'أصناف السلة:', { list: [{ title: '🛒 السلة', rows }] });
 }
+// 🧺 شاشة صنف واحد في السلة — + / - / حذف (تُعاد بعد كل ضغطة فيستمر +/- بلا رجوع للقائمة)
+function showCartItem(phone, rid, customer, data, itemId, head = null) {
+  const cart = data.cart || { items: [] };
+  const ex = cart.items.find(i => i.item_id === itemId);
+  if (!ex) return showCart(phone, rid, customer);
+  const it = q.get("SELECT name, price FROM items WHERE id=?", itemId);
+  const name = it?.name || ex.name || 'صنف';
+  const price = it?.price ?? ex.price ?? 0;
+  if (head) send(phone, rid, null, 'text', head);
+  send(phone, rid, null, 'text', `🧺 *${name}*\nالكمية: *${ex.quantity}* — المجموع: ${rls(price * ex.quantity)} ر.س`);
+  return send(phone, rid, null, 'buttons', 'عدّل الكمية أو احذف الصنف 👇', { buttons: [
+    { id: 'mi_inc', title: '➕ زيادة' }, { id: 'mi_dec', title: '➖ نقصان' }, { id: 'mi_del', title: '🗑 حذف' }
+  ] });
+}
+
 function handleCartManage(phone, rid, customer, data, p) {
   if (p.startsWith('cm:')) {
     const itemId = Number(p.split(':')[1]);
     const item = q.get("SELECT * FROM items WHERE id=?", itemId);
     saveSession(phone, 'cart_item', { ...data, manageItemId: itemId });
-    send(phone, rid, null, 'text', `🔢 *${item?.name}* — الكمية الحالية: ${(data.cart?.items || []).find(i => i.item_id === itemId)?.quantity || 0}`);
-    return send(phone, rid, null, 'buttons', '', { buttons: [
-      { id: 'mi_inc', title: '➕ زيادة 1' }, { id: 'mi_dec', title: '➖ نقصان 1' }, { id: 'mi_del', title: '🗑 حذف' }
-    ] });
+    return showCartItem(phone, rid, customer, data, itemId);
   }
   return showCartManage(phone, rid, customer);
 }
@@ -1011,8 +1023,10 @@ function handleCartItem(phone, rid, customer, data, p) {
   if (p === 'mi_inc' && ex) ex.quantity += 1;
   if (p === 'mi_dec' && ex) { ex.quantity -= 1; if (ex.quantity <= 0) cart.items = cart.items.filter(i => i.item_id !== itemId); }
   if (p === 'mi_del') cart.items = cart.items.filter(i => i.item_id !== itemId);
-  saveSession(phone, 'cart', { ...session.data, cart });
-  send(phone, rid, null, 'text', '🛒 تم التعديل:');
+  const still = cart.items.find(i => i.item_id === itemId);
+  saveSession(phone, still ? 'cart_item' : 'cart', { ...session.data, cart });
+  if (still) return showCartItem(phone, rid, customer, { ...session.data, cart }, itemId, '🛒 تم التعديل:');
+  send(phone, rid, null, 'text', '🗑 تم حذف الصنف من السلة');
   return showCart(phone, rid, customer);
 }
 function sendOrderReview(phone, rid, customer) {
