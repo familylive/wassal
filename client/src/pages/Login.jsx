@@ -20,7 +20,7 @@ export default function Login({ onLogin }) {
     <div className="login-wrap">
       <form className="login-card" onSubmit={submit}>
         <div className="brand">
-          <img src="/logo.png" alt="واتس هم" style={{ width: 210, height: 210, borderRadius: '50%', boxShadow: '0 10px 30px rgba(0,0,0,.2)', marginBottom: 8 }} />
+          <img src="/logo.png" alt="تلي هم" style={{ width: 210, height: 210, borderRadius: '50%', boxShadow: '0 10px 30px rgba(0,0,0,.2)', marginBottom: 8 }} />
           <p>منصة طلبات المطاعم عبر واتساب — من الطلب حتى التقيم</p>
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
