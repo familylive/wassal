@@ -264,6 +264,13 @@ function mainMenu(phone, rid) {
 
 // ---------- main dispatcher ----------
 export async function handleIncoming({ phone, restaurantId, body = '', type = 'text', payload = null, lat = null, lng = null, imageUrl = null, mediaRef = null }) {
+  // 🛵 الكابتن المسجّل له مسار مستقل — كان تليجرام يمرّره للموزّع العام فيظهر له منيو العملاء
+  //    (ولذلك لم تكن تظهر له فاتورة التأمين ولا عروض الطلبات ولا رمز الاستلام)
+  try {
+    if (type !== 'location' && isCaptainPhone(phone)) {
+      return handleCaptainIncoming({ phone, body, payload });
+    }
+  } catch (e) { console.error('CAPTAIN_ROUTE_FAIL', e.message); }
   const customer = ensureCustomer(phone);
   const session = getSession(phone);
   const { state, data } = session;
@@ -3288,7 +3295,9 @@ export async function handlePhotoItems(phone, restaurantId, items = []) {
 }
 
 export function isCaptainPhone(phone) {
-  return !!q.get("SELECT id FROM captains WHERE phone=? OR phone=?", phone, validatePhone(phone));
+  const v = validatePhone(phone);
+  const last9 = String(v || '').replace(/\D/g, '').slice(-9);
+  return !!q.get("SELECT id FROM captains WHERE phone=? OR phone=? OR phone LIKE ?", phone, v, '%' + last9);
 }
 
 // 💰 إشعار المشرف ببيانات الكابتن عند طلب الدفع/إتمامه
