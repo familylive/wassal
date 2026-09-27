@@ -215,6 +215,8 @@ export async function closeOrderWithCode(code, senderPhone, actorType = 'captain
   }
   const r = setStatus(order.id, 'delivered', actorType, captain?.id);
   if (r.error) return r;
+  // 🛵 تحرير الكابتن بعد إغلاق الطلب
+  if (captain?.id) { try { q.run("UPDATE captains SET status='available', busy_order_no=NULL WHERE id=?", captain.id); } catch (e) {} }
   addEvent(order.id, 'delivered', 'تم إغلاق الطلب برمز الاستلام 🔐');
   const customer = q.get("SELECT phone FROM customers WHERE id=?", order.customer_id);
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId: order.id, type: 'text', body: '🔐 تم التحقق من رمز الاستلام وإغلاق طلبك بنجاح! 🎉' });
@@ -242,7 +244,9 @@ export function cancelOrder(orderId, reason = '', opts = {}) {
   q.run("UPDATE orders SET status='cancelled', cancel_reason=?, cancel_note=?, cancel_requested_at=COALESCE(cancel_requested_at, datetime('now')), updated_at=datetime('now') WHERE id=?",
     reason || null, note, orderId);
   addEvent(orderId, 'cancelled', `أُلغي الطلب${reason ? ' — السبب: ' + reason + (note ? ' (' + note + ')' : '') : ''}`, opts.actorType || 'customer', opts.actorId || null);
-  if (order.captain_id) { q.run("UPDATE captains SET status='available' WHERE id=?", order.captain_id); emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status: 'cancelled' }); }
+  if (order.captain_id) { q.run("UPDATE captains SET status='available', busy_order_no=NULL WHERE id=?", order.captain_id); emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status: 'cancelled' }); }
+  // 🛵 لو كان كابتن «مشغول» بنفس رقم الطلب الملغي — نحرّره
+  try { q.run("UPDATE captains SET status='available', busy_order_no=NULL WHERE busy_order_no=? AND status='busy'", String(order.order_no || '')); } catch (e) {}
   emitTo(`restaurant:${order.restaurant_id}`, 'order:cancelled', { orderId, order_no: order.order_no, reason: reason || null, note });
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status: 'cancelled' });
   emitTo('admin', 'order:cancelled', { orderId, order_no: order.order_no, reason: reason || null });
