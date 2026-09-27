@@ -15,13 +15,17 @@ const SITE = 'whats-ham.onrender.com';
 
 const rls = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-let ready = false; let logoImg = null;
+let ready = false; let logoImg = null; let stampLogoImg = null;
 async function ensureAssets() {
   if (!ready) {
     try { GlobalFonts.registerFromPath(path.join(ASSETS, 'Cairo.ttf'), 'Cairo'); } catch (e) { console.error('FONT_REGISTER_FAIL', e.message); }
     ready = true;
   }
   if (!logoImg) { try { logoImg = await loadImage(path.join(ASSETS, 'logo.png')); } catch (e) { console.error('LOGO_LOAD_FAIL', e.message); } }
+  if (!stampLogoImg) {
+    try { stampLogoImg = await loadImage(path.join(ASSETS, 'logo-stamp.png')); }
+    catch (e) { stampLogoImg = logoImg; }
+  }
   return logoImg;
 }
 
@@ -161,21 +165,31 @@ export async function renderCustomerStatementPng(customerId) {
     if (y > H - 260) break;
   }
 
-  // ختم معتمد
-  const stampW = 380, stampH = 190;
-  const sx = 70 + stampW / 2, sy = H - 320;
+  // ختم معتمد: الشعار الرسمي داخل الختم + تاريخ ووقت الإصدار
+  const stampW = 470, stampH = 245;
+  const sx = 70 + stampW / 2, sy = H - 350;
   c.save();
-  c.translate(sx, sy); c.rotate(-12 * Math.PI / 180); c.globalAlpha = 0.75;
+  c.translate(sx, sy); c.rotate(-12 * Math.PI / 180); c.globalAlpha = 0.8;
   c.strokeStyle = '#c0392b'; c.lineWidth = 5;
   const rx = -stampW / 2, ry = -stampH / 2;
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
   c.lineWidth = 2; rr(rx + 10, ry + 10, stampW - 20, stampH - 20, 12); c.stroke();
+  // الشعار الرسمي داخل الختم
+  if (stampLogoImg || logo) {
+    const img = stampLogoImg || logo;
+    c.save();
+    c.beginPath(); c.arc(rx + 70, ry + 78, 50, 0, Math.PI * 2); c.closePath();
+    c.fillStyle = '#ffffff'; c.fill();
+    c.globalAlpha = 1; c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
+    c.beginPath(); c.arc(rx + 70, ry + 78, 46, 0, Math.PI * 2); c.clip();
+    c.drawImage(img, rx + 24, ry + 32, 92, 92); c.restore();
+  }
   c.globalAlpha = 0.85; c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 52);
-  c.font = 'bold 28px Cairo'; c.fillText('كشف معتمد من منصة واتس هم', rx + stampW - 22, ry + 100);
-  c.font = '20px Cairo'; c.fillText('Wassal Order · منصة الطلبات والتوصيل', rx + stampW - 22, ry + 140);
-  c.font = 'bold 18px Cairo'; c.fillText(`رقم ${no}`, rx + stampW - 22, ry + 172);
+  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 24, ry + 56);
+  c.font = 'bold 24px Cairo'; c.fillText('كشف حساب العميل', rx + stampW - 24, ry + 106);
+  c.font = 'bold 20px Cairo'; c.fillText(`تاريخ ووقت الإصدار: ${today} — ${hhmm}`, rx + stampW - 24, ry + 152);
+  c.font = 'bold 19px Cairo'; c.fillText(`رقم الكشف: ${no}`, rx + stampW - 24, ry + 196);
   c.restore();
   c.globalAlpha = 1;
 

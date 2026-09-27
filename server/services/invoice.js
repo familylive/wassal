@@ -18,12 +18,17 @@ const money = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFra
 
 let ready = false;
 let logoImg = null;
+let stampLogoImg = null;   // الشعار الرسمي المستخدم داخل الختم
 async function ensureAssets() {
   if (!ready) {
     try { GlobalFonts.registerFromPath(path.join(ASSETS, 'Cairo.ttf'), 'Cairo'); } catch (e) { console.error('FONT_REGISTER_FAIL', e.message); }
     ready = true;
   }
   if (!logoImg) { try { logoImg = await loadImage(path.join(ASSETS, 'logo.png')); } catch (e) { console.error('LOGO_LOAD_FAIL', e.message); } }
+  if (!stampLogoImg) {
+    try { stampLogoImg = await loadImage(path.join(ASSETS, 'logo-stamp.png')); }
+    catch (e) { stampLogoImg = logoImg; }
+  }
   return logoImg;
 }
 
@@ -173,7 +178,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   y += 74;
 
   // ===== الختم المائل =====
-  const stampW = 400, stampH = 225;
+  const stampW = 470, stampH = 245;
   const sy = Math.min(Math.max(y + 128, H - 330), H - 128);
   const sx = 70 + stampW / 2;
   c.save();
@@ -185,23 +190,23 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   const rr = (x, y2, w, h, rad) => { c.beginPath(); c.moveTo(x + rad, y2); c.lineTo(x + w - rad, y2); c.quadraticCurveTo(x + w, y2, x + w, y2 + rad); c.lineTo(x + w, y2 + h - rad); c.quadraticCurveTo(x + w, y2 + h, x + w - rad, y2 + h); c.lineTo(x + rad, y2 + h); c.quadraticCurveTo(x, y2 + h, x, y2 + h - rad); c.lineTo(x, y2 + rad); c.quadraticCurveTo(x, y2, x + rad, y2); c.closePath(); };
   rr(rx, ry, stampW, stampH, 16); c.stroke();
   c.lineWidth = 2; rr(rx + 10, ry + 10, stampW - 20, stampH - 20, 12); c.stroke();
-  // الشعار داخل الختم
-  if (logo) {
+  // الشعار الرسمي داخل الختم
+  if (stampLogoImg || logo) {
+    const img = stampLogoImg || logo;
     c.save();
-    c.beginPath(); c.arc(rx + 58, ry + 56, 34, 0, Math.PI * 2); c.closePath();
+    c.beginPath(); c.arc(rx + 62, ry + 70, 42, 0, Math.PI * 2); c.closePath();
     c.fillStyle = '#ffffff'; c.fill();
     c.lineWidth = 3; c.strokeStyle = '#c0392b'; c.stroke();
-    c.beginPath(); c.arc(rx + 58, ry + 56, 30, 0, Math.PI * 2); c.clip();
-    c.globalAlpha = 1; c.drawImage(logo, rx + 28, ry + 26, 60, 60); c.restore();
+    c.beginPath(); c.arc(rx + 62, ry + 70, 38, 0, Math.PI * 2); c.clip();
+    c.globalAlpha = 1; c.drawImage(img, rx + 24, ry + 32, 76, 76); c.restore();
   }
   c.globalAlpha = 0.85;
   c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#c0392b';
-  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 54);
-  c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 106);
-  c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
-  c.font = 'bold 20px Cairo'; c.fillText('Wassal Order', rx + stampW - 22, ry + 166);
-  c.font = '18px Cairo'; c.fillText(`${inv.no}`, rx + stampW - 22, ry + 194);
-  c.font = '17px Cairo'; c.fillText(`${range ? periodLine : stampDate(dateStr)}`, rx + stampW - 22, ry + 217);
+  c.font = 'bold 26px Cairo'; c.fillText('واتس هم', rx + stampW - 22, ry + 50);
+  c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 104);
+  c.font = '20px Cairo'; c.fillText('منصة الطلبات والتوصيل · Wassal Order', rx + stampW - 22, ry + 138);
+  c.font = 'bold 19px Cairo'; c.fillText(`${range ? 'رقم التقرير' : 'رقم الفاتورة'}: ${inv.no}`, rx + stampW - 22, ry + 172);
+  c.font = 'bold 19px Cairo'; c.fillText(`تاريخ ووقت الإصدار: ${today} — ${hhmm}`, rx + stampW - 22, ry + 204);
   c.restore();
   c.globalAlpha = 1;
 
