@@ -373,6 +373,12 @@ function OrderModal({ o, onClose, refresh }) {
           {d.status === 'new' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'confirmed' } }))}>✔️ تأكيد الطلب</button>}
           {d.status === 'confirmed' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'preparing' } }))}>👨‍🍳 بدء التحضير</button>}
           {d.status === 'preparing' && <button className="btn" onClick={() => act(() => api('/orders/' + d.id + '/status', { method: 'POST', body: { status: 'ready' } }))}>📦 جاهز</button>}
+          {d.status !== 'delivered' && d.status !== 'cancelled' && !d.captain_id && (
+            <button className="btn" style={{ background: '#e65100', color: '#fff' }} onClick={() => act(async () => {
+              const r = await api('/orders/' + d.id + '/redispatch', { method: 'POST', body: {} });
+              notify(r?.offered ? `🛵 ${r.note || ''}` : `⚠️ ${r?.note || 'ما فيه كابتن متاح'}`);
+            })}>🛵 إعادة البحث عن كابتن</button>
+          )}
           <button className="btn red" onClick={() => act(() => api('/orders/' + d.id + '/cancel', { method: 'POST', body: { reason: 'إلغاء من المطعم' } }))}>إلغاء</button>
         </div>
       )}
