@@ -46,12 +46,14 @@ router.get('/health', (req, res) => {
 });
 
 // ♻️ استرجاع آخر نسخة سليمة من تاريخ النسخ الاحتياطية (يكتب الملف — يحتاج إعادة تشغيل الخدمة)
+// ⚠️ لا نلمس ملفات قاعدة البيانات أثناء عمل الخدمة (القاعدة مفتوحة — الاستبدال الحيّ يفسدها).
+// لذلك نسجّل «طلب إصلاح» ويُنفَّذ في الإقلاع التالي حيث لا يوجد أي اتصال مفتوح.
 router.post('/restore', requireRole('admin'), async (req, res) => {
   if (String(req.query.confirm || req.body?.confirm || '') !== 'YES') return res.status(400).json({ error: 'أرسل confirm=YES للتأكيد' });
   try {
-    const repaired = await repairInPlace();
-    const ok = repaired || await restoreFromHistory(Number(req.query.max) || 400);
-    res.json({ ok, repaired, note: ok ? (repaired ? 'تم إصلاح القاعدة موضعياً (VACUUM) بلا فقدان بيانات — أعد تشغيل الخدمة لتفعيلها' : 'تم استرجاع نسخة سليمة — أعد تشغيل الخدمة لتفعيلها') : 'ما وُجدت نسخة سليمة في آخر الإصدارات المفحوصة' });
+    q.run(`INSERT INTO app_settings (key,value,updated_at) VALUES ('restore_request','YES',datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value='YES', updated_at=datetime('now')`);
+    res.json({ ok: true, queued: true, note: 'تم تسجيل طلب الإصلاح/الاسترجاع — أعد تشغيل الخدمة (Restart) لتنفيذه بأمان' });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
