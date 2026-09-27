@@ -1,4 +1,4 @@
-// 📨 قناة تليجرام — نفس تدفقات واتس هم بلا أي تعديل على منطق التدفق
+// 📨 قناة تليجرام — نفس تدفقات تلي هم بلا أي تعديل على منطق التدفق
 // الاستقبال: webhook من تليجرام → تحويل للرسالة الموحدة → handleIncoming
 // الإرسال: waSend يوجّه إلى sendTelegram حسب WHATSAPP_PROVIDER=telegram
 import { Router } from 'express';
@@ -46,7 +46,7 @@ router.post('/webhook', async (req, res) => {
       await post('answerCallbackQuery', { callback_query_id: cb.id }).catch(() => {});
       const chatId = cb.message?.chat?.id;
       const phone = phoneOf(chatId);
-      if (!phone) return askContact(chatId, 'أهلًا بك في *واتس هم* 🌸\nنحتاج رقم جوالك أول — اضغط الزر 👇');
+      if (!phone) return askContact(chatId, 'أهلًا بك في *تلي هم* 🌸\nنحتاج رقم جوالك أول — اضغط الزر 👇');
       return handleIncoming({ phone, restaurantId: 1, type: 'interactive', payload: String(cb.data || '') });
     }
 
@@ -62,7 +62,7 @@ router.post('/webhook', async (req, res) => {
     }
 
     const phone = phoneOf(chatId);
-    if (!phone) return askContact(chatId, 'أهلًا بك في *واتس هم* 🌸\nخدمة الطلبات والتوصيل 🍽️🛵\n\nنحتاج رقم جوالك للتسجيل — اضغط الزر 👇');
+    if (!phone) return askContact(chatId, 'أهلًا بك في *تلي هم* 🌸\nخدمة الطلبات والتوصيل 🍽️🛵\n\nنحتاج رقم جوالك للتسجيل — اضغط الزر 👇');
 
     // ٣) الموقع
     if (msg.location) return handleIncoming({ phone, restaurantId: 1, type: 'location', lat: msg.location.latitude, lng: msg.location.longitude });

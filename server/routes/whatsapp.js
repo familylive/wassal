@@ -228,7 +228,7 @@ router.post('/voice-in', voiceUpload.single('file'), async (req, res) => {
 router.get('/voice-test', async (req, res) => {
   try {
     const { azureTTS } = await import('../services/voice.js');
-    const text = String(req.query.text || 'مرحبا بك في واتس هم');
+    const text = String(req.query.text || 'مرحبا بك في تلي هم');
     const audio = await azureTTS(text, req.query.voice ? String(req.query.voice) : null);
     if (!audio) return res.status(400).json({ error: 'AZURE_TTS_KEY غير معرّف أو فشل' });
     res.set('Content-Type', 'audio/mpeg');
@@ -258,7 +258,7 @@ router.get('/selftest', async (req, res) => {
   if (provider === 'simulator') return res.json({ ...base, error: 'المزود simulator — لا إرسال حقيقي' });
   try {
     const r = await axios.post(`${apiUrl}/${phoneNumberId}/messages`,
-      { messaging_product: 'whatsapp', to, type: 'text', text: { body: '✅ فحص إرسال من منصة واتس هم — الإرسال يعمل' } },
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body: '✅ فحص إرسال من منصة تلي هم — الإرسال يعمل' } },
       { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 });
     return res.json({ ...base, ok: true, meta: r.data, note: 'وصلت الرسالة لرقم المشرف ✅ — الإرسال سليم' });
   } catch (e) {

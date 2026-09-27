@@ -38,7 +38,7 @@ router.post('/test-whatsapp', requireRole('admin'), async (req, res) => {
   const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
   if (!token) return res.status(400).json({ ok: false, error: 'ما فيه توكن محفوظ — الصق التوكن واحفظ أولاً' });
   if (provider === 'simulator') return res.status(400).json({ ok: false, error: 'المزود حالياً simulator — اختر cloud أولاً' });
-  const text = String(req.body?.text || '✅ رسالة اختبار من منصة واتس هم — الإرسال يعمل');
+  const text = String(req.body?.text || '✅ رسالة اختبار من منصة تلي هم — الإرسال يعمل');
   try {
     const r = await axios.post(`${apiUrl}/${phoneNumberId}/messages`,
       { messaging_product: 'whatsapp', to, type: 'text', text: { body: text } },

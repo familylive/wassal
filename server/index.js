@@ -113,7 +113,7 @@ try {
   else console.log('ADMIN_PHONE_OK ••••' + ap.slice(-4));
 } catch (e) {}
 
-server.listen(config.port, () => console.log(`🚀 منصة وصل تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
+server.listen(config.port, () => console.log(`🚀 منصة تلي هم تعمل على http://localhost:${config.port} (دفع: ${config.paymentMode} | واتساب: ${config.whatsapp.provider} | إعدادات اللوحة: ${settingsApplied})`));
 
 // نسخ احتياطي دوري كل دقيقتين (إضافة للنسخ الفوري بعد الطلبات)
 // ⏱ غرامات التأخير للكباتن — فحص كل ٣ دقائق

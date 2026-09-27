@@ -111,7 +111,7 @@ export async function publishAd(reqRow) {
     const cp = String(row.phone || '').replace(/^\+/, '');
     if (!cp) continue;
     try {
-      const name = r?.name_ar || 'واتس هم';
+      const name = r?.name_ar || 'تلي هم';
       if (reqRow.image) {
         await waSend({ phone: cp, restaurantId: reqRow.restaurant_id, type: 'image', image: reqRow.image, body: `📣 *${name}*\n\n${reqRow.content || ''}` });
       } else {

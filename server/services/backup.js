@@ -433,7 +433,7 @@ function buildSnapshotArchive(tag) {
     if (sig.count) { fs.mkdirSync(`${work}/٣-الملفات-المرفوعة`, { recursive: true }); execSync(`tar czf ${work}/٣-الملفات-المرفوعة/uploads.tar.gz -C ${path.dirname(UPLOADS_DIR)} uploads`, { stdio: 'ignore' }); }
   } catch (e) { console.error('SNAP_UPLOADS_FAIL', e.message); }
   // ٤) ملفات الشرح
-  fs.writeFileSync(`${work}/اقرأني.txt`, `نسخة كاملة من منصة واتس هم\nالتاريخ: ${tag}\n\n١-الكود/: كل ملفات المنصة البرمجية\n٢-قاعدة-البيانات/: قاعدة البيانات كاملة\n٣-الملفات-المرفوعة/: صور الهويات والرخص والفواتير\n\nللاستعادة: راجع مستند «دليل حفظ المشروع» أو اتبع الخطوات:\n  tar xzf ١-الكود/wassal-code.tar.gz && cd wassal && npm install\n  ضع ٢-قاعدة-البيانات/wassal-db.db في wassal/server/wassal.db\n  tar xzf ٣-الملفات-المرفوعة/uploads.tar.gz -C wassal/server\n`, 'utf8');
+  fs.writeFileSync(`${work}/اقرأني.txt`, `نسخة كاملة من منصة تلي هم\nالتاريخ: ${tag}\n\n١-الكود/: كل ملفات المنصة البرمجية\n٢-قاعدة-البيانات/: قاعدة البيانات كاملة\n٣-الملفات-المرفوعة/: صور الهويات والرخص والفواتير\n\nللاستعادة: راجع مستند «دليل حفظ المشروع» أو اتبع الخطوات:\n  tar xzf ١-الكود/wassal-code.tar.gz && cd wassal && npm install\n  ضع ٢-قاعدة-البيانات/wassal-db.db في wassal/server/wassal.db\n  tar xzf ٣-الملفات-المرفوعة/uploads.tar.gz -C wassal/server\n`, 'utf8');
   // ٥) الضغط النهائي
   const out = path.join(root, `wassal-full-${tag}.zip`);
   let ok = true;
