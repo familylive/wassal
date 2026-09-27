@@ -83,8 +83,26 @@ export async function handleUpdate(updIn, { checkSecret = false, gotSecret = '' 
     // ٣) الموقع
     if (msg.location) return handleIncoming({ phone, restaurantId: 1, type: 'location', lat: msg.location.latitude, lng: msg.location.longitude });
 
-    // ٤) الصور — نوجّه المستخدم للنص (لا قراءة أصناف في تليجرام حالياً)
+    // ٤) صور الكابتن = صورة تسليم الطلب (كانت تُوجَّه لرسالة «للمنيو أرسل المنيو»)
     if (msg.photo?.length) {
+      try {
+        const cap = q.get("SELECT * FROM captains WHERE phone=? OR phone=? OR phone LIKE ? ORDER BY id LIMIT 1",
+          phone, validatePhone(phone), '%' + String(phone || '').replace(/\D/g, '').slice(-9));
+        if (cap) {
+          const ord = q.get("SELECT * FROM orders WHERE captain_id=? AND status IN ('with_captain','on_the_way','arrived','delivered') ORDER BY id DESC LIMIT 1", cap.id);
+          if (!ord) {
+            await post('sendMessage', { chat_id: chatId, text: '📷 وصلت الصورة — لكن ما فيه طلب نشط عندك حاليًا 🙏' }).catch(() => {});
+            return;
+          }
+          const fid = msg.photo[msg.photo.length - 1]?.file_id || '';
+          const link = fid ? `tg:${fid}` : '';
+          try { q.run("UPDATE orders SET delivery_photo=? WHERE id=?", link, ord.id); } catch (e) {}
+          try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('delivery-photo', ?, ?)", `order ${ord.order_no}`.slice(0, 60), JSON.stringify({ order_id: ord.id, file_id: fid ? fid.slice(0, 40) : null }).slice(0, 200)); } catch (e) {}
+          await post('sendMessage', { chat_id: chatId, reply_markup: { inline_keyboard: [[{ text: '⭐ قيّم العميل', callback_data: 'cap:rate:' + ord.id }]] },
+            text: `✅ *وصلت صورة التسليم للطلب ${ord.order_no}* 📷\nشكرًا لك 🌸\n\n⭐ لا تنسَ تقييم العميل:` }).catch(() => {});
+          return;
+        }
+      } catch (e) { console.error('CAPTAIN_PHOTO_FAIL', e.message); }
       await post('sendMessage', { chat_id: chatId, text: '📷 وصلتني الصورة 🙏\n\n• لطلب: أرسل *المنيو*\n• لتسجيل نشاطك: أرسل *انضمام*\n• ولو تكمل خطوة الحين: أكملها *نصاً*' }).catch(() => {});
       return;
     }
