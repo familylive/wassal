@@ -153,6 +153,12 @@ import('./routes/telegram.js').then(({ ensureWebhook }) => {
   setInterval(() => ensureWebhook().catch(() => {}), 30 * 60 * 1000);
 }).catch(() => {});
 
+// 🛵 تحرير الكباتن المنشغلين طويلًا (كل 15 دقيقة)
+import('./services/captainAccount.js').then(({ releaseStaleBusyCaptains }) => {
+  setInterval(() => releaseStaleBusyCaptains(180), 15 * 60 * 1000);
+  setTimeout(() => releaseStaleBusyCaptains(180), 60000);
+}).catch(() => {});
+
 import('./services/backup.js').then(({ scheduleBackup, backupNow }) => {
   setInterval(scheduleBackup, 2 * 60 * 1000);
   console.log('🔄 النسخ الاحتياطي التلقائي مفعّل (كل دقيقتين)');

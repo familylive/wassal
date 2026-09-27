@@ -185,7 +185,8 @@ CREATE TABLE IF NOT EXISTS captains (
   deliveries_count INTEGER DEFAULT 0,
   is_active INTEGER DEFAULT 1,
   created_at TEXT DEFAULT (datetime('now')),
-  busy_order_no TEXT
+  busy_order_no TEXT,
+  busy_since TEXT
 );
 
 CREATE TABLE IF NOT EXISTS orders (

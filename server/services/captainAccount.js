@@ -158,3 +158,25 @@ export async function checkDepositBalance(captainId) {
   } catch (e) { /* */ }
   return true;
 }
+
+// 🛵 تحرير تلقائي: كابتن «مشغول» أكثر من المدة المحددة (افتراضي 3 ساعات) بلا طلب نشط
+export async function releaseStaleBusyCaptains(maxMinutes = 180) {
+  try {
+    const rows = q.all(`SELECT id, name, busy_order_no, busy_since FROM captains
+      WHERE status='busy' AND busy_since IS NOT NULL AND busy_since < datetime('now', ?)`,
+      `-${Number(maxMinutes)} minutes`);
+    let n = 0;
+    for (const c of rows) {
+      const active = q.get(`SELECT id FROM orders WHERE captain_id=? AND status IN ('transferred','with_captain','on_the_way','arrived') LIMIT 1`, c.id);
+      if (active) continue;   // عنده طلب نشط فعلاً — نتركه
+      q.run("UPDATE captains SET status='available', busy_order_no=NULL, busy_since=NULL WHERE id=?", c.id);
+      n += 1;
+      try {
+        const { waSend } = await import('./whatsapp.js');
+        waSend({ phone: c.phone, type: 'text', body: '🟢 *رجعت حالتك «متاح»* تلقائيًا لطول الانشغال — جاهز لاستقبال طلبات جديدة 🛵' }).catch(() => {});
+      } catch (e) {}
+    }
+    if (n) console.log('CAPTAINS_AUTO_RELEASED', n);
+    return n;
+  } catch (e) { console.error('CAPTAIN_AUTORELEASE_FAIL', e.message); return 0; }
+}
