@@ -1304,9 +1304,11 @@ function buildMenu(rid, cart = null) {
 
 // عرض المنيو كامل بترتيب مرقّم
 function showMenu(phone, rid) {
-  // 🔒 النشاط مغلق الآن؟ نبلغ العميل ونوقف الطلب
+  // 🔒 النشاط مغلق الآن؟ ننبّه العميل ونكمل عرض المنيو (الحجب عند الإرسال فقط)
   const _closedMsg = restaurantClosedMsg(rid);
-  if (_closedMsg) return send(phone, rid, null, 'text', _closedMsg);
+  if (_closedMsg) {
+    send(phone, rid, null, 'text', `${_closedMsg}\n\n_(تقدر تتصفّح وتجهّز سلتك — ونستقبل طلبك أول ما يفتح بإذن الله)_`);
+  }
   const session = getSession(phone);
   const cart = session.data.cart || { items: [] };
   const { text, map } = buildMenu(rid, cart);
@@ -1445,7 +1447,7 @@ function handleItems(phone, rid, customer, p, b) {
     return itemDetail(phone, rid, customer, 'item:' + id);
   }
   if (p.startsWith('item:')) return toggleItem(phone, rid, Number(p.split(':')[1]));
-  if (p === 'send_order') return sendOrderReview(phone, rid, customer);
+  if (p === 'send_order') { const _cm = restaurantClosedMsg(rid); return _cm ? send(phone, rid, null, 'text', _cm) : sendOrderReview(phone, rid, customer); }
   if (p === 'cart') return showCart(phone, rid, customer);
   if (p === 'menu' || p === 'browse_all') return showMenu(phone, rid);
   if (p === 'browse_cats' || p === 'cats') return showCategories(phone, rid, customer);
@@ -1653,7 +1655,7 @@ function handleCart(phone, rid, customer, data, p, b) {
     send(phone, rid, null, 'text', '🗑 تم حذف الصنف من السلة');
     return showCart(phone, rid, customer);
   }
-  if (p === 'checkout' || p === 'send_order') return sendOrderReview(phone, rid, customer);
+  if (p === 'checkout' || p === 'send_order') { const _cm = restaurantClosedMsg(rid); return _cm ? send(phone, rid, null, 'text', _cm) : sendOrderReview(phone, rid, customer); }
   if (p === 'manage') return showCartManage(phone, rid, customer);
   if (p === 'coupon') { saveSession(phone, 'coupon', data); return send(phone, rid, null, 'text', 'وصلني كود الخصم 🏷'); }
   if (p === 'clear') {
