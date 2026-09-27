@@ -274,7 +274,8 @@ CREATE TABLE IF NOT EXISTS captain_offers (
   responded_at TEXT,
   transferred_at TEXT,
   bid_amount INTEGER,
-  bid_at TEXT
+  bid_at TEXT,
+  reject_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS payments (
