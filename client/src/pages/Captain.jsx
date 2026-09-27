@@ -39,11 +39,11 @@ export default function Captain() {
   return (
     <>
       <div className="sidebar">
-        <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />واتس هم<small>لوحة الكابتن — {user.name}</small></div>
+        <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />تلي هم<small>لوحة الكابتن — {user.name}</small></div>
         <nav>{TABS.map(t => <a key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{TAB_AR[t]}</a>)}</nav>
         <div className="foot">
           <div style={{ marginBottom: 10 }} className="row">
-            <button className={`btn sm ${me?.status === 'available' ? '' : 'ghost'}`} style={me?.status === 'available' ? { background: 'var(--green3)', color: '#063' } : {}} onClick={() => setStatus('available')}>🟢 متاح</button>
+            <button className={`btn sm ${me?.status === 'available' ? '' : 'ghost'}`} style={me?.status === 'available' ? { background: 'var(--green3)', color: '#062a3d' } : {}} onClick={() => setStatus('available')}>🟢 متاح</button>
             <button className={`btn sm ${me?.status === 'busy' ? '' : 'ghost'}`} onClick={() => setStatus('busy')}>🟠 مشغول</button>
             <button className={`btn sm ${me?.status === 'offline' ? '' : 'ghost'}`} onClick={() => setStatus('offline')}>⚪ غير متصل</button>
           </div>
@@ -158,7 +158,7 @@ function OrderModal({ o, onClose, refresh, cid }) {
       <div className="row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
         {d.status === 'transferred' && <button className="btn" onClick={() => act('with_captain')}>🛵 استلمت الطلب من المطعم</button>}
         {d.status === 'with_captain' && <button className="btn" onClick={() => act('on_the_way')}>🚀 انطلقت للتوصيل</button>}
-        {d.status === 'on_the_way' && <button className="btn" style={{ background: 'var(--green3)', color: '#063' }} onClick={() => act('arrived')}>📍 وصلت — أبلغ العميل</button>}
+        {d.status === 'on_the_way' && <button className="btn" style={{ background: 'var(--green3)', color: '#062a3d' }} onClick={() => act('arrived')}>📍 وصلت — أبلغ العميل</button>}
         {['transferred', 'with_captain', 'on_the_way', 'arrived'].includes(d.status) && (
           <div className="row" style={{ background: '#fffbe6', border: '1px solid #f5d76e', borderRadius: 10, padding: 10, width: '100%' }}>
             <span style={{ fontSize: 13 }}>🔐 اطلب من العميل <b>رمز الاستلام</b> وأرسله هنا لإغلاق الطلب:</span>
@@ -171,7 +171,7 @@ function OrderModal({ o, onClose, refresh, cid }) {
           </div>
         )}
       </div>
-      <p style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 10 }}>💡 عند الضغط على "وصلت" يصل العميل إشعار واتساب: "📍 وصل كابتن التوصيل! طلبك عند الباب" ثم يُطلب منه تقييمك.</p>
+      <p style={{ fontSize: 12.5, color: 'var(--mut)', marginTop: 10 }}>💡 عند الضغط على "وصلت" يصل العميل إشعار: "📍 وصل كابتن التوصيل! طلبك عند الباب" ثم يُطلب منه تقييمك.</p>
     </Modal>
   );
 }

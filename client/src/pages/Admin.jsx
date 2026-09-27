@@ -96,7 +96,7 @@ export default function Admin() {
 
   const Side = () => (
     <div className={`sidebar ${menuOpen ? 'open' : 'closed'}`}>
-      <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />واتس هم<small>لوحة التحكم</small></div>
+      <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />تلي هم<small>لوحة التحكم</small></div>
       <nav>{TABS.map(t => <a key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{TAB_AR[t]}</a>)}</nav>
       <div className="foot" style={{ fontSize: 13 }}>{user.name}</div>
     </div>
@@ -788,7 +788,7 @@ function ReportsTab() {
     </Card>
     <Card title={`📊 مستلمو تقارير المبيعات${pending.length ? ` (${pending.length} بانتظار)` : ''}`}>
       <div style={{ fontSize: 13, color: 'var(--mut)', lineHeight: 1.9, marginBottom: 12 }}>
-        👤 <b>مدير المطعم</b> يضيف نفسه من واتساب بكتابة <b>«مدير»</b> → يوصلك إشعار للاعتماد هنا أو على واتساب.
+        👤 <b>مدير المطعم</b> يضيف نفسه من البوت بكتابة <b>«مدير»</b> → يوصلك إشعار للاعتماد هنا أو على واتساب.
         <br />📄 التقرير اليومي يوصله تلقائياً (المجموع الختام · شبكة · كاش · الأكثر مبيعاً)، ويكتب <b>«تقرير»</b> بأي وقت ليوصله فوراً.
       </div>
       {pending.length > 0 && <div style={{ marginBottom: 8, fontWeight: 700, color: '#ef6c00' }}>⏳ بانتظار اعتمادك ({pending.length})</div>}

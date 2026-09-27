@@ -46,7 +46,7 @@ export default function Restaurant() {
   return (
     <>
       <div className={`sidebar ${menuOpen ? 'open' : 'closed'}`}>
-        <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />واتس هم<small>{isBranch ? 'لوحة ' + (ROLE_AR[user.role] || 'الفرع') + ' — ' + user.branch_name : 'لوحة المطعم — ' + user.restaurant_name}</small></div>
+        <div className="logo"><img src="/logo.png" alt="" style={{ width: 54, height: 54, borderRadius: '50%', verticalAlign: 'middle', marginLeft: 8 }} />تلي هم<small>{isBranch ? 'لوحة ' + (ROLE_AR[user.role] || 'الفرع') + ' — ' + user.branch_name : 'لوحة المطعم — ' + user.restaurant_name}</small></div>
         <nav>{TABS.map(t => <a key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{TAB_AR[t]}</a>)}</nav>
         <div className="foot" style={{ fontSize: 13 }}>{user.name}</div>
       </div>

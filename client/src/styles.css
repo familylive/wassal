@@ -1,4 +1,4 @@
-:root{--green:#075E54;--green2:#128C7E;--green3:#25D366;--bg:#f0f2f5;--card:#fff;--ink:#1a1a1a;--mut:#667781;--line:#e5e8ea;--red:#e53935;--amber:#f59e0b}
+:root{--green:#0E5A80;--green2:#229ED9;--green3:#2AABEE;--bg:#f0f4f8;--card:#fff;--ink:#17212B;--mut:#5b7083;--line:#dbe7f0;--red:#e53935;--amber:#f59e0b}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',Tahoma,'Noto Kufi Arabic',sans-serif;background:var(--bg);color:var(--ink)}
 a{text-decoration:none;color:inherit}
@@ -8,7 +8,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--green2)}
 table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;font-size:13.5px}
 th{background:#f6f8fa;color:var(--mut);font-weight:600;text-align:right;padding:10px 12px;white-space:nowrap}
 td{padding:10px 12px;border-top:1px solid var(--line);vertical-align:middle}
-tr:hover td{background:#fafcfb}
+tr:hover td{background:#f6fafd}
 .card{background:var(--card);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.06);padding:16px;margin-bottom:16px}
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
 .b-green{background:#e2f5ea;color:#0b7a3b}.b-blue{background:#e3f0fb;color:#1565c0}.b-red{background:#fde8e8;color:#c62828}
