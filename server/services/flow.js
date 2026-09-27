@@ -3307,6 +3307,36 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
   if (!captain) return { ok: false };
   const b = String(body || '').trim();
   const p = payload ? String(payload) : '';
+
+  // 💳 دفع التأمين من داخل البوت (وضع تجريبي: فوري)
+  if (p === 'capdep:pay' || /^(ادفع|دفع)\s*(التأمين|تأميني)$/.test(b) || /^(تأميني|تأمين حسابي)$/.test(b)) {
+    const amt = Number(captain.deposit_amount || config.captainDeposit || 50000);
+    if (config.paymentMode === 'mock') {
+      const { markDepositPaid } = await import('./captainAccount.js');
+      try { markDepositPaid(captain.id, amt); } catch (e) { console.error('CAP_DEPOSIT_MARK_FAIL', e.message); }
+      q.run("UPDATE captains SET status='available' WHERE id=?", captain.id);
+      return send(captain.phone, null, null, 'text', `🧪 *وضع تجريبي:* تم دفع التأمين ✅\n\n💰 التأمين: ${rls(amt)} ر.س (يُحفظ رصيداً لك)\n🟢 *حسابك مفعّل ومتاح للطلبات* — بتصلك عروض الطلبات 🛵`);
+    }
+    if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `💰 كابتن يريد دفع التأمين: ${captain.name || ''} — ${captain.phone || ''} (${rls(amt)} ر.س)` }).catch(() => {});
+    return send(captain.phone, null, null, 'text', '💳 لإتمام الدفع تواصل مع الإدارة وسنرسل لك رابط الدفع فوراً 🌸');
+  }
+  if (p === 'capdep:how') {
+    return send(captain.phone, null, null, 'text', '💳 *طرق دفع التأمين*\n• إلكتروني (مدى/Apple Pay) — نرسل لك رابطاً\n• تحويل بنكي — نرسل لك الآيبان\n\nاضغط *ادفع التأمين* ونكمل معك ✅');
+  }
+
+  // 💰 تأمين غير مدفوع أو حساب موقوف: نعرض فاتورة التأمين عند أي رسالة (بدل أن يبقى بلا عروض بلا سبب)
+  try {
+    const _sess = getSession(phone);
+    const unpaid = !Number(captain.deposit_paid);
+    if (_sess.state !== 'cap_deposit' && (Number(captain.blocked) || unpaid)) {
+      const amt = Number(captain.deposit_amount || config.captainDeposit || 50000);
+      send(captain.phone, null, null, 'text', `💰 *مطلوب منك تأمين الحساب: ${rls(amt)} ر.س*\n\n${captain.blocked_reason ? '⛔ ' + captain.blocked_reason + '\n\n' : ''}ما تصلك عروض الطلبات قبل تسديده ✋\n_(مبلغ تأمين يُحفظ لك رصيداً ويُعاد عند إغلاق حسابك)_`);
+      return send(captain.phone, null, null, 'buttons', `💳 ادفع ${rls(amt)} ر.س وأصير متاحاً للطلبات`, { buttons: [
+        { id: 'capdep:pay', title: '💳 ادفع التأمين الآن' },
+        { id: 'capdep:how', title: '❓ طرق الدفع' }
+      ] });
+    }
+  } catch (e) { console.error('CAP_DEPOSIT_GATE_FAIL', e.message); }
   const cmd = (b || p).toLowerCase();
   const rid = q.get("SELECT id FROM branches WHERE id IN (SELECT id FROM branches) LIMIT 1")?.id; // غير مستخدم
   const { captainAccept } = await import('./dispatch.js');
