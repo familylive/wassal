@@ -83,6 +83,23 @@ export async function handleUpdate(updIn, { checkSecret = false, gotSecret = '' 
     // ٣) الموقع
     if (msg.location) return handleIncoming({ phone, restaurantId: 1, type: 'location', lat: msg.location.latitude, lng: msg.location.longitude });
 
+    // 📣 صورة إعلان المشرف العام
+    if (msg.photo?.length) {
+      try {
+        const isAdm = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(String(config.adminPhone)));
+        if (isAdm) {
+          const fl = await import('../services/flow.js');
+          const st = String(fl.getSession(phone)?.state || '');
+          if (['ad_photo', 'ad_items', 'ad_dates'].includes(st)) {
+            const fid = msg.photo[msg.photo.length - 1]?.file_id || null;
+            const d = { ...(fl.getSession(phone).data || {}) };
+            if (fid) d.adPhoto = fid;
+            await fl.finishAdDraft(phone, 1, d);
+            return;
+          }
+        }
+      } catch (e) { console.error('AD_PHOTO_FAIL', e.message); }
+    }
     // ٤) صور الكابتن = صورة تسليم الطلب (كانت تُوجَّه لرسالة «للمنيو أرسل المنيو»)
     if (msg.photo?.length) {
       try {

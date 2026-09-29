@@ -821,6 +821,21 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
   }
   const session = getSession(phone);
   const { state, data } = session;
+  // 📣 حالات إعلان المشرف العام (مستقلة عن بقية الحالات)
+  if (['ad_kind', 'ad_biz', 'ad_items', 'ad_dates', 'ad_photo', 'ad_confirm'].includes(String(state))) {
+    const _isAdm = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(String(config.adminPhone)));
+    if (_isAdm) {
+      const _b = String(body || '').trim();
+      if (state === 'ad_kind') return send(phone, rid, null, 'buttons', '📣 اختر نوع الإعلان:', { buttons: [{ id: 'adk:offer', title: '🎁 عرض منتج' }, { id: 'adk:cap', title: '🛵 طلب كابتن للتوظيف' }] });
+      if (state === 'ad_biz') { saveSession(phone, 'ad_items', { ...session.data, adBiz: _b }); return send(phone, rid, null, 'text', session.data.adKind === 'cap' ? '2️⃣ اكتب: *المدينة* · *الشروط* · *الراتب* · *رقم التواصل*' : '2️⃣ اكتب: *اسم المنتج أو المنتجات*'); }
+      if (state === 'ad_items') { saveSession(phone, session.data.adKind === 'cap' ? 'ad_photo' : 'ad_dates', { ...session.data, adItems: _b }); return send(phone, rid, null, 'text', session.data.adKind === 'cap' ? '3️⃣ 📷 أرسل صورة إعلان التوظيف (أو اكتب *تخطى*)' : '3️⃣ اكتب: تاريخ البداية ثم النهاية ثم 📞 رقم التواصل\nمثال: `2026-10-01 | 2026-10-07 | 0550123456`'); }
+      if (state === 'ad_dates') { saveSession(phone, 'ad_photo', { ...session.data, adDates: _b }); return send(phone, rid, null, 'text', '4️⃣ 📷 أرسل *صورة العرض* (أو اكتب *تخطى*)'); }
+      if (state === 'ad_photo') {
+        if (/^(تخطى|تخطي|skip)$/.test(_b)) return finishAdDraft(phone, rid, { ...session.data });
+        return send(phone, rid, null, 'text', '📷 أرسل صورة العرض (أو اكتب *تخطى*)');
+      }
+    }
+  }
   // ⏰ وقت العمل من قائمة الكاشير
   if (state === 'cash_hours') {
     const _staff = staffContext(phone);
@@ -844,6 +859,41 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
   try {
     const isSupervisor = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(config.adminPhone));
     // 🗑 أوامر المشرف النصية على الطلبات: إلغاء أو حذف بالرقم
+    // 📣 إعلان لكل المشتركين (المشرف العام فقط)
+    if (isSupervisor && payload && String(payload).startsWith('adk:')) {
+      const k = String(payload).split(':')[1];
+      saveSession(phone, 'ad_biz', { adKind: k === 'cap' ? 'cap' : 'offer' });
+      return send(phone, rid, null, 'text', k === 'cap'
+        ? '🛵 *إعلان توظيف كابتن*\n1️⃣ اكتب: *اسم النشاط*'
+        : '🎁 *إعلان عرض*\n1️⃣ اكتب: *اسم النشاط*');
+    }
+    if (isSupervisor && payload && String(payload).startsWith('adp:')) {
+      const act = String(payload).split(':')[1];
+      const d = getSession(phone).data || {};
+      saveSession(phone, 'idle', {});
+      if (act === 'cancel') return send(phone, rid, null, 'text', 'تم إلغاء الإعلان ✓');
+      const body = String(d.adText || '');
+      const rows = q.all(`SELECT phone FROM customers WHERE phone IS NOT NULL
+        UNION SELECT phone FROM captains WHERE phone IS NOT NULL
+        UNION SELECT phone FROM restaurant_users WHERE phone IS NOT NULL`);
+      const seen = new Set(); let ok = 0; let fail = 0;
+      for (const r of rows) {
+        const t = String(r.phone || ''); if (!t || seen.has(t)) continue; seen.add(t);
+        try {
+          if (d.adPhoto) await waSend({ phone: t, type: 'image', image: d.adPhoto, body, buttons: d.adKind === 'cap' ? undefined : [{ id: 'cmenu:new', title: '🛒 اطلب الآن' }, { id: 'cmenu:back', title: '🏠 القائمة' }] });
+          else await waSend({ phone: t, type: 'buttons', body, buttons: d.adKind === 'cap' ? [{ id: 'cmenu:back', title: '🏠 القائمة' }] : [{ id: 'cmenu:new', title: '🛒 اطلب الآن' }, { id: 'cmenu:back', title: '🏠 القائمة' }] });
+          ok += 1;
+        } catch (e) { fail += 1; }
+        await new Promise(r2 => setTimeout(r2, 60));
+      }
+      if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `📣 *انتهى نشر الإعلان*\n✅ وصل: ${ok}\n✗ فشل: ${fail}\n👥 الإجمالي: ${seen.size}` }).catch(() => {});
+      return send(phone, rid, null, 'text', `📣 *تم نشر الإعلان*\n✅ وصل: *${ok}*\n✗ فشل: ${fail}`);
+    }
+    if (isSupervisor && /^(ارسل اعلان|أرسل اعلان|اعلان جديد|إعلان جديد)$/.test(String(b || '').trim())) {
+      saveSession(phone, 'ad_kind', {});
+      return send(phone, rid, null, 'buttons', '📣 *إرسال إعلان لكل المشتركين*\n\nهل الإعلان عن:', {
+        buttons: [{ id: 'adk:offer', title: '🎁 عرض منتج' }, { id: 'adk:cap', title: '🛵 طلب كابتن للتوظيف' }] });
+    }
     if (isSupervisor && b) {
       const pick = (n) => q.get("SELECT * FROM orders WHERE order_no=? OR id=?", String(n), Number(n));
       const mc = b.match(/^(?:الغ|إلغاء|الغاء|الغاء الطلب|إلغاء الطلب)\s*#?\s*(\d{2,7})$/);
@@ -4513,4 +4563,19 @@ export async function handleIncoming(args) {
       }
     } catch (e) {}
   }
+}
+
+
+// 📣 معاينة الإعلان قبل النشر للجميع
+export async function finishAdDraft(phone, rid, d) {
+  const isCap = d.adKind === 'cap';
+  const head = isCap ? '🛵 *إعلان توظيف كابتن*' : `🎁 *عرض خاص من ${d.adBiz || ''}*`;
+  const mid = isCap ? `🏪 ${d.adBiz || ''}\n${d.adItems || ''}` : `🛍️ ${d.adItems || ''}`;
+  const dates = (!isCap && d.adDates) ? `\n📅 ${d.adDates}` : '';
+  const body = `${head}\n${mid}${dates}\n\nمن منصة *تلي هم* 🌸`;
+  saveSession(phone, 'ad_confirm', { ...d, adText: body });
+  if (d.adPhoto) { try { await waSend({ phone, type: 'image', image: d.adPhoto, body }); } catch (e) { await send(phone, rid, null, 'text', body); } }
+  else await send(phone, rid, null, 'text', body);
+  return send(phone, rid, null, 'buttons', '👆 هذي *معاينة الإعلان* — أنشره لكل المشتركين؟', {
+    buttons: [{ id: 'adp:send', title: '✅ انشر للجميع' }, { id: 'adp:cancel', title: '❌ إلغاء' }] });
 }
