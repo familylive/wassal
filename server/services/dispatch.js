@@ -27,8 +27,11 @@ export function broadcastToCaptains(order) {
     const feeLine = (km != null && fee)
       ? `📏 المسافة: *${km} كم*\n🛵 سعر التوصيل: *${(fee / 100).toFixed(2)} ر.س*`
       : (fee ? `🛵 سعر التوصيل: *${(fee / 100).toFixed(2)} ر.س*` : '🛵 سعر التوصيل: *غير محدّد* (يُحدَّد مع النشاط)');
+    const _cust = order.customer_id ? q.get("SELECT name, phone FROM customers WHERE id=?", order.customer_id) : null;
+    const _lp = (x) => { const dd = String(x || '').replace(/\D/g, ''); return dd.startsWith('966') ? '0' + dd.slice(3) : dd; };
+    const _map = (order.lat && order.lng) ? `\n🗺️ موقع العميل: https://maps.google.com/?q=${order.lat},${order.lng}` : '';
     waSend({ phone: c.phone, restaurantId: order.restaurant_id, orderId: order.id, participant: 'captain', type: 'buttons',
-      body: `🛵 *طلب جديد متاح للتوصيل!*\n📦 ${order.order_no} — ${restaurant.name_ar}\n💰 قيمة الطلب: ${(order.total / 100).toFixed(2)} ر.س\n${feeLine}\n📍 ${order.national_address || ''}\n\n${customerScoreLine(order.customer_id)}\n\n_(أو اكتب: *اقبل* / *رفض*)_`,
+      body: `🛵 *طلب جديد متاح للتوصيل!*\n📦 ${order.order_no} — ${restaurant.name_ar}\n👤 العميل: *${_cust?.name || '—'}*${_cust?.phone ? ` — 📱 ${_lp(_cust.phone)}` : ''}\n💰 قيمة الطلب: ${(order.total / 100).toFixed(2)} ر.س\n${feeLine}\n📍 ${order.national_address || ''}${_map}\n\n${customerScoreLine(order.customer_id)}\n\n_(أو اكتب: *اقبل* / *رفض*)_`,
       buttons: [{ id: 'cap:acc:' + order.id, title: '✅ قبول الطلب' }, { id: 'cap:rej:' + order.id, title: '❌ رفض الطلب' }] });
   }
   if (captains.length) {
