@@ -4229,6 +4229,8 @@ export async function handleCaptainIncoming({ phone, body = '', payload = null }
             buttons: [{ id: 'track', title: '📦 متابعة حالة الطلب' }] }).catch(() => {});
         }
       } catch (e) { console.error('CAP_ACCEPT_NOTIFY_CUSTOMER_FAIL', e.message); }
+      // 🔒 بمجرد القبول يصير «مشغول» تلقائيًا (فلا يشمله بث الطلبات الأخرى ⇒ كل طلب يبحث له كابتن آخر)
+      try { q.run("UPDATE captains SET status='busy', busy_order_no=?, busy_since=datetime('now') WHERE id=?", ord.order_no, captain.id); } catch (e) {}
       return send(captain.phone, null, orderId, 'text',
         `✅ *قبلت الطلب ${ord.order_no}*\n\n💰 سعر التوصيل: *${rls(est.fee)} ر.س*${est.km ? ` (${est.km.toFixed(1)} كم)` : ''}\n🏪 ${q.get("SELECT name_ar FROM restaurants WHERE id=?", ord.restaurant_id)?.name_ar || ''}\n\nبانتظار تحويل النشاط الطلب عليك — وبيوصلك هنا مباشرة 🛵`);
     }
