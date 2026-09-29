@@ -145,6 +145,9 @@ try { db.exec("ALTER TABLE restaurants ADD COLUMN subscription_paid_at TEXT"); }
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN subscription_paid INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN live_lat REAL"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN live_lng REAL"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN live_at TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN district TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN vehicle_type TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN captain_id INTEGER"); } catch {}
