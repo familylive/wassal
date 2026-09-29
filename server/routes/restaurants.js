@@ -26,6 +26,29 @@ router.post('/', requireRole('admin'), (req, res) => {
   res.json({ ok: true, id });
 });
 
+// 🟠🟢 حالة استقبال الطلبات (مفتوح · مشغول · مغلق) — للوحة
+router.get('/:id/status', async (req, res) => {
+  const { restaurantStatus } = await import('../services/status.js');
+  const st = restaurantStatus(Number(req.params.id));
+  if (!st) return res.status(404).json({ error: 'غير موجود' });
+  res.json(st);
+});
+router.post('/:id/status', async (req, res) => {
+  const rid = Number(req.params.id);
+  const { action, minutes } = req.body || {};
+  if (!['busy', 'open', 'close'].includes(String(action))) return res.status(400).json({ error: 'action مطلوب: busy | open | close' });
+  const u = req.user || {};
+  if (u.role !== 'admin' && Number(u.restaurant_id) !== rid) return res.status(403).json({ error: 'غير مصرح' });
+  const { setBusy, setPaused } = await import('../services/status.js');
+  if (action === 'busy') {
+    // نجيب جوال الموظف من قاعدة البيانات (اللوحة تعرضه لصاحب النشاط في الإشعار)
+    const me = u.id ? q.get("SELECT name, phone FROM restaurant_users WHERE id=?", u.id) : null;
+    return res.json(await setBusy(rid, { minutes: minutes || 60, byName: me?.name || u.name || 'لوحة النشاط', byPhone: me?.phone || u.phone || null }));
+  }
+  if (action === 'close') return res.json(setPaused(rid, true));
+  return res.json(setPaused(rid, false));
+});
+
 router.get('/:id', (req, res) => {
   const r = q.get("SELECT * FROM restaurants WHERE id=?", req.params.id);
   if (!r) return res.status(404).json({ error: 'غير موجود' });
@@ -38,9 +61,12 @@ router.get('/:id', (req, res) => {
 
 router.put('/:id', (req, res) => {
   const b = req.body || {};
-  const allowed = ['name_ar', 'name_en', 'phone', 'whatsapp_number', 'city', 'address', 'lat', 'lng', 'delivery_fee', 'min_order', 'avg_prep_time_min', 'logo', 'cover', 'is_active'];
+  const allowed = ['name_ar', 'name_en', 'phone', 'whatsapp_number', 'city', 'address', 'lat', 'lng', 'delivery_fee', 'min_order', 'avg_prep_time_min', 'logo', 'cover', 'is_active', 'menu_discount_pct', 'menu_discount_label', 'menu_discount_from', 'menu_discount_to'];
   const cols = [], vals = [];
-  for (const k of allowed) if (b[k] !== undefined) { cols.push(`${k}=?`); vals.push(b[k]); }
+  for (const k of allowed) if (b[k] !== undefined) { cols.push(`${k}=?`); if (k === 'menu_discount_pct') vals.push(Math.min(90, Math.max(0, Math.round(Number(b[k]) || 0))));
+    else if (k === 'menu_discount_label') vals.push(String(b[k] || '').trim().slice(0, 40) || null);
+    else if (k === 'menu_discount_from' || k === 'menu_discount_to') vals.push(/^\d{4}-\d{2}-\d{2}$/.test(String(b[k] || '')) ? String(b[k]) : null);
+    else vals.push(b[k]); }
   if (!cols.length) return res.status(400).json({ error: 'لا توجد بيانات' });
   vals.push(req.params.id);
   q.run(`UPDATE restaurants SET ${cols.join(',')} WHERE id=?`, ...vals);

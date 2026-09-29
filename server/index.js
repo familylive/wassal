@@ -24,6 +24,36 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/sim', express.static(path.join(__dirname, 'public/sim')));
 
 // 🩺 فحص عام (بلا بيانات حساسة): هل ملف قاعدة البيانات سليم؟ — للمراقبة من الخارج
+// 📞 /call/<token> — رابط اتصال مؤقت للكابتن: لا يحوي رقمًا، ويتوقف فور إغلاق الطلب
+app.get('/call/:token', async (req, res) => {
+  const page = (icon, title, body, color) => `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />`
+    + `<meta name="viewport" content="width=device-width,initial-scale=1" /><title>${title}</title>`
+    + `<style>body{font-family:system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;background:#f6f7f9;margin:0;padding:24px;text-align:center}`
+    + `.card{background:#fff;border-radius:18px;padding:26px 20px;max-width:420px;margin:12vh auto;box-shadow:0 6px 24px rgba(0,0,0,.08)}`
+    + `h1{font-size:20px;margin:8px 0 6px;color:${color}}p{color:#555;font-size:15px;line-height:1.8;margin:6px 0}`
+    + `.btn{display:block;margin:18px 0 6px;background:#0b7a3b;color:#fff;text-decoration:none;padding:15px;border-radius:12px;font-size:18px;font-weight:700}`
+    + `.num{direction:ltr;font-size:22px;font-weight:700;color:#111;letter-spacing:1px;margin:10px 0}</style></head><body><div class="card">`
+    + `<div style="font-size:44px">${icon}</div><h1>${title}</h1>${body}</div></body></html>`;
+  const gone = (code, icon, title, body) => res.status(code).send(page(icon, title, body, '#b3261e'));
+  try {
+    const { q } = await import('./db.js');
+    const { capCallAllowed } = await import('./services/flow.js');
+    const o = q.get("SELECT * FROM orders WHERE call_token=?", String(req.params.token || ''));
+    if (!o) return gone(410, '⏱️', 'انتهى الرابط', '<p>رابط الاتصال انتهى ولا يعمل بعد الآن.</p><p>التواصل مع العميل بعد التسليم غير مسموح 🔒</p><p>للحاجة العاجلة تواصل مع الإدارة.</p>');
+    if (!capCallAllowed(o)) { try { q.run("UPDATE orders SET call_token=NULL WHERE id=?", o.id); } catch (e) {} return gone(403, '🔒', 'انتهى الإذن', '<p>انتهى إذن الاتصال لهذا الطلب.</p><p>التواصل الآن عبر البوت فقط.</p>'); }
+    const c = q.get("SELECT phone FROM customers WHERE id=?", o.customer_id);
+    const digits = String(c?.phone || '').replace(/\D/g, '');
+    if (!digits) return gone(404, '⚠️', 'غير متاح', '<p>تعذّر جلب الرقم.</p>');
+    res.send(page('📞', 'اتصل بالعميل',
+      `<p>الإذن ساري حاليًا لهذا الطلب — وينتهي تلقائيًا بعد التسليم.</p>`
+      + `<div class="num">+${digits}</div><a class="btn" href="tel:+${digits}">📞 اتصل الآن</a>`
+      + `<p>إذا ما افتح الاتصال تلقائيًا اضغط الزر أعلاه.</p>`
+      + `<script>setTimeout(function(){try{location.href='tel:+${digits}'}catch(e){}},900)</script>`, '#0b7a3b'));
+  } catch (e) {
+    gone(500, '⚠️', 'خطأ', '<p>حدث خطأ غير متوقع.</p>');
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const { dbLooksSane } = await import('./services/backup.js');

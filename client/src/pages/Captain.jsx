@@ -148,7 +148,7 @@ function OrderModal({ o, onClose, refresh, cid }) {
           <h4 style={{ marginBottom: 8 }}>🧾 الأصناف</h4>
           {(d.items || []).map((i, k) => <div key={k} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}><span>{i.name} ×{i.quantity}</span><span>{sar(i.price * i.quantity)} ر.س</span></div>)}
           <h4 style={{ margin: '12px 0 8px' }}>📍 التوصيل إلى</h4>
-          <div style={{ fontSize: 13.5 }}>{d.national_address || `${d.lat},${d.lng}`}<br />العميل: {d.customer?.name} — {d.customer?.phone}<br />الوقت التقريبي: {d.est_delivery_min} د</div>
+          <div style={{ fontSize: 13.5 }}>{d.national_address || `${d.lat},${d.lng}`}<br />العميل: {d.customer?.name}<br />الوقت التقريبي: {d.est_delivery_min} د</div>
         </div>
         <div>
           <h4 style={{ marginBottom: 8 }}>🕐 مسار الطلب</h4>

@@ -30,11 +30,17 @@ export function notifyRestaurantNewOrder(order) {
     if (!to) { console.log('ORDER_NOTIFY_NO_RECIPIENT', order.restaurant_id); return; }
     let items = [];
     try { items = JSON.parse(order.items_json || '[]'); } catch (e) {}
-    const lines = items.map(i => `• ${i.quantity} × ${i.name} — ${money(Number(i.price) * Number(i.quantity))}`).join('\n');
+    const _pct = Number(order.menu_discount_pct || 0);
+    const _net = (v) => Math.round(Number(v || 0) * (100 - _pct) / 100);
+    const lines = items.map(i => {
+      const gross = Number(i.price) * Number(i.quantity);
+      return `• ${i.quantity} × ${i.name} — ${_pct ? `~${money(gross)}~ ${money(_net(gross))}` : money(gross)}`;
+    }).join('\n');
     const isPickup = order.order_type === 'pickup';
     const pre = order.is_preorder ? `\n🗓️ *طلب مسبق* — ${order.scheduled_for || ''} الساعة ${order.scheduled_time || ''}\n` : '';
     const body = `🛎 *${order.is_preorder ? 'طلب مسبق' : 'طلب جديد'}* ${order.order_no}\n🏪 ${rest?.name_ar || ''}${pre}\n━━━━━━━━━━━━━━\n🛒 *الطلب:*\n${lines}\n━━━━━━━━━━━━━━\n🍽 المجموع: ${money(order.subtotal)} ر.س`
       + (Number(order.discount) ? `\n🎁 الخصم: -${money(order.discount)} ر.س` : '')
+      + (Number(order.menu_discount) ? `\n🏷 خصم المنيو${order.menu_discount_label ? ' — ' + order.menu_discount_label : ''} (${Number(order.menu_discount_pct || 0)}%): -${money(order.menu_discount)} ر.س` : '')
       + (isPickup ? '\n🏪 *استلام من النشاط*' : `\n🚚 التوصيل: ${money(order.delivery_fee)} ر.س\n📍 ${order.national_address || order.address_label || ''}`)
       + `\n💰 *الإجمالي: ${money(order.total)} ر.س*\n💳 الدفع: ${PAY_AR[order.payment_method] || order.payment_method || '-'}\n🕐 خلال ~${order.est_delivery_min || 30} دقيقة\n\n_اضغط ✅ «استلمت» ليوصل العميل تأكيد، و📦 «جاهز» لمّا يجهز الطلب._`;
     waSend({ phone: to, restaurantId: order.restaurant_id, orderId: order.id, type: 'buttons', body,
@@ -54,14 +60,14 @@ export function createOrder({ restaurant, customer, cart, totals, paymentMethod,
   const orderNo = nextOrderNo();
   const deliveryCode = String(Math.floor(100000 + Math.random() * 900000));
   const itemsJson = JSON.stringify(cart.items.map(i => ({ item_id: i.item_id, name: i.name, price: i.price, quantity: i.quantity, offer_id: i.offer_id || null })));
-  const r = q.run(`INSERT INTO orders (order_no, restaurant_id, customer_id, items_json, subtotal, discount, delivery_fee, total,
+  const r = q.run(`INSERT INTO orders (order_no, restaurant_id, customer_id, items_json, subtotal, discount, menu_discount, menu_discount_pct, menu_discount_label, delivery_fee, total,
     payment_method, payment_status, status, address_label, national_address, lat, lng, est_delivery_min, branch_id, branch_name, delivery_code, order_type, notes,
-    is_preorder, scheduled_for, scheduled_time)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    orderNo, restaurant.id, customer.id, itemsJson, totals.subtotal, totals.discount, totals.delivery_fee, totals.total,
+    is_preorder, scheduled_for, scheduled_time, short_address)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    orderNo, restaurant.id, customer.id, itemsJson, totals.subtotal, totals.discount, totals.menu_discount || 0, totals.menu_discount_pct || 0, totals.menu_discount_label || null, totals.delivery_fee, totals.total,
     paymentMethod, 'pending', 'new', address.label, address.national_address, address.lat, address.lng, estDeliveryMin,
     branch?.id || null, branch?.name || null, deliveryCode, isPickup ? 'pickup' : 'delivery', notes,
-    isPreorder ? 1 : 0, scheduledFor || null, scheduledTime || null);
+    isPreorder ? 1 : 0, scheduledFor || null, scheduledTime || null, address.short_address || null);
   const order = q.get("SELECT * FROM orders WHERE id = ?", r.lastInsertRowid);
   addEvent(order.id, 'new', isPickup ? 'طلب استلام من النشاط (بدون توصيل)' : 'تم إنشاء الطلب وانتظار تأكيد المطعم');
   addEvent(order.id, 'payment', `طريقة الدفع: ${paymentMethod}`);
@@ -159,6 +165,53 @@ export async function setStatus(orderId, status, actorType = 'system', actorId =
     custMsg += `\n\n📍 *أرسل موقعك الحالي* عشان الكابتن يوصلك بدقة:\n📎 ← الموقع  (والأفضل: «الموقع المباشر» لمدة 8 ساعات)`;
   }
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'text', body: custMsg });
+  // 🛒🎤 بعد اكتمال الطلب: أيقونتان — طلب جديد بالبوت أو بالصوت
+  if (customer?.phone && ['delivered'].includes(String(status))) {
+    try {
+      const { orderAgainButtons } = await import('./flow.js');
+      waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'buttons',
+        body: '😋 تبغى تطلب مرة ثانية؟ اختر طريقتك 👇', ...orderAgainButtons() }).catch(() => {});
+    } catch (e) { console.error('ORDER_AGAIN_BTNS_FAIL', e.message); }
+  }
+  // 🔗 أي إغلاق للطلب (تسليم/إلغاء) يُلغي رابط الاتصال فورًا
+  if (['delivered', 'cancelled', 'returned'].includes(String(status))) {
+    try { q.run("UPDATE orders SET call_allow_until=NULL, call_token=NULL WHERE id=?", orderId); } catch (e) {}
+  }
+  // 📍 وصل الكابتن ⇒ نسأل العميل مرة واحدة: تحتاج تتواصل معه؟ (إذن ٣٠ دقيقة بضغطة)
+  if (status === 'arrived' && customer?.phone && order.captain_id) {
+    try {
+      const o3 = q.get("SELECT * FROM orders WHERE id=?", orderId);
+      if (!o3?.door_prompt_at) {
+        const { askDoorContact } = await import('./flow.js');
+        await askDoorContact(customer.phone, order.restaurant_id, o3);
+      }
+    } catch (e) { console.error('DOOR_PROMPT_FAIL', e.message); }
+  }
+  // 🔒 انتهاء إذن الاتصال بعد التسليم
+  if (status === 'delivered' && order.captain_id) {
+    try {
+      const o2 = q.get("SELECT contact_pref FROM orders WHERE id=?", orderId);
+      try { q.run("UPDATE orders SET call_allow_until=NULL, call_token=NULL WHERE id=?", orderId); } catch (e) {}
+      if (o2?.contact_pref === 'call') {
+        const cap = q.get("SELECT phone FROM captains WHERE id=?", order.captain_id);
+        if (cap?.phone) waSend({ phone: cap.phone, restaurantId: order.restaurant_id, orderId, type: 'text',
+          body: '🔒 *انتهى إذن الاتصال* — الطلب سلّم. ممنوع التواصل مع العميل بعد التسليم والرقم انتهى استخدامه 🙏' });
+      }
+    } catch (e) { console.error('CONTACT_EXPIRE_FAIL', e.message); }
+  }
+  // 📞 العميل يقدر يتواصل مع الكابتن وقت الانطلاق/الوصول (والكابتن لا يرى رقم العميل)
+  if (['on_the_way', 'arrived'].includes(status) && order.captain_id && customer?.phone) {
+    try {
+      const cap2 = q.get("SELECT name, phone FROM captains WHERE id=?", order.captain_id);
+      if (cap2?.phone) {
+        const { captainContactButtons } = await import('./flow.js');
+        const btns = captainContactButtons(cap2);
+        if (btns.length) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'buttons',
+          body: status === 'arrived' ? `📍 *وصل الكابتن* — تحتاج تتواصل معه؟` : `🛵 *الكابتن في الطريق* — تقدر تتواصل معه:`,
+          buttons: btns });
+      }
+    } catch (e) { console.error('CUSTOMER_CONTACT_CAPTAIN_FAIL', e.message); }
+  }
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status, order: { ...order, status } });
   if (order.captain_id) emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status, order: { ...order, status } });
   if (status === 'arrived') q.run("UPDATE orders SET arrived_at=datetime('now') WHERE id=?", orderId);

@@ -30,6 +30,18 @@ export async function groqTranscribe(audioBuffer, mimeType = 'audio/mpeg') {
   return (r.data?.text || '').trim() || null;
 }
 
+// 2ج) تحويل صوت قادم من تليجرام (معرّف ملف) → نص
+export async function transcribeTelegram(fileId) {
+  const { sttApiKey } = config.voice;
+  const token = config.telegram?.token;
+  if (!sttApiKey || !token || !fileId) return null;
+  const r = await axios.get(`https://api.telegram.org/bot${token}/getFile`, { params: { file_id: String(fileId) }, timeout: 20000 });
+  const path = r.data?.result?.file_path;
+  if (!path) return null;
+  const audio = await axios.get(`https://api.telegram.org/file/bot${token}/${path}`, { responseType: 'arraybuffer', timeout: 60000 });
+  return groqTranscribe(audio.data, 'audio/ogg');
+}
+
 // 2ب) تحويل صوت قادم من Meta (media_id) → نص
 export async function transcribeVoice(mediaId) {
   const { token } = config.whatsapp;
@@ -98,20 +110,56 @@ function splitForSpeech(t, max = 450) {
   return parts.filter(Boolean).slice(0, 3);
 }
 
-// إرسال صوتية واحدة (رفع + إرسال)
-async function sendOneChunk(phone, text) {
-  // 1) صوت مخصص (ElevenLabs) إن وُجد  2) Azure زريّة
+// 🆕 🆓 TTS مجاني بلا مفتاح (محرك ترجمة Google) — يُستخدم تلقائيًا إن لم يوجد أي مفتاويلاد مختلفة
+//    (الحد التقريبي 200 حرف للطلب ⇒ نقسّم النص)
+export async function googleTTS(text) {
+  const q = String(text || '').trim().slice(0, 190);
+  if (!q) return null;
+  try {
+    const r = await axios.get('https://translate.google.com/translate_tts', {
+      params: { ie: 'UTF-8', q, tl: 'ar', client: 'tw-ob' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Referer': 'https://translate.google.com/',
+        'Accept': 'audio/mpeg,*/*',
+      },
+      responseType: 'arraybuffer',
+      timeout: 30000,
+    });
+    const buf = Buffer.from(r.data || []);
+    if (buf.length < 1200) { console.error('GOOGLE_TTS_SHORT', buf.length); return null; }
+    return buf;
+  } catch (e) {
+    console.error('GOOGLE_TTS_FAIL', e.response?.status || e.message);
+    return null;
+  }
+}
+export function hasPaidTts() {
+  return Boolean(config.voice?.azureKey || config.voice?.ttsApiKey || config.voice?.elevenKey);
+}
+
+// 🎧 بناء الصوت من النص (أول مزوّد متاح: ElevenLabs → Azure → OpenAI → Google المجاني)
+export async function buildTtsAudio(text) {
   let audio = null;
   try { audio = await elevenTTS(text); } catch (e) { console.error('ELEVEN_FAIL', e.message); }
-  if (!audio) audio = await azureTTS(text);
+  if (!audio) { try { audio = await azureTTS(text); } catch (e) { console.error('AZURE_TTS_FAIL', e.message); } }
   if (!audio) {
     const { ttsApiKey, ttsVoice } = config.voice;
-    if (!ttsApiKey) return false;
-    const r = await axios.post('https://api.openai.com/v1/audio/speech',
-      { model: 'gpt-4o-mini-tts', voice: ttsVoice || 'alloy', input: text },
-      { headers: { Authorization: `Bearer ${ttsApiKey}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 });
-    audio = r.data;
+    if (ttsApiKey) try {
+      const r = await axios.post('https://api.openai.com/v1/audio/speech',
+        { model: 'gpt-4o-mini-tts', voice: ttsVoice || 'alloy', input: text },
+        { headers: { Authorization: `Bearer ${ttsApiKey}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 30000 });
+      audio = r.data;
+    } catch (e) { console.error('OPENAI_TTS_FAIL', e.message); }
   }
+  // 🆓 بلا أي مفتاح؟ نجرّب المحرك المجاني (يعمل بلا تسجيل)
+  if (!audio) { try { audio = await googleTTS(text); } catch (e) { console.error('GOOGLE_TTS_ERR', e.message); } }
+  return audio || null;
+}
+
+// إرسال صوتية واحدة (رفع + إرسال) — واتساب
+async function sendOneChunk(phone, text) {
+  const audio = await buildTtsAudio(text);
   if (!audio) return false;
   const { apiUrl, phoneNumberId, token } = config.whatsapp;
   const fd = new FormData();
@@ -131,7 +179,22 @@ async function sendOneChunk(phone, text) {
 export async function sendVoiceNote(phone, text) {
   const clean = cleanForSpeech(text);
   if (!clean) return false;
-  const chunks = splitForSpeech(clean);
+  // 📨 تليجرام: نبني الصوت ونرسله مقطعًا واحدًا (sendAudio)
+  if (config.whatsapp?.provider === 'telegram') {
+    const { tgSendVoice } = await import('./whatsapp.js');
+    if (hasPaidTts()) {
+      const buf = await buildTtsAudio(String(clean).slice(0, 900));
+      return buf ? tgSendVoice(phone, { buffer: buf }) : false;
+    }
+    // 🆓 المحرك المجاني: مقاطع قصيرة (يحد ٢٠٠ حرف) — نرسل حتى ٣ مقاطع
+    let ok = false;
+    for (const ch of splitForSpeech(clean, 180)) {
+      const buf = await buildTtsAudio(ch);
+      if (buf) { try { ok = (await tgSendVoice(phone, { buffer: buf })) || ok; } catch (e) { console.error('TG_TTS_SEND_FAIL', e.message); } }
+    }
+    return ok;
+  }
+  const chunks = splitForSpeech(clean, hasPaidTts() ? 450 : 180);   // المجاني يحتاج مقاطع أقصر
   let ok = false;
   for (const ch of chunks) {
     try { ok = (await sendOneChunk(phone, ch)) || ok; } catch (e) { console.error('VOICE_TTS_FAIL', e.message); }

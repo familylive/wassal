@@ -123,6 +123,7 @@ export async function checkLateDeliveries() {
 }
 
 // ---------- 🏛 عمولات المنصة (من النشاط + من الكابتن) ----------
+// ⚠️ حصة المنصة تُحسب على *السعر قبل خصم المنيو* (subtotal الأصلي) — خصم صاحب النشاط لا يُخصم من نصيب المنصة
 export async function applyCommissions(order) {
   const cfg = (await import('../config.js')).default;
   const pctBiz = Number(cfg.commissionBusinessPercent || 0);

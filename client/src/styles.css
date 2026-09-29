@@ -106,3 +106,11 @@ tr:hover td{background:#f6fafd}
 .logout-float{position:fixed;bottom:18px;right:18px;z-index:60;padding:12px 20px;font-size:14px;font-weight:700;border-radius:30px;box-shadow:0 6px 20px rgba(229,57,53,.4)}
 .logout-float:hover{background:#c62828}
 @media (max-width:480px){.logout-float{bottom:12px;right:12px;padding:10px 16px}}
+
+/* 🔥 أيقونات العروض */
+.tile{cursor:pointer;border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;background:#fff;display:flex;flex-direction:column;gap:6px;align-items:center;transition:.15s}
+.tile:hover{border-color:var(--green2);box-shadow:0 6px 18px rgba(34,158,217,.16);transform:translateY(-2px)}
+.tile .ic{font-size:34px;line-height:1}
+.tile .t{font-weight:700}
+.tile .s{font-size:12.5px;color:var(--mut);min-height:18px}
+.tile.add{border-style:dashed;color:var(--green);background:#f8fcff}

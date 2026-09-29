@@ -11,7 +11,7 @@ import { localNow, prettyDate } from './reporting.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(__dirname, '..', 'assets');
 const OUT_DIR = path.join(__dirname, '..', 'uploads', 'invoices');
-const SITE = 'whats-ham.onrender.com';
+const SITE = 'www.telyham.com';   // 🌐 دومين المنصة
 
 const rls = (h) => (Number(h || 0) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 

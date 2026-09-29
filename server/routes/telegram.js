@@ -124,6 +124,22 @@ export async function handleUpdate(updIn, { checkSecret = false, gotSecret = '' 
       return;
     }
 
+    // 🎤 ٤ب) رسالة صوتية (عميل أو كابتن): نفرّغها نصًا ونمرر المقطع نفسه
+    const vmsg = msg.voice || msg.audio || null;
+    if (vmsg?.file_id) {
+      let text = '';
+      try {
+        const { transcribeTelegram } = await import('../services/voice.js');
+        text = (await transcribeTelegram(vmsg.file_id)) || '';
+      } catch (e) { console.error('TG_VOICE_STT_FAIL', e.message); }
+      try {
+        q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('voice-in', ?, ?)",
+          String(phone).slice(-4) + ':' + (text || 'فشل التفريغ').slice(0, 60),
+          JSON.stringify({ file_id: String(vmsg.file_id).slice(0, 40), secs: vmsg.duration || null, chars: text.length }).slice(0, 200));
+      } catch (e) {}
+      return handleIncoming({ phone, restaurantId: 1, type: 'voice', body: text, voice: true, voiceFileId: vmsg.file_id });
+    }
+
     // ٥) نص / أزرار لوحة المفاتيح
     const body = msg.text || msg.caption || '';
     if (body === '/start') return handleIncoming({ phone, restaurantId: 1, type: 'text', body: 'مرحبا' });

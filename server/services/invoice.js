@@ -10,7 +10,7 @@ import { dailyStats, rangeStats, reportRange, reportRangePeriod, localNow, prett
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.join(__dirname, '..', 'assets');
 const OUT_DIR = path.join(__dirname, '..', 'uploads', 'invoices');
-const SITE = 'whats-ham.onrender.com';
+const SITE = 'www.telyham.com';   // 🌐 دومين المنصة
 const NATIONAL = 'تلي هم — Tele Ham';
 
 const rls = (h) => (Number(h || 0) / 100).toFixed(2);
@@ -78,7 +78,7 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   const W = 1000, H = 1414;
   const canvas = createCanvas(W, H);
   const c = canvas.getContext('2d');
-  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
+  const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC', RED = '#D93025';
 
   // خلفية
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
@@ -169,7 +169,13 @@ export async function renderInvoicePng(restaurantId, dateStr, opts = {}) {
   y += 34;
   const gross = s.subtotal;
   ar(`إجمالي الأصناف: ${money(gross)} ر.س`, '25px Cairo', GREY, y); y += 38;
-  if (s.discount) { ar(`الخصومات: -${money(s.discount)} ر.س`, '25px Cairo', GREY, y); y += 38; }
+  {
+    const _dt = Number(s.menuDiscount || 0) + Number(s.discount || 0);
+    if (_dt) {
+      ar(`الخصم: -${money(_dt)} ر.س`, 'bold 26px Cairo', RED, y); y += 38;
+      if (Number(s.menuDiscount) && Number(s.discount)) { ar(`(خصم المنيو -${money(s.menuDiscount)} · عروض -${money(s.discount)})`, '21px Cairo', GREY, y); y += 32; }
+    }
+  }
   if (s.fees) { ar(`رسوم التوصيل: ${money(s.fees)} ر.س`, '25px Cairo', GREY, y); y += 38; }
   y += 6;
   c.fillStyle = GREEN; c.fillRect(50, y, W - 100, 74);
@@ -272,6 +278,15 @@ export async function renderOrderInvoicePng(order) {
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
   const R = 850;
   const ar = (t, font, color, y, x = R, align = 'right') => { c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = align; c.fillText(String(t), x, y); };
+  const RED = '#D93025';   // 🏷 أحمر الخصم (شطب السعر الأصلي + السعر بعد الخصم)
+  // 🏷 نص عليه خط (للسعر الأصلي قبل خصم المنيو)
+  const arStrike = (t, font, color, y, x = R) => {
+    c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = 'right';
+    const w = (c.measureText ? c.measureText(String(t)).width : 0) || 0;
+    c.fillText(String(t), x, y);
+    c.strokeStyle = color; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(x - w, y - 9); c.lineTo(x, y - 9); c.stroke();
+  };
   const en = (t, font, color, y, x, align = 'left') => { c.font = font; c.fillStyle = color; c.direction = 'ltr'; c.textAlign = align; c.fillText(String(t), x, y); };
 
   // ترويسة
@@ -313,20 +328,32 @@ export async function renderOrderInvoicePng(order) {
   y += 26;
   c.fillStyle = '#E3F2FB'; c.fillRect(50, y, W - 100, 46);
   ar('الصنف', 'bold 24px Cairo', DARK, y + 32, W - 80);
-  ar('الكمية', 'bold 24px Cairo', DARK, y + 32, 330);
-  ar('السعر', 'bold 24px Cairo', DARK, y + 32, 220);
-  ar('الإجمالي (ر.س)', 'bold 24px Cairo', DARK, y + 32, 130);
+  ar('الكمية', 'bold 24px Cairo', DARK, y + 32, 400);
+  ar('السعر', 'bold 24px Cairo', DARK, y + 32, 272);
+  ar('الإجمالي', 'bold 24px Cairo', DARK, y + 32, 130);
   y += 46;
   let subtotalCalc = 0;
+  const _mpct = Number(order.menu_discount_pct || 0);
   for (const it of items.slice(0, 14)) {
     const qty = Number(it.quantity || 1), pr = Number(it.price || 0);
+    const netUnit = _mpct ? Math.round(pr * (100 - _mpct) / 100) : pr;
     subtotalCalc += qty * pr;
     c.fillStyle = '#ffffff'; c.fillRect(50, y, W - 100, 44);
     c.strokeStyle = LINE; c.lineWidth = 1; c.beginPath(); c.moveTo(50, y + 44); c.lineTo(W - 50, y + 44); c.stroke();
     ar(String(it.name || '').slice(0, 30), '24px Cairo', '#22303c', y + 30, W - 80);
-    ar(String(qty), 'bold 24px Cairo', DARK, y + 30, 330);
-    ar(money(pr), '24px Cairo', '#22303c', y + 30, 220);
-    ar(money(qty * pr), 'bold 24px Cairo', DARK, y + 30, 130);
+    ar(String(qty), 'bold 22px Cairo', DARK, y + 30, 400);
+    if (_mpct && netUnit !== pr) {
+      // السعر الأصلي مشطوب بخط أحمر، وبجواره السعر بعد الخصم بالأحمر
+      const oldTxt = money(pr);
+      arStrike(oldTxt, '21px Cairo', RED, y + 30, 272);
+      c.font = '21px Cairo';
+      const wOld = (c.measureText ? c.measureText(oldTxt).width : 0) || 0;
+      ar(money(netUnit), 'bold 22px Cairo', RED, y + 30, 272 - wOld - 10);
+      ar(money(qty * netUnit), 'bold 22px Cairo', DARK, y + 30, 130);
+    } else {
+      ar(money(pr), '21px Cairo', '#22303c', y + 30, 272);
+      ar(money(qty * pr), 'bold 22px Cairo', DARK, y + 30, 130);
+    }
     y += 44;
   }
   if (items.length > 14) { ar(`+ ${items.length - 14} أصناف أخرى`, '22px Cairo', GREY, y + 26); y += 40; }
@@ -335,11 +362,14 @@ export async function renderOrderInvoicePng(order) {
   // المجاميع
   c.strokeStyle = LINE; c.beginPath(); c.moveTo(50, y); c.lineTo(W - 50, y); c.stroke();
   y += 36;
-  ar(`إجمالي الأصناف: ${money(order.subtotal || subtotalCalc)} ر.س`, '25px Cairo', GREY, y); y += 40;
-  if (Number(order.discount)) { ar(`الخصم: -${money(order.discount)} ر.س`, '25px Cairo', GREY, y); y += 40; }
+  ar(`السعر الأساسي (قبل الخصم): ${money(order.subtotal || subtotalCalc)} ر.س`, '25px Cairo', GREY, y); y += 40;
+  if (Number(order.menu_discount)) {
+    ar(`الخصم${order.menu_discount_label ? ' — ' + order.menu_discount_label : ''} (${Number(order.menu_discount_pct || 0)}%): -${money(order.menu_discount)} ر.س`, 'bold 26px Cairo', RED, y); y += 40;
+  }
+  if (Number(order.discount)) { ar(`الخصم: -${money(order.discount)} ر.س`, '25px Cairo', RED, y); y += 40; }
   ar(`${isPickup ? 'التوصيل: استلام من النشاط' : `مبلغ التوصيل: ${money(order.delivery_fee)} ر.س`}`, '25px Cairo', GREY, y); y += 44;
   c.fillStyle = GREEN; c.fillRect(50, y, W - 100, 78);
-  ar('المجموع النهائي', 'bold 32px Cairo', '#ffffff', y + 50, W - 80);
+  ar('المجموع بعد الخصم', 'bold 32px Cairo', '#ffffff', y + 50, W - 80);
   ar(`${money(order.total)} ر.س`, 'bold 36px Cairo', '#ffffff', y + 52, 120, 'left');
   y += 96;
   ar(`${Number(order.is_preorder) ? '📅 طلب مسبق: ' + (order.scheduled_for || '') + ' ' + (order.scheduled_time || '') : ''}`, '23px Cairo', GREY, y);
@@ -375,7 +405,7 @@ export async function renderOrderInvoicePng(order) {
   c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 22, ry + 52);
   c.font = 'bold 32px Cairo'; c.fillText('معتمد من منصة تلي هم', rx + stampW - 22, ry + 100);
   c.font = 'bold 24px Cairo'; c.fillText(String(r?.name_ar || '').slice(0, 26), rx + stampW - 22, ry + 140);
-  c.font = '20px Cairo'; c.fillText('موقع إلكتروني · Tele Ham', rx + stampW - 22, ry + 176);
+  c.font = '20px Cairo'; c.fillText(`موقع إلكتروني · ${SITE}`, rx + stampW - 22, ry + 176);
   c.font = 'bold 20px Cairo'; c.fillText(`فاتورة رقم ${invNo}`, rx + stampW - 22, ry + 210);
   c.font = '18px Cairo'; c.fillText(`${dt}`, rx + stampW - 22, ry + 238);
   c.restore();
@@ -470,6 +500,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
   const c = canvas.getContext('2d');
   const GREEN = '#229ED9', DARK = '#17212B', GREY = '#5b6b7c', LINE = '#dce8f2', LIGHT = '#F2F8FC';
   c.fillStyle = '#ffffff'; c.fillRect(0, 0, W, H);
+  const RED = '#D93025';   // 🏷 أحمر المبالغ المخصومة
   const R = 850;
   const ar = (text, font, color, y, x = R, align = 'right') => { c.font = font; c.fillStyle = color; c.direction = 'rtl'; c.textAlign = align; c.fillText(String(text), x, y); };
   const en = (text, font, color, y, x, align = 'left') => { c.font = font; c.fillStyle = color; c.direction = 'ltr'; c.textAlign = align; c.fillText(String(text), x, y); };
@@ -517,7 +548,13 @@ export async function renderPlatformReportPng(dateStr, stats) {
 
   ar(`💳 شبكة: ${money(s.net)} ر.س   ·   💵 كاش: ${money(s.cash)} ر.س`, '25px Cairo', '#22303c', y + 18); y += 42;
   if (s.commissionBusiness != null) { ar(`🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س`, '23px Cairo', '#22303c', y + 16); y += 38; }
-  if (s.discount) { ar(`🏷 الخصومات: -${money(s.discount)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
+  {
+    const _dt = Number(s.menuDiscount || 0) + Number(s.discount || 0);
+    if (_dt) {
+      ar(`الخصم: -${money(_dt)} ر.س`, 'bold 25px Cairo', RED, y + 16); y += 36;
+      if (Number(s.menuDiscount) && Number(s.discount)) { ar(`(خصم المنيو -${money(s.menuDiscount)} · عروض -${money(s.discount)})`, '20px Cairo', GREY, y + 14); y += 30; }
+    }
+  }
   if (s.fee) { ar(`🛵 رسوم التوصيل: ${money(s.fee)} ر.س`, '24px Cairo', GREY, y + 16); y += 36; }
   y += 10;
   c.fillStyle = GREEN; c.fillRect(50, y, W - 100, 70);
@@ -553,7 +590,7 @@ export async function renderPlatformReportPng(dateStr, stats) {
   c.direction = 'rtl'; c.textAlign = 'right'; c.fillStyle = '#1B7FB8';
   c.font = 'bold 26px Cairo'; c.fillText('تلي هم', rx + stampW - 22, ry + 54);
   c.font = 'bold 36px Cairo'; c.fillText('معتمد', rx + stampW - 22, ry + 106);
-  c.font = '21px Cairo'; c.fillText('موقع إلكتروني', rx + stampW - 22, ry + 136);
+  c.font = '21px Cairo'; c.fillText(`موقع إلكتروني · ${SITE}`, rx + stampW - 22, ry + 136);
   c.font = 'bold 20px Cairo'; c.fillText('Tele Ham', rx + stampW - 22, ry + 166);
   c.font = '18px Cairo'; c.fillText(no, rx + stampW - 22, ry + 194);
   c.font = '17px Cairo'; c.fillText(`${dateStr} — ${hhmm}`, rx + stampW - 22, ry + 217);

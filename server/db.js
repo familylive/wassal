@@ -145,9 +145,37 @@ try { db.exec("ALTER TABLE restaurants ADD COLUMN subscription_paid_at TEXT"); }
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN subscription_paid INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN delivery_photo_at TEXT"); } catch {}
+// 🏷 خصم المنيو (نسبة يحددها صاحب النشاط وتُطبَّق تلقائيًا على كل الأصناف)
+try { db.exec("ALTER TABLE restaurants ADD COLUMN menu_discount_pct INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN menu_discount INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN menu_discount_pct INTEGER DEFAULT 0"); } catch {}
+// 🎉 مناسبة الخصم (اليوم الوطني · يوم المعلم …) تُختار مع الخصم وتُحفظ على الطلب
+try { db.exec("ALTER TABLE restaurants ADD COLUMN menu_discount_label TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN menu_discount_label TEXT"); } catch {}
+// 📅 مدة خصم المنيو (من تاريخ إلى تاريخ)
+try { db.exec("ALTER TABLE restaurants ADD COLUMN menu_discount_from TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN menu_discount_to TEXT"); } catch {}
+// 🟠 حالة «مشغول» للنشاط (للفترة الحالية) + من فعّلها
+try { db.exec("ALTER TABLE restaurants ADD COLUMN busy_until TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN busy_by TEXT"); } catch {}
+try { db.exec("ALTER TABLE restaurants ADD COLUMN busy_by_phone TEXT"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN live_lat REAL"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN live_lng REAL"); } catch {}
 try { db.exec("ALTER TABLE orders ADD COLUMN live_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN loc_requested_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN loc_received_at TEXT"); } catch {}
+// 🤝 تواصل العميل↔الكابتن عبر البوت (بلا أرقام — إلا إذا سمح العميل بالاتصال لهذا الطلب)
+try { db.exec("ALTER TABLE orders ADD COLUMN contact_pref TEXT"); } catch {}          // voice | call | none
+try { db.exec("ALTER TABLE orders ADD COLUMN contact_asked_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN contact_reported_at TEXT"); } catch {}
+// ⏱️ نافذة إذن الاتصال (يُفتح بضغطة عند وصول الكابتن وينتهي تلقائيًا) + منع تكرار سؤال الباب
+try { db.exec("ALTER TABLE orders ADD COLUMN call_allow_until TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN door_prompt_at TEXT"); } catch {}
+// 🔗 توكن رابط الاتصال (ينتهي مجرد إغلاق الطلب)
+try { db.exec("ALTER TABLE orders ADD COLUMN call_token TEXT"); } catch {}
+// 🎤 وضع المحادثة الصوتية (لكل عميل) + رمز العنوان الوطني المختصر
+try { db.exec("ALTER TABLE whatsapp_sessions ADD COLUMN voice_mode_at TEXT"); } catch {}
+try { db.exec("ALTER TABLE orders ADD COLUMN short_address TEXT"); } catch {}
 try { db.exec("ALTER TABLE captains ADD COLUMN district TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN vehicle_type TEXT"); } catch {}
 try { db.exec("ALTER TABLE business_registrations ADD COLUMN captain_id INTEGER"); } catch {}

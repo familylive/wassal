@@ -15,16 +15,32 @@ export function waTo(phone) {
   return s;
 }
 
+// 🔗 في واتساب أزرار الرابط مسموحة في القوالب فقط — داخل الرسالة العادية يُقبل «reply» فقط.
+//    فنحوّل أي زر رابط إلى سطر في نص الرسالة (يبقى قابلًا للضغط) بدل ما تفشل الرسالة كاملة.
+export function splitUrlButtons(body, buttons) {
+  const btns = Array.isArray(buttons) ? buttons : [];
+  const urls = btns.filter(b => b && b.url && /^https?:/i.test(String(b.url)));  // في واتساب يعمل https فقط
+  const replies = btns.filter(b => b && !b.url && b.id);
+  let text = String(body || '');
+  if (urls.length) text += '\n\n' + urls.map(b => `🔗 ${String(b.title || '').replace(/📞|📱|💬/g, '').trim()}: ${b.url}`).join('\n');
+  return { body: text, buttons: replies };
+}
+
 async function sendCloud({ phone, type, body, buttons, list, image, document }) {
   const { token, phoneNumberId, apiUrl, provider } = config.whatsapp;
   if (!token) throw new Error('WHATSAPP_TOKEN غير معرّف');
   // ميتا تقبل الصيغة الدولية للأرقام بدون + أو 00 — نحوّل الرقم دائماً
   const to = waTo(phone);
   let msg;
+  if (type === 'buttons') {
+    const sp = splitUrlButtons(body, buttons);
+    if (!sp.buttons.length) { type = 'text'; body = sp.body; }           // ما بقي أزرار رد ⇒ رسالة نصية فيها الروابط
+    else { buttons = sp.buttons; body = sp.body; }
+  }
   if (type === 'text') msg = { messaging_product: 'whatsapp', to: to, type: 'text', text: { body } };
   else if (type === 'buttons') msg = {
     messaging_product: 'whatsapp', to: to, type: 'interactive',
-    interactive: { type: 'button', body: { text: body }, action: { buttons: buttons.map(b => ({ type: 'reply', reply: { id: b.id, title: b.title.slice(0, 20) } })) } }
+    interactive: { type: 'button', body: { text: body }, action: { buttons: buttons.slice(0, 3).map(b => ({ type: 'reply', reply: { id: b.id, title: String(b.title).slice(0, 20) } })) } }
   };
   else if (type === 'list') msg = {
     messaging_product: 'whatsapp', to: to, type: 'interactive',
@@ -41,6 +57,36 @@ async function sendCloud({ phone, type, body, buttons, list, image, document }) 
 }
 
 // 📨 تليجرام: نفس أشكال الرسائل (نص · أزرار · قوائم · صورة · ملف)
+// 🎤 إرسال رسالة صوتية في تليجرام: بمعرّف ملف موجود (sendVoice) أو بملف جاهز (sendAudio)
+export async function tgSendVoice(phone, { fileId = null, buffer = null, caption = '' } = {}) {
+  const { token } = config.telegram;
+  if (!token) return false;
+  try {
+    const raw = String(phone || '');
+    const norm = raw.startsWith('+') ? raw : (raw.length > 10 ? '+' + raw : '+966' + raw.replace(/^0/, ''));
+    const row = q.get("SELECT chat_id FROM telegram_links WHERE phone=? OR phone=? OR phone=? ORDER BY updated_at DESC LIMIT 1", raw, norm, raw.replace(/^\+/, ''))
+      || q.get("SELECT chat_id FROM telegram_links WHERE phone LIKE ? ORDER BY updated_at DESC LIMIT 1", '%' + raw.slice(-9));
+    const chat_id = row?.chat_id;
+    if (!chat_id) return false;
+    const api = `https://api.telegram.org/bot${token}/`;
+    let r;
+    if (fileId) {
+      r = await axios.post(api + 'sendVoice', { chat_id, voice: String(fileId), ...(caption ? { caption: String(caption).slice(0, 1000) } : {}) }, { timeout: 30000 });
+    } else if (buffer) {
+      const fd = new FormData();
+      fd.append('chat_id', String(chat_id));
+      fd.append('audio', new Blob([buffer], { type: 'audio/mpeg' }), 'voice.mp3');
+      if (caption) fd.append('caption', String(caption).slice(0, 1000));
+      r = await axios.post(api + 'sendAudio', fd, { timeout: 60000 });
+    } else return false;
+    return !!r.data?.ok;
+  } catch (e) {
+    console.error('TG_SEND_VOICE_FAIL', e.message);
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('out-error', ?, ?)", 'tg-send-voice', String(e.message).slice(0, 160)); } catch (_) {}
+    return false;
+  }
+}
+
 async function sendTelegram({ phone, type, body, buttons, list, image, document }) {
   const { token } = config.telegram;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN غير معرّف');
@@ -86,10 +132,13 @@ async function sendTelegram({ phone, type, body, buttons, list, image, document 
     //  • أزرار لها نفس group → صف واحد (مثال السلة: [الصنف][العدد][🗑])
     //  • أزرار قصيرة (short) → حتى 3 في السطر
     //  • غير ذلك → سطر لكل زر
-    const items = buttons.slice(0, 18).map(b => ({
-      text: String(b.title || '').slice(0, 60), callback_data: String(b.id || '').slice(0, 60),
-      short: !!b.short, group: b.group ? String(b.group) : null
-    }));
+    const items = buttons.slice(0, 18).map(b => {
+      const it = { text: String(b.title || '').slice(0, 60), short: !!b.short, group: b.group ? String(b.group) : null };
+      // 🔗 زر رابط (اتصال/محادثة العميل) — يعمل بلا id
+      if (b.url) it.url = String(b.url);
+      else it.callback_data = String(b.id || '').slice(0, 60);
+      return it;
+    });
     const rows = []; let bucket = [], lastGroup = null;
     const flush = () => { if (bucket.length) { rows.push(bucket); bucket = []; } };
     for (const it of items) {
@@ -132,7 +181,9 @@ async function sendLetsBot({ phone, type, body, buttons, list, image }) {
     r = await axios.post(`${apiUrl}/message/send`, fd({ phone: to, body }), { headers });
   } else if (type === 'buttons') {
     const p = { phone: to, title: 'تلي هم', body, footer: 'تلي هم' };
-    (buttons || []).slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
+    const _sp = splitUrlButtons(body, buttons);
+    body = _sp.body;
+    _sp.buttons.slice(0, 3).forEach((b, i) => { p[`buttons[${i}][id]`] = b.id; p[`buttons[${i}][title]`] = b.title; });
     r = await axios.post(`${apiUrl}/button`, fd(p), { headers });
   } else if (type === 'list') {
     // LetsBot لا يدعم القوائم التفاعلية عبر API → نص مرقّم (يعمل مع أي مزود)
@@ -205,10 +256,18 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
       console.log('WA_SEND_OK', type, phone);
       // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)
       // 🎙️ صوت لكل رسائل البوت (نص + قوائم + أزرار) — ما عدا الصور والمواقع
-      if (config.whatsapp.provider === 'cloud' && config.voice.replies && body && ['text', 'list', 'buttons'].includes(type)) {
-        const { sendVoiceNote } = await import('./voice.js');
-        sendVoiceNote(phone, body).catch(() => {});
-      }
+      // 🎤 المحادثة الصوتية: نرد صوتيًا أيضًا لمن فعّل الوضع الصوتي (ولمردود قصير فقط — لا نقرأ القوائم صوتيًا)
+      try {
+        let want = !!config.voice.replies;
+        if (!want && ['text', 'buttons', 'list'].includes(type)) {
+          const { isVoiceMode } = await import('./flow.js');
+          want = !!isVoiceMode(phone);
+        }
+        if (want && body && ['text', 'buttons'].includes(type) && String(body).length <= 400 && !/^https?:\/\//.test(String(body).trim())) {
+          const { sendVoiceNote } = await import('./voice.js');
+          sendVoiceNote(phone, body).catch(() => {});
+        }
+      } catch (e) { /* */ }
     } catch (e) {
       // 🔎 سبب رفض ميتا — يُسجَّل في webhook_log فيظهر عبر /api/whatsapp/debug
       const detail = e?.response?.data ? JSON.stringify(e.response.data).slice(0, 500) : (e?.message || 'خطأ غير معروف');

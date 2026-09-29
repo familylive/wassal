@@ -197,11 +197,11 @@ router.post('/webhook', async (req, res) => {
 
 // ---------- محاكي واتساب (اختبار كامل التدفق بدون إعدادات حقيقية) ----------
 router.post('/simulate', async (req, res) => {
-  const { phone, restaurant_id, body = '', type = 'text', payload = null, lat = null, lng = null } = req.body || {};
+  const { phone, restaurant_id, body = '', type = 'text', payload = null, lat = null, lng = null, voice = false } = req.body || {};
   if (!phone || !restaurant_id) return res.status(400).json({ error: 'phone و restaurant_id مطلوبان' });
   try {
     if (isCaptainPhone(phone)) await handleCaptainIncoming({ phone, body, payload });
-    else await handleIncoming({ phone, restaurantId: Number(restaurant_id), body, type, payload, lat, lng });
+    else await handleIncoming({ phone, restaurantId: Number(restaurant_id), body, type, payload, lat, lng, voice: !!voice || type === 'voice' || type === 'audio' });
     res.json({ ok: true });
   } catch (e) { console.error('simulate error', e); res.status(500).json({ error: e.message }); }
 });
@@ -228,15 +228,30 @@ router.post('/voice-in', voiceUpload.single('file'), async (req, res) => {
 // اختبار صوت زريّة (Azure TTS) — يرد بملف صوتي
 router.get('/voice-test', async (req, res) => {
   try {
-    const { azureTTS } = await import('../services/voice.js');
+    const { azureTTS, buildTtsAudio, googleTTS } = await import('../services/voice.js');
     const text = String(req.query.text || 'مرحبا بك في تلي هم');
-    const audio = await azureTTS(text, req.query.voice ? String(req.query.voice) : null);
-    if (!audio) return res.status(400).json({ error: 'AZURE_TTS_KEY غير معرّف أو فشل' });
+    // السلسلة: Azure (لو مضبوط) → ElevenLabs/OpenAI → المحرك المجاني (بلا مفتاح)
+    const audio = (req.query.azure === '1' && req.query.voice) ? await azureTTS(text, String(req.query.voice))
+      : await buildTtsAudio(String(text).slice(0, 300));
+    if (!audio) return res.status(400).json({ error: 'تعذّر توليد الصوت', hint: 'المحرك المجاني ما استجاب — جرّب مرة ثانية، أو ضبط AZURE_TTS_KEY لجودة أعلى' });
     res.set('Content-Type', 'audio/mpeg');
     res.set('X-Audio-Bytes', String(audio.byteLength));
     res.send(Buffer.from(audio));
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    // 🔎 تشخيص واضح لمشاكل مفتاح الصوت (مثال: 401 = مفتاح مرفوض)
+    const st = e.response?.status || null;
+    // 🔎 تشخيص بلا كشف المفتاح: هل موجود؟ طوله؟ آخره؟ والمنطقة المستخدمة؟
+    let cfg = {};
+    try {
+      const config = (await import('../config.js')).default;
+      const k = String(config.voice?.azureKey || '');
+      cfg = { hasKey: !!k, keyLen: k.length, keyTail: k ? k.slice(-4) : null, region: config.voice?.azureRegion || null };
+    } catch (_) {}
+    const hint = st === 401 ? 'المفتاح مرفوض من Azure (401) — تأكد أن المفتاح من مورد *Speech* وأنه KEY 1 بلا مسافات'
+      : st === 403 ? 'المفتاح صحيح لكن الاشتراك موقوف/انتهت الحصة — تأكد من مورد Speech والطبقة F0'
+      : st === 404 ? 'منطقة غير صحيحة — AZURE_TTS_REGION لازم بلا مسافات مثل uaenorth'
+      : 'تأكد من AZURE_TTS_KEY و AZURE_TTS_REGION';
+    res.status(500).json({ error: e.message, status: st, hint, ...cfg });
   }
 });
 

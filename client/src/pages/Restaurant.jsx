@@ -1,7 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { api, sar, payAr } from '../api.js';
+import { api, sar, payAr, getToken } from '../api.js';
 import { useApp, notify } from '../App.jsx';
 import { Card, Stat, Modal, Fld, Badge, Money, Pay, OrdersTable } from '../components/ui.jsx';
+
+// 📅 حسابات مدة العروض
+const dayStr = (v) => (v ? String(v).slice(0, 10) : '');
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const offStatus = (o) => !Number(o.is_active) ? { t: 'متوقف', c: 'b-gray' }
+  : (o.starts_at && dayStr(o.starts_at) > todayStr()) ? { t: 'لم يبدأ', c: 'b-amber' }
+    : (o.ends_at && dayStr(o.ends_at) < todayStr()) ? { t: 'منتهي', c: 'b-red' } : { t: 'فعّال', c: 'b-green' };
+const offPeriod = (o) => (o.starts_at || o.ends_at)
+  ? (o.starts_at && o.ends_at ? `📅 من ${dayStr(o.starts_at)} إلى ${dayStr(o.ends_at)}`
+    : o.ends_at ? `📅 حتى ${dayStr(o.ends_at)}` : `📅 من ${dayStr(o.starts_at)}`) : '';
 
 const TABS_OWNER = ['dashboard', 'orders', 'menu', 'offers', 'branches', 'reports', 'ratings', 'chats'];
 const TABS_SUPERVISOR = ['dashboard', 'orders', 'branch', 'reports', 'chats'];
@@ -29,9 +39,19 @@ export default function Restaurant() {
   const isOwner = user.role === 'owner' || user.role === 'admin';
   const TABS = tabsFor(user);
 
+  // 🟠🟢 حالة استقبال الطلبات (مفتوح · مشغول · مغلق)
+  const [status, setStatus] = useState(null);
+  const loadStatus = async () => { try { setStatus(await api('/restaurants/' + rid + '/status')); } catch (e) {} };
+  const setStatusAction = async (action) => {
+    try {
+      await api('/restaurants/' + rid + '/status', { method: 'POST', body: { action } });
+      await loadStatus();
+      notify(action === 'busy' ? '🟠 النشاط صار «مشغول» — العملاء يشوفون «عاود الطلب لاحقًا»' : action === 'close' ? '🔒 أُغلق استقبال الطلبات' : '🟢 النشاط يستقبل الطلبات');
+    } catch (e) { notify(e.message); }
+  };
   const loadOrders = async () => { try { setOrders(await api('/orders')); } catch (e) {} };
   const loadStats = async () => { try { setStats(await api(`/restaurants/${rid}/stats${isBranch ? '?branch_id=' + user.branch_id : ''}`)); } catch (e) {} };
-  useEffect(() => { loadOrders(); loadStats(); }, []);
+  useEffect(() => { loadOrders(); loadStats(); loadStatus(); const t = setInterval(loadStatus, 60000); return () => clearInterval(t); }, []);
   useEffect(() => {
     if (!socket) return;
     const f = () => { loadOrders(); loadStats(); if (user.role !== 'cashier') notify('🔔 تحديث في الطلبات'); };
@@ -56,6 +76,15 @@ export default function Restaurant() {
           <div className="row">
             <a href="/sim" target="_blank"><button className="btn ghost sm">🧪 محاكي واتساب</button></a>
             <span className="chip">طلبات نشطة: <b>{openCount}</b></span>
+            <span className="chip" style={{ background: status?.state === 'busy' ? '#fff3e0' : status?.state === 'closed' ? '#fdecea' : '#e8f5e9' }}>
+              {!status ? '…' : status.state === 'closed' ? '🔒 مغلق — لا نستقبل طلبات' : status.state === 'busy' ? `🟠 مشغول — يرجع بعد ${status.minutesLeft} د` : '🟢 يستقبل الطلبات'}
+            </span>
+            {status?.state === 'busy'
+              ? <button className="btn ghost sm" onClick={() => setStatusAction('open')}>🟢 رجّع الاستقبال</button>
+              : <button className="btn ghost sm" onClick={() => setStatusAction('busy')}>🟠 مشغول (زحمة)</button>}
+            {status?.state === 'closed'
+              ? <button className="btn ghost sm" onClick={() => setStatusAction('open')}>🟢 افتح الآن</button>
+              : <button className="btn ghost sm" onClick={() => setStatusAction('close')}>🔒 إغلاق الاستقبال</button>}
           </div>
         </div>
         {menuOpen && <div className="backdrop" onClick={() => setMenuOpen(false)} />}
@@ -63,7 +92,7 @@ export default function Restaurant() {
         {tab === 'dashboard' && <Dash stats={stats} orders={orders} onOpen={setSel} isBranch={isBranch} />}
         {tab === 'orders' && <Card title={user.role === 'cashier' ? 'طلبات اليوم — الكاشير' : 'كل الطلبات'}><OrdersTable orders={orders} onOpen={setSel} /></Card>}
         {tab === 'menu' && isOwner && <MenuTab rid={rid} />}
-        {tab === 'offers' && isOwner && <OffersTab rid={rid} />}
+        {tab === 'offers' && isOwner && <OffersTab rid={rid} onGoMenu={() => setTab('menu')} />}
         {tab === 'branches' && isOwner && <BranchesTab rid={rid} />}
         {tab === 'branch' && <MyBranch rid={rid} branchId={user.branch_id} />}
         {tab === 'reports' && <ReportsTab user={user} rid={rid} />}
@@ -100,18 +129,77 @@ function Dash({ stats, orders, onOpen, isBranch }) {
   );
 }
 
+// 🎉 مناسبات جاهزة للخصم (اليوم الوطني · يوم المعلم …) — ويقدر يكتب مناسبة خاصة
+const DISCOUNT_OCCASIONS = [
+  'اليوم الوطني', 'يوم التأسيس', 'يوم العلم', 'يوم المعلم', 'يوم الأم', 'يوم الطفل',
+  'رمضان', 'عيد الفطر', 'عيد الأضحى', 'الجمعة البيضاء', 'يوم القهوة السعودية',
+  'افتتاح جديد', 'عرض خاص'
+];
+
 function MenuTab({ rid }) {
   const [cats, setCats] = useState([]);
   const [items, setItems] = useState([]);
   const [cm, setCm] = useState(null);
   const [im, setIm] = useState(null);
+  const [pct, setPct] = useState(0);
+  const [pctInput, setPctInput] = useState('');
+  const [occ, setOcc] = useState('');          // مناسبة من القائمة (أو 'custom')
+  const [custom, setCustom] = useState('');    // مناسبة مكتوبة يدويًا
+  const [from, setFrom] = useState('');        // 📅 بداية الخصم
+  const [to, setTo] = useState('');            // 📅 نهاية الخصم
   const load = async () => {
     setCats(await api('/menu/categories?restaurant_id=' + rid));
     setItems(await api('/menu/items?restaurant_id=' + rid));
+    try {
+      const r = await api('/restaurants/' + rid);
+      const p = Number(r?.menu_discount_pct || 0);
+      const l = String(r?.menu_discount_label || '');
+      setPct(p); setPctInput(String(p));
+      setFrom(dayStr(r?.menu_discount_from)); setTo(dayStr(r?.menu_discount_to));
+      if (!l) { setOcc(''); setCustom(''); }
+      else if (DISCOUNT_OCCASIONS.includes(l)) { setOcc(l); setCustom(''); }
+      else { setOcc('custom'); setCustom(l); }
+    } catch (e) {}
   };
   useEffect(() => { load(); }, []);
+  const net = (price) => Math.round(Number(price || 0) * (100 - pct) / 100);
+  const label = occ === 'custom' ? custom.trim() : occ;
+  const saveDisc = async (v, l, f0 = from, t0 = to) => {
+    const p = Math.min(90, Math.max(0, Math.round(Number(v) || 0)));
+    const lbl = String(l || '').trim().slice(0, 40);
+    await api('/restaurants/' + rid, { method: 'PUT', body: { menu_discount_pct: p, menu_discount_label: lbl, menu_discount_from: f0 || null, menu_discount_to: t0 || null } });
+    setPct(p); setPctInput(String(p)); setFrom(f0 || ''); setTo(t0 || '');
+    if (!lbl) { setOcc(''); setCustom(''); }
+  };
+  const discState = !pct ? null
+    : (from && from > todayStr()) ? { t: 'لم يبدأ', c: 'b-amber' }
+      : (to && to < todayStr()) ? { t: 'منتهي', c: 'b-red' } : { t: 'فعّال', c: 'b-green' };
   return (
     <>
+      <Card title="🏷 خصم المنيو" action={discState ? <span className={'badge ' + discState.c}>{discState.t} {(label ? label + ' — ' : '') + pct + '%'}</span> : <span className="badge b-gray">غير مفعّل</span>}>
+        <div style={{ fontSize: 13, color: 'var(--mut)', marginBottom: 8 }}>
+          نسبة تُخصم تلقائيًا على <b>كل أصناف المنيو</b> — تظهر للعميل بالسعر القديم مشطوبًا وبجواره السعر بعد الخصم، وتُنزل الخصم على الفاتورة تلقائيًا بلا ما يسوي العميل شيء.
+          <br />اختر <b>مناسبة العرض</b> (اليوم الوطني · يوم المعلم …) وبتظهر للعميل مع الخصم وفي الفاتورة والتقارير.
+          <br />📅 وحدّد <b>مدة العرض</b> (من/إلى) — يشتغل داخل المدة فقط، وبعدها يرجع السعر الأصلي تلقائيًا.
+          <br />لا تؤثر على حصة المنصة (العمولة تُحسب على السعر قبل الخصم).
+        </div>
+        <div className="row">
+          <select value={occ} onChange={(e) => { const v = e.target.value; setOcc(v); if (v !== 'custom') setCustom(''); }} style={{ minWidth: 170 }}>
+            <option value="">اختر مناسبة العرض</option>
+            {DISCOUNT_OCCASIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            <option value="custom">أخرى…</option>
+          </select>
+          {occ === 'custom' ? <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="اكتب مناسبة العرض" style={{ minWidth: 170 }} /> : null}
+          <input type="number" min="0" max="90" value={pctInput} onChange={(e) => setPctInput(e.target.value)} style={{ width: 100 }} />
+          <span style={{ color: 'var(--mut)' }}>%</span>
+          <span style={{ color: 'var(--mut)', fontSize: 13 }}>📅 من</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <span style={{ color: 'var(--mut)', fontSize: 13 }}>إلى</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          <button className="btn sm" onClick={() => saveDisc(pctInput, label)}>💾 حفظ</button>
+          {pct ? <button className="btn ghost sm" onClick={() => saveDisc(0, '')}>⛔ أوقف الخصم</button> : null}
+        </div>
+      </Card>
       <Card title={`الأقسام (${cats.length})`} action={<button className="btn sm" onClick={() => setCm({})}>➕ قسم</button>}>
         <div className="row" style={{ flexWrap: 'wrap' }}>
           {cats.map(c => (
@@ -130,7 +218,7 @@ function MenuTab({ rid }) {
               <tr key={i.id}>
                 <td><b>{i.name}</b><br /><small style={{ color: 'var(--mut)' }}>{i.description}</small></td>
                 <td>{cats.find(c => c.id === i.category_id)?.name || '—'}</td>
-                <td>{sar(i.price)} ر.س</td>
+                <td>{pct ? <><s style={{ color: 'var(--mut)' }}>{sar(i.price)}</s> <b>{sar(net(i.price))}</b> ر.س</> : <>{sar(i.price)} ر.س</>}</td>
                 <td>{i.is_popular ? '⭐' : ''}</td>
                 <td>{i.is_available ? <span className="badge b-green">متاح</span> : <span className="badge b-red">نفد</span>}</td>
                 <td className="row"><button className="btn ghost sm" onClick={() => setIm(i)}>✏️</button>
@@ -177,30 +265,65 @@ function ItemForm({ rid, cats, i, onClose, onSaved }) {
   );
 }
 
-function OffersTab({ rid }) {
+// 🔥 تبويب العروض: العرض الفعّال + إضافة عرض — كلها على شكل أيقونات
+function OffersTab({ rid, onGoMenu }) {
   const [offers, setOffers] = useState([]);
   const [m, setM] = useState(null);
-  const load = async () => setOffers(await api('/offers?restaurant_id=' + rid));
+  const [disc, setDisc] = useState({ pct: 0, label: '' });
+  const load = async () => {
+    setOffers(await api('/offers?restaurant_id=' + rid));
+    try {
+      const r = await api('/restaurants/' + rid);
+      setDisc({ pct: Number(r?.menu_discount_pct || 0), label: String(r?.menu_discount_label || '') });
+    } catch (e) {}
+  };
   useEffect(() => { load(); }, []);
+  const active = offers.filter(o => Number(o.is_active));
+  const offIcon = (o) => o.type === 'percent' ? '🏷' : o.type === 'bundle' ? '🎁' : '💸';
+  const offVal = (o) => o.type === 'percent' ? `خصم ${o.value}%`
+    : o.type === 'bundle' ? `باقة${o.value ? ' — ' + sar(o.value) + ' ر.س' : ''}`
+    : `خصم ${sar(o.value)} ر.س`;
   return (
-    <Card title={`العروض (${offers.length})`} action={<button className="btn sm" onClick={() => setM({})}>➕ عرض</button>}>
-      <table>
-        <thead><tr><th>العرض</th><th>النوع</th><th>القيمة</th><th>حد أدنى</th><th>حالة</th><th></th></tr></thead>
-        <tbody>
+    <>
+      <Card title="🏷 خصم المنيو — عرض فعّال" action={disc.pct ? <span className="badge b-green">فعّال {disc.pct}%</span> : <span className="badge b-gray">غير مفعّل</span>}>
+        <div className="grid g3">
+          <div className="tile" onClick={onGoMenu}>
+            <div className="ic">🏷</div>
+            <div className="t">{disc.pct ? `خصم ${disc.pct}% على المنيو كله` : 'فعّل خصم على المنيو كله'}</div>
+            <div className="s">{disc.label ? `مناسبة العرض: ${disc.label}` : 'اضغط لتحديد النسبة والمناسبة'}</div>
+          </div>
+          <div className="tile" onClick={onGoMenu}>
+            <div className="ic">🖼</div>
+            <div className="t">ظهور السعر المشطوب</div>
+            <div className="s">{disc.pct ? `السعر القديم مشطوب وبجواره ${disc.pct}% أقل` : 'يظهر عند تفعيل الخصم'}</div>
+          </div>
+        </div>
+      </Card>
+      <Card title={`🔥 عروض الحملات (${active.length} فعّال من ${offers.length})`}>
+        <div className="grid g3">
           {offers.map(o => (
-            <tr key={o.id}>
-              <td><b>{o.title}</b><br /><small style={{ color: 'var(--mut)' }}>{o.description}</small></td>
-              <td><span className="badge b-purple">{o.type === 'percent' ? 'نسبة' : o.type === 'fixed' ? 'مبلغ' : 'باقة'}</span></td>
-              <td>{o.type === 'percent' ? o.value + '%' : sar(o.value) + ' ر.س'}</td>
-              <td>{o.min_order ? sar(o.min_order) + ' ر.س' : '—'}</td>
-              <td>{o.is_active ? <span className="badge b-green">نشط</span> : <span className="badge b-gray">متوقف</span>}</td>
-              <td className="row"><button className="btn ghost sm" onClick={() => setM(o)}>✏️</button><button className="btn red sm" onClick={async () => { await api('/offers/' + o.id, { method: 'DELETE' }); load(); }}>🗑</button></td>
-            </tr>
+            <div key={o.id} className="tile">
+              <div className="ic">{offIcon(o)}</div>
+              <div className="t">{o.title}</div>
+              <div className="s">{offVal(o)}{Number(o.min_order) ? ` · حد أدنى ${sar(o.min_order)} ر.س` : ''}</div>
+              {offPeriod(o) ? <div className="s">{offPeriod(o)}</div> : null}
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <span className={'badge ' + offStatus(o).c}>{offStatus(o).t}</span>
+                <button className="btn ghost sm" onClick={() => setM(o)}>✏️ تعديل</button>
+                <button className="btn red sm" onClick={async () => { if (!confirm('حذف العرض «' + o.title + '»؟')) return; await api('/offers/' + o.id, { method: 'DELETE' }); load(); }}>🗑</button>
+              </div>
+            </div>
           ))}
-        </tbody>
-      </table>
+          <div className="tile add" onClick={() => setM({})}>
+            <div className="ic">➕</div>
+            <div className="t">إضافة عرض</div>
+            <div className="s">نسبة % · مبلغ ثابت · باقة</div>
+          </div>
+        </div>
+        {!offers.length ? <div className="empty">ما فيه عروض حملات بعد — اضغط «➕ إضافة عرض»، أو فعّل «خصم المنيو» من الأعلى.</div> : null}
+      </Card>
       {m && <OfferForm rid={rid} o={m.id ? offers.find(x => x.id === m.id) : null} onClose={() => setM(null)} onSaved={() => { setM(null); load(); }} />}
-    </Card>
+    </>
   );
 }
 function OfferForm({ rid, o, onClose, onSaved }) {
@@ -216,8 +339,10 @@ function OfferForm({ rid, o, onClose, onSaved }) {
         <Fld label="القيمة (٪ أو هللة)"><input type="number" value={f.value} onChange={num('value')} /></Fld>
         <Fld label="الحد الأدنى (هللة)"><input type="number" value={f.min_order} onChange={num('min_order')} /></Fld>
         <Fld label="نشط"><select value={f.is_active} onChange={num('is_active')}><option value={1}>نعم</option><option value={0}>لا</option></select></Fld>
+        <Fld label="يبدأ من (اختياري)"><input type="date" value={dayStr(f.starts_at)} onChange={(e) => setF({ ...f, starts_at: e.target.value })} /></Fld>
+        <Fld label="ينتهي في (اختياري)"><input type="date" value={dayStr(f.ends_at)} onChange={(e) => setF({ ...f, ends_at: e.target.value })} /></Fld>
       </div>
-      <div className="row" style={{ marginTop: 14 }}><button className="btn" onClick={async () => { if (o) await api('/offers/' + o.id, { method: 'PUT', body: f }); else await api('/offers', { method: 'POST', body: { ...f, restaurant_id: rid } }); onSaved(); }}>حفظ</button></div>
+      <div className="row" style={{ marginTop: 14 }}><button className="btn" onClick={async () => { const body = { ...f, starts_at: f.starts_at ? dayStr(f.starts_at) + ' 00:00:00' : null, ends_at: f.ends_at ? dayStr(f.ends_at) + ' 23:59:59' : null }; if (o) await api('/offers/' + o.id, { method: 'PUT', body }); else await api('/offers', { method: 'POST', body: { ...body, restaurant_id: rid } }); onSaved(); }}>حفظ</button></div>
     </Modal>
   );
 }
@@ -357,6 +482,26 @@ function OrderModal({ o, onClose, refresh }) {
   const act = async (fn) => { try { await fn(); refresh(); const fresh = await api('/orders/' + o.id); setD(fresh); } catch (e) { notify(e.message); } };
   const accepted = (d.offers || []).filter(x => x.status === 'accepted');
 
+  // 🖨 الإيصال الحراري (بدون ختم) — مقاس طابعة الكاشير
+  const receiptBlobUrl = async () => {
+    const res = await fetch('/api/orders/' + d.id + '/receipt.png', { headers: { Authorization: 'Bearer ' + getToken() } });
+    if (!res.ok) throw new Error('تعذّر إنشاء الإيصال');
+    return URL.createObjectURL(await res.blob());
+  };
+  const printReceipt = async () => {
+    try {
+      const url = await receiptBlobUrl();
+      const w = window.open('', '_blank');
+      if (!w) { notify('اسمح بالنوافذ المنبثقة للطباعة'); return; }
+      w.document.write(`<html dir="rtl"><head><title>إيصال ${d.order_no}</title><style>@page{size:80mm auto;margin:2mm}html,body{margin:0;background:#fff}img{width:76mm;display:block;margin:0 auto}</style></head><body><img src="${url}" onload="setTimeout(function(){window.print()},350)"></body></html>`);
+      w.document.close();
+      notify('🖨 جاهز للطباعة');
+      await api('/orders/' + d.id + '/receipt/send', { method: 'POST' });
+      notify('📤 وأرسلنا نسخة الإيصال للعميل');
+    } catch (e) { notify(e.message); }
+  };
+  const sendReceipt = async () => { try { await api('/orders/' + d.id + '/receipt/send', { method: 'POST' }); notify('📤 أُرسل الإيصال للعميل'); } catch (e) { notify(e.message); } };
+
   return (
     <Modal title={`${d.order_no} — ${d.restaurant_name || ''}`} onClose={onClose} wide>
       <div className="row" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
@@ -379,6 +524,8 @@ function OrderModal({ o, onClose, refresh }) {
               notify(r?.offered ? `🛵 ${r.note || ''}` : `⚠️ ${r?.note || 'ما فيه كابتن متاح'}`);
             })}>🛵 إعادة البحث عن كابتن</button>
           )}
+          <button className="btn" style={{ background: '#37474f', color: '#fff' }} onClick={printReceipt}>🖨 اطبع الإيصال</button>
+          <button className="btn ghost" onClick={sendReceipt}>📤 أرسل الإيصال للعميل</button>
           <button className="btn red" onClick={() => act(() => api('/orders/' + d.id + '/cancel', { method: 'POST', body: { reason: 'إلغاء من المطعم' } }))}>إلغاء</button>
         </div>
       )}
@@ -404,6 +551,12 @@ function OrderModal({ o, onClose, refresh }) {
           <h4 style={{ margin: '14px 0 8px' }}>📍 التوصيل</h4>
           <div style={{ fontSize: 13.5, lineHeight: 1.9 }}>{d.national_address || `${d.lat},${d.lng}`}<br />العميل: {d.customer?.name} — {d.customer?.phone}</div>
           {d.captain && <div style={{ fontSize: 13.5, marginTop: 8 }}>🛵 الكابتن: {d.captain.name} — {d.captain.phone}</div>}
+          {d.contact_reported_at
+            ? <div style={{ fontSize: 13, marginTop: 8, color: '#b3261e' }}>🚫 العميل أبلغ عن إزعاج — التواصل موقوف في هذا الطلب</div>
+            : d.contact_pref === 'voice' ? <div style={{ fontSize: 13, marginTop: 8 }}>🎤 التواصل مع الكابتن عبر البوت (رقم العميل مخفي)</div>
+            : d.contact_pref === 'call' ? <div style={{ fontSize: 13, marginTop: 8 }}>📞 العميل سمح للكابتن بالاتصال — لهذا الطلب فقط</div>
+            : d.contact_pref === 'none' ? <div style={{ fontSize: 13, marginTop: 8 }}>🚫 العميل طلب عدم التواصل</div>
+            : <div style={{ fontSize: 13, marginTop: 8, color: '#8a6d00' }}>⏳ لم يحدد العميل طريقة التواصل — يُفترض إخفاء الرقم</div>}
           {d.rating_restaurant && <div style={{ fontSize: 13.5, marginTop: 8 }}>⭐ تقييم العميل: مطعم {'⭐'.repeat(d.rating_restaurant)} · سرعة {'⭐'.repeat(d.rating_speed || 0)} · كابتن {'⭐'.repeat(d.rating_captain || 0)}</div>}
           {d.status === 'cancelled' && (
             <div style={{ fontSize: 13.5, marginTop: 10, background: '#fde8e8', border: '1px solid #f5c6c6', borderRadius: 10, padding: 10 }}>

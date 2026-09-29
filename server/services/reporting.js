@@ -63,8 +63,10 @@ export function rangeStats(restaurantId, from, to) {
   const orders = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where}`, ...w).c);
   const delivered = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='delivered'`, ...w).c);
   const cancelled = n(q.get(`SELECT COUNT(*) c FROM orders WHERE ${where} AND status='cancelled'`, ...w).c);
-  const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc, COALESCE(SUM(subtotal),0) sub
+  const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc, COALESCE(SUM(menu_discount),0) mdisc, COALESCE(SUM(subtotal),0) sub
     FROM orders WHERE ${where} AND status!='cancelled'`, ...w);
+  // 🎉 مناسبة الخصم (تظهر في التقرير لو كانت مناسبة واحدة على كل طلبات الفترة)
+  const mdiscLabels = q.all(`SELECT DISTINCT menu_discount_label l FROM orders WHERE ${where} AND status!='cancelled' AND menu_discount>0 AND menu_discount_label IS NOT NULL AND menu_discount_label<>''`, ...w).map(x => x.l);
   const byMethod = q.all(`SELECT payment_method m, COUNT(*) c, COALESCE(SUM(total),0) s
     FROM orders WHERE ${where} AND status!='cancelled' GROUP BY payment_method ORDER BY s DESC`, ...w);
   // الأكثر مبيعاً (من أصناف الطلبات غير الملغاة)
@@ -89,7 +91,7 @@ export function rangeStats(restaurantId, from, to) {
   return {
     restaurantId, from, to, dateStr: from === to ? from : `${from}..${to}`,
     orders, delivered, cancelled,
-    salesCount: n(agg.c), salesTotal: n(agg.total), fees: n(agg.fee), discount: n(agg.disc), subtotal: n(agg.sub),
+    salesCount: n(agg.c), salesTotal: n(agg.total), fees: n(agg.fee), discount: n(agg.disc), menuDiscount: n(agg.mdisc), menuDiscountLabels: mdiscLabels, subtotal: n(agg.sub),
     methods: byMethod.map(x => ({ method: x.m || 'card', count: n(x.c), total: n(x.s) })),
     top
   };
@@ -101,6 +103,18 @@ export function dailyStats(restaurantId, dateStr) {
 }
 
 const isElectronic = (m) => m !== 'cash';
+
+// 🏷 سطر المبالغ المخصومة (خصم المنيو + خصومات العروض) — يظهر في كل التقارير (يومي/أسبوعي/شهري…)
+function discountLines(s, fmt = rls) {
+  const menu = Number(s?.menuDiscount || 0), off = Number(s?.discount || 0);
+  const total = menu + off;
+  if (!total) return '';
+  const one = (s?.menuDiscountLabels || []).length === 1 ? ` «${s.menuDiscountLabels[0]}»` : '';
+  let t = `🏷 الخصم: -${fmt(total)} ر.س\n`;
+  if (menu && off) t += `   (خصم المنيو${one} -${fmt(menu)} · عروض -${fmt(off)})\n`;
+  else if (menu && one) t += `   (خصم المنيو${one})\n`;
+  return t;
+}
 
 // نص التقرير (جاهز للإرسال) — يُستخدم لليوم وللمدى (أسبوعي · شهري · سنوي)
 function renderSalesReport(r, s, { title, period = '', emptyWord = 'هذا اليوم' }) {
@@ -126,7 +140,7 @@ function renderSalesReport(r, s, { title, period = '', emptyWord = 'هذا ال�
   t += `💳 *شبكة*${netDetail ? ` (${netDetail})` : ''}\n• ${netTot.count} طلب — ${rls(netTot.total)} ر.س\n`;
   t += `\n💵 *كاش*\n• ${cashTot.count} طلب — ${rls(cashTot.total)} ر.س\n`;
   t += '\n━━━━━━━━━━━━━━━━\n';
-  if (s.discount) t += `🏷 الخصومات: -${rls(s.discount)} ر.س\n`;
+  t += discountLines(s);
   if (s.fees) t += `🛵 رسوم التوصيل: ${rls(s.fees)} ر.س\n`;
   t += `💰 *المجموع الختام: ${rls(s.salesTotal)} ر.س*\n`;
   if (s.salesCount > s.delivered) t += `⏳ طلبات جارية/غير مكتملة: ${s.salesCount - s.delivered}\n`;
@@ -309,7 +323,7 @@ export function platformRangeStats(from, to) {
   const all = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ?", ...w);
   const delivered = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status='delivered'", ...w);
   const cancelled = q.get("SELECT COUNT(*) c FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status='cancelled'", ...w);
-  const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc,
+  const agg = q.get(`SELECT COUNT(*) c, COALESCE(SUM(total),0) total, COALESCE(SUM(delivery_fee),0) fee, COALESCE(SUM(discount),0) disc, COALESCE(SUM(menu_discount),0) mdisc,
       COALESCE(SUM(CASE WHEN payment_method='cash' THEN total ELSE 0 END),0) cash,
       COALESCE(SUM(CASE WHEN payment_method!='cash' THEN total ELSE 0 END),0) net
     FROM orders WHERE date(created_at) BETWEEN ? AND ? AND status!='cancelled'`, ...w);
@@ -329,7 +343,7 @@ export function platformRangeStats(from, to) {
     delivered: Number(delivered.c) || 0,
     cancelled: Number(cancelled.c) || 0,
     salesCount: Number(agg.c) || 0,
-    total, fee: Number(agg.fee) || 0, discount: Number(agg.disc) || 0,
+    total, fee: Number(agg.fee) || 0, discount: Number(agg.disc) || 0, menuDiscount: Number(agg.mdisc) || 0,
     cash: Number(agg.cash) || 0, net: Number(agg.net) || 0,
     pickup: Number(pickup?.c) || 0,
     commissionBusiness: Number(commissions?.cb) || 0,
@@ -361,7 +375,7 @@ export function buildPlatformReport(dateStr) {
   if (s.pickup) t += `🏪 استلام من الفرع: ${s.pickup} طلب\n`;
   t += `💳 شبكة: ${money(s.net)} ر.س · 💵 كاش: ${money(s.cash)} ر.س\n`;
   t += `🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س\n`;
-  if (s.discount) t += `🏷 الخصومات: -${money(s.discount)} ر.س\n`;
+  t += discountLines(s, money);
   if (s.fee) t += `🛵 رسوم التوصيل: ${money(s.fee)} ر.س\n`;
   t += '━━━━━━━━━━━━━━━━\n';
   t += `💰 *المجموع الختامي: ${money(s.total)} ر.س*\n`;
@@ -393,7 +407,7 @@ export function buildPlatformRangeReport(kind = 'day') {
   if (s.pickup) t += `🏪 استلام من الفرع: ${s.pickup} طلب\n`;
   t += `💳 شبكة: ${money(s.net)} ر.س · 💵 كاش: ${money(s.cash)} ر.س\n`;
   t += `🏛 عمولات المنصة: من الأنشطة ${money(s.commissionBusiness)} + من الكباتن ${money(s.commissionCaptain)} ر.س\n`;
-  if (s.discount) t += `🏷 الخصومات: -${money(s.discount)} ر.س\n`;
+  t += discountLines(s, money);
   if (s.fee) t += `🛵 رسوم التوصيل: ${money(s.fee)} ر.س\n`;
   t += '━━━━━━━━━━━━━━━━\n';
   t += `💰 *المجموع الختامي: ${money(s.total)} ر.س*\n`;
