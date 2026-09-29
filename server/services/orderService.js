@@ -154,6 +154,10 @@ export async function setStatus(orderId, status, actorType = 'system', actorId =
       : `\n\n🔐 *رمز استلام طلبك: ${order.delivery_code}*\nلا تعطيه إلا للمندوب عند التسليم.`);
       + (cap ? `\n🛵 المندوب: *${cap.name || ''}* — 📱 ${lp(cap.phone)}` : '');
   }
+  // 📍 نطلب موقع العميل عند استلام الكابتن (للدقة + لإبلاغ الكابتن بالانطلاق)
+  if (status === 'with_captain') {
+    custMsg += `\n\n📍 *أرسل موقعك الحالي* عشان الكابتن يوصلك بدقة:\n📎 ← الموقع  (والأفضل: «الموقع المباشر» لمدة 8 ساعات)`;
+  }
   if (customer) waSend({ phone: customer.phone, restaurantId: order.restaurant_id, orderId, type: 'text', body: custMsg });
   emitTo(`restaurant:${order.restaurant_id}`, 'order:update', { orderId, status, order: { ...order, status } });
   if (order.captain_id) emitTo(`captain:${order.captain_id}`, 'order:update', { orderId, status, order: { ...order, status } });

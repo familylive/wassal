@@ -729,6 +729,26 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
       return handleCaptainIncoming({ phone, body, payload });
     }
   } catch (e) { console.error('CAPTAIN_ROUTE_FAIL', e.message); }
+  // 📍 موقع العميل أثناء التوصيل: يُحفظ على الطلب ويُبلَّغ الكابتن «🚀 انطلق»
+  if (type === 'location' && lat != null && lng != null) {
+    try {
+      const _cust = q.get("SELECT * FROM customers WHERE phone=? OR phone=? ORDER BY id LIMIT 1", phone, validatePhone(phone));
+      const _ord = _cust ? q.get("SELECT * FROM orders WHERE customer_id=? AND status IN ('with_captain','on_the_way','arrived') ORDER BY id DESC LIMIT 1", _cust.id) : null;
+      if (_ord) {
+        const _la = Number(lat); const _ln = Number(lng);
+        const _map = `https://maps.google.com/?q=${_la},${_ln}`;
+        q.run("UPDATE orders SET live_lat=?, live_lng=?, live_at=datetime('now') WHERE id=?", _la, _ln, _ord.id);
+        send(phone, _ord.restaurant_id, _ord.id, 'text', `✅ *وصلنا موقعك* 📍\nالكابتن متوجّه إليك 🛵\n🗺️ ${_map}`);
+        const _cap = _ord.captain_id ? q.get("SELECT * FROM captains WHERE id=?", _ord.captain_id) : null;
+        if (_cap?.phone) {
+          waSend({ phone: _cap.phone, restaurantId: _ord.restaurant_id, orderId: _ord.id, type: 'buttons',
+            body: `📍 *وصل موقع العميل!*\n📦 ${_ord.order_no}\n🗺️ ${_map}\n\n🚀 *انطلق* — رحلة التوصيل بدأت\n⏱️ عندك *25 دقيقة* للتسليم للعميل`,
+            buttons: [{ id: 'cap:stage:on_the_way', title: '🚀 انطلقت' }, { id: 'cap:stage:arrived', title: '📍 وصلت' }] }).catch(() => {});
+        }
+        return;
+      }
+    } catch (e) { console.error('CUST_LIVE_LOC_FAIL', e.message); }
+  }
   const customer = ensureCustomer(phone);
   // 🏠 أزرار قائمة العميل
   if (payload && String(payload).startsWith('cmenu:')) return handleCustomerMenu(phone, restaurantId, String(payload), customer);
