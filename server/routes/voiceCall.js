@@ -84,10 +84,25 @@ function menuSpeech(rid, max = 5) {
   return items.map((i) => `${i.name} بـ ${(Number(i.price) / 100).toFixed(0)} ريال`).join('، و');
 }
 
+// 🧭 من هو العميل في هذه المكالمة؟ (وارد: From · صادر من Twilio: To)
+// ⚠️ فخّ: validatePhone('') ترجّع '+966' (قيمة صحيحة!) — فنُصفّي الفراغ قبلها وإلا انقلبت الهوية
+const normP = (v) => {
+  const d = String(v || '').replace(/[^\d]/g, '');
+  return d.length >= 9 ? validatePhone(d) : '';
+};
+function custPhone(req) {
+  const qp = normP(req.query?.customer);
+  if (qp) return qp;
+  const from = normP(req.body?.From || req.body?.from || req.body?.caller);
+  const to = normP(req.body?.To || req.body?.to);
+  const tw = normP(config.twilio?.fromNumber);
+  if (tw && from && from === tw && to) return to;   // مكالمة صادرة من رقمنا ⇒ العميل هو المُتَّصل عليه
+  return from || to || '';
+}
+
 // ---------- ① بداية المكالمة ----------
 router.post('/incoming', async (req, res) => {
-  const from = validatePhone(req.body?.From || req.body?.from || req.body?.caller || '');
-  const phone = from || String(req.body?.From || '').replace(/^\+/, '');
+  const phone = custPhone(req);
   // 🛡️ حد بسيط: ٤٠ مكالمة كحد أقصى لنفس الرقم في الساعة (حماية من الإساءة على توليد الصوت)
   try {
     const n = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='voice-call' AND summary=? AND created_at >= datetime('now','-1 hour')", String(phone).slice(-4))?.c || 0);
@@ -102,8 +117,7 @@ router.post('/incoming', async (req, res) => {
 
 // ---------- ② استقبال كلام العميل وتوجيهه ----------
 router.post('/step', async (req, res) => {
-  const from = validatePhone(req.body?.From || req.body?.from || req.body?.caller || '');
-  const phone = from || String(req.body?.From || req.body?.To || '').replace(/^\+/, '');
+  const phone = custPhone(req);
   const rec = req.body?.RecordingUrl || req.body?.recording_url || null;
   const debug = process.env.VOICE_DEBUG === '1' ? String(req.body?.debug_text || req.query?.debug_text || '') : '';
   let text = debug || (rec ? await speechToText(rec) : '');
@@ -264,6 +278,51 @@ router.get('/wave/test-call', async (req, res) => {
       : st === 401 ? 'المفتاح مرفوض' : 'راجع الخطأ';
     return res.status(400).json({ ok: false, error: e.response?.data?.message || e.message, status: st, error_code: code, hint, raw: e.response?.data || null });
   }
+});
+
+// ---------- 📞 Twilio: نحن نتصل على جوالك (إنت ما تدفع شي — يُخصم من رصيد Twilio) ----------
+//   https://telyham.com/api/voice/twilio/call-me
+//   ?phone=%2B9665XXXXXXXX   (اختياري — وإلا يستخدم TWILIO_TO_NUMBER المحفوظ)
+router.get('/twilio/call-me', async (req, res) => {
+  const t = config.twilio || {};
+  if (!t.accountSid || !t.authToken || !t.fromNumber) {
+    return res.json({ ok: false, error: 'أضف بيانات Twilio في إعدادات اللوحة: Account SID · Auth Token · رقم Twilio' });
+  }
+  const phone = validatePhone(req.query.phone || t.toNumber || '');
+  if (!phone) return res.json({ ok: false, error: 'حدّد رقم جوالك: ?phone=%2B9665XXXXXXXX أو احفظ TWILIO_TO_NUMBER في الإعدادات' });
+  const url = `${publicBase()}/api/voice/incoming?customer=${encodeURIComponent(phone)}`;
+  try {
+    const body = new URLSearchParams({ To: phone, From: t.fromNumber, Url: url, Method: 'POST', Timeout: '30' });
+    const r = await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/Calls.json`, body.toString(), {
+      auth: { username: t.accountSid, password: t.authToken },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      timeout: 30000,
+    });
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('twilio-call', ?, ?)", String(phone).slice(-4), JSON.stringify({ sid: r.data?.sid, status: r.data?.status }).slice(0, 200)); } catch (e) {}
+    return res.json({ ok: true, message: `🔔 جاري الاتصال على ${phone} … استقبل على جوالك`, sid: r.data?.sid, status: r.data?.status });
+  } catch (e) {
+    const st = e.response?.status || null;
+    const code = e.response?.data?.code || null;
+    const hint = code === 21219 ? 'حساب تجريبي: لا يتصل إلا بأرقام موثّقة — أضف جوالك في Verified Caller IDs'
+      : code === 21608 ? 'رقمك غير موثّق في Twilio — Phone Numbers → Verified Caller IDs → أضف رقمك'
+      : code === 21215 ? 'رقم Twilio غير مسموح للإرسال، أو صلاحية الدولة (السعودية) موقوفة في Geographic Permissions'
+      : code === 21211 ? 'صيغة الرقم غير صحيحة — استخدم +9665XXXXXXXX'
+      : st === 401 ? 'Account SID أو Auth Token خطأ' : 'راجع الخطأ';
+    return res.json({ ok: false, error: e.response?.data?.message || e.message, code, status: st, hint, raw: e.response?.data || null });
+  }
+});
+
+// 📊 هل Twilio مضبوط؟
+router.get('/twilio/health', (req, res) => {
+  const t = config.twilio || {};
+  return res.json({
+    ok: true,
+    configured: Boolean(t.accountSid && t.authToken && t.fromNumber),
+    sidTail: t.accountSid ? t.accountSid.slice(-4) : null,
+    fromNumber: t.fromNumber || null,
+    toNumber: t.toNumber || null,
+    hasToken: Boolean(t.authToken),
+  });
 });
 
 // ---------- 🎙️ تجربة: نتصل ثم نشغّل صوتنا داخل المكالمة (يحتاج calls:write) ----------

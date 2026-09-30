@@ -5,13 +5,13 @@ import config from '../config.js';
 import { q } from '../db.js';
 
 const SECRET_KEYS = new Set([
-  'WHATSAPP_TOKEN', 'STT_API_KEY', 'TTS_API_KEY', 'AZURE_TTS_KEY', 'ELEVENLABS_API_KEY', 'WAVE_API_KEY'
+  'WHATSAPP_TOKEN', 'STT_API_KEY', 'TTS_API_KEY', 'AZURE_TTS_KEY', 'ELEVENLABS_API_KEY', 'WAVE_API_KEY', 'TWILIO_AUTH_TOKEN'
 ]);
 
 const ALLOWED = new Set([
   'WHATSAPP_PROVIDER', 'WHATSAPP_TOKEN', 'WHATSAPP_PHONE_NUMBER_ID', 'WHATSAPP_VERIFY_TOKEN', 'WHATSAPP_API_URL',
   'STT_API_KEY', 'TTS_API_KEY', 'AZURE_TTS_KEY', 'AZURE_TTS_REGION', 'TTS_VOICE',
-  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'WAVE_API_KEY', 'WAVE_FROM_NUMBER', 'VOICE_REPLIES', 'QUICK_ORDER', 'ADMIN_PHONE', 'SUPERVISOR_NAME', 'SUPERVISOR_ID', 'PAYMENT_MODE', 'MOYASAR_SECRET_KEY', 'COMMISSION_BUSINESS_PERCENT', 'COMMISSION_CAPTAIN_PERCENT', 'BUSINESS_SUBSCRIPTION', 'CAPTAIN_DEPOSIT', 'WHATSAPP_APP_SECRET', 'PLATFORM_REPORT_HOUR', 'LATE_PENALTY', 'BID_WINDOW_SECONDS', 'REPORT_TZ_OFFSET_MIN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_ADMIN_PHONE'
+  'ELEVENLABS_API_KEY', 'ELEVENLABS_VOICE_ID', 'WAVE_API_KEY', 'WAVE_FROM_NUMBER', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'TWILIO_TO_NUMBER', 'VOICE_REPLIES', 'QUICK_ORDER', 'ADMIN_PHONE', 'SUPERVISOR_NAME', 'SUPERVISOR_ID', 'PAYMENT_MODE', 'MOYASAR_SECRET_KEY', 'COMMISSION_BUSINESS_PERCENT', 'COMMISSION_CAPTAIN_PERCENT', 'BUSINESS_SUBSCRIPTION', 'CAPTAIN_DEPOSIT', 'WHATSAPP_APP_SECRET', 'PLATFORM_REPORT_HOUR', 'LATE_PENALTY', 'BID_WINDOW_SECONDS', 'REPORT_TZ_OFFSET_MIN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_ADMIN_PHONE'
 ]);
 
 function storedRows() {
@@ -44,6 +44,10 @@ export function applySettings() {
   if (map.ELEVENLABS_VOICE_ID) config.voice.elevenVoiceId = map.ELEVENLABS_VOICE_ID;
   if (map.WAVE_API_KEY) config.wave.apiKey = map.WAVE_API_KEY;
   if (map.WAVE_FROM_NUMBER) config.wave.fromNumber = map.WAVE_FROM_NUMBER;
+  if (map.TWILIO_ACCOUNT_SID) config.twilio.accountSid = map.TWILIO_ACCOUNT_SID;
+  if (map.TWILIO_AUTH_TOKEN) config.twilio.authToken = map.TWILIO_AUTH_TOKEN;
+  if (map.TWILIO_FROM_NUMBER) config.twilio.fromNumber = map.TWILIO_FROM_NUMBER;
+  if (map.TWILIO_TO_NUMBER) config.twilio.toNumber = map.TWILIO_TO_NUMBER;
   if (map.VOICE_REPLIES !== undefined) config.voice.replies = map.VOICE_REPLIES === 'true';
   if (map.QUICK_ORDER !== undefined) config.quickOrder = map.QUICK_ORDER === 'true';
   if (map.ADMIN_PHONE !== undefined) config.adminPhone = map.ADMIN_PHONE;
@@ -99,6 +103,12 @@ export function publicSettings() {
     waveKeyMask: mask(config.wave?.apiKey),
     waveMode: !config.wave?.apiKey ? 'none' : (String(config.wave.apiKey).startsWith('sk_sandbox') ? 'sandbox' : 'live'),
     waveFrom: config.wave?.fromNumber || '',
+    // 📞 Twilio (تجربة: نحن نتصل على جوالك — تُخصم من رصيد Twilio)
+    twilioSet: Boolean(config.twilio?.accountSid && config.twilio?.authToken && config.twilio?.fromNumber),
+    twilioSidTail: mask(config.twilio?.accountSid),
+    twilioFrom: config.twilio?.fromNumber || '',
+    twilioTo: config.twilio?.toNumber || '',
+    twilioHasToken: Boolean(config.twilio?.authToken),
     ttsSet: Boolean(config.voice.ttsApiKey || config.voice.azureKey || config.voice.elevenKey),
     voiceReplies: Boolean(config.voice.replies),
     quickOrder: Boolean(config.quickOrder),

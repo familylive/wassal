@@ -22,6 +22,13 @@ export const config = {
     fromNumber: process.env.WAVE_FROM_NUMBER || '',
     baseUrl: process.env.WAVE_API_URL || 'https://api.wave.sa',
   },
+  // 📞 Twilio — للتجربة: نحن نتصل على جوال العميل (يُخصم من رصيد Twilio لا من جواله)
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
+    authToken: process.env.TWILIO_AUTH_TOKEN || '',
+    fromNumber: process.env.TWILIO_FROM_NUMBER || '',
+    toNumber: process.env.TWILIO_TO_NUMBER || '',
+  },
   voice: {
     sttApiKey: process.env.STT_API_KEY || '',   // Groq مجاني: console.groq.com
     ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI بديل: platform.openai.com

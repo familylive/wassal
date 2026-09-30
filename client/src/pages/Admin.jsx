@@ -883,7 +883,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '', TELEGRAM_ADMIN_PHONE: '', WAVE_API_KEY: '', WAVE_FROM_NUMBER: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '', TELEGRAM_ADMIN_PHONE: '', WAVE_API_KEY: '', WAVE_FROM_NUMBER: '', TWILIO_ACCOUNT_SID: '', TWILIO_AUTH_TOKEN: '', TWILIO_FROM_NUMBER: '', TWILIO_TO_NUMBER: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -923,7 +923,9 @@ function SettingsTab() {
       BUSINESS_SUBSCRIPTION: d.businessSubscription != null ? String(d.businessSubscription / 100) : '',
       CAPTAIN_DEPOSIT: d.captainDeposit != null ? String(d.captainDeposit / 100) : '',
       PAYMENT_MODE: d.paymentMode || 'mock',
-      WAVE_FROM_NUMBER: d.waveFrom || ''
+      WAVE_FROM_NUMBER: d.waveFrom || '',
+      TWILIO_FROM_NUMBER: d.twilioFrom || '',
+      TWILIO_TO_NUMBER: d.twilioTo || ''
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -1021,6 +1023,36 @@ function SettingsTab() {
       <Fld label="مفتاح تفريغ الصوت (Groq STT_API_KEY) — لتفعيل الطلبات الصوتية">
         <textarea value={f.STT_API_KEY} onChange={set('STT_API_KEY')} rows={2} placeholder="gsk_..." style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
       </Fld>
+      {/* 📞 Twilio — للتجربة: نحن نتصل على جوالك */}
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>📞 Twilio — للتجربة: <b>نحن نتصل على جوالك</b> (إنت ما تدفع شي · يُخصم من رصيد Twilio)</div>
+        <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+          الحالة:{' '}
+          {s?.twilioSet
+            ? <b style={{ color: '#0b7a3b' }}>مضبوط ✓ {s.twilioSidTail ? `(${s.twilioSidTail})` : ''}</b>
+            : <b style={{ color: '#b3261e' }}>غير مضبوط — انسخ البيانات من console.twilio.com</b>}
+        </div>
+        <Fld label="Account SID (يبدأ بـ AC)">
+          <input value={f.TWILIO_ACCOUNT_SID || ''} onChange={set('TWILIO_ACCOUNT_SID')} placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" style={{ direction: 'ltr', fontSize: 12.5 }} />
+        </Fld>
+        <Fld label="Auth Token (من صفحة Account Info — اضغط العين لإظهاره)">
+          <input type="password" value={f.TWILIO_AUTH_TOKEN || ''} onChange={set('TWILIO_AUTH_TOKEN')} placeholder={s?.twilioHasToken ? 'محفوظ ✓ — اتركه فارغًا للإبقاء عليه' : 'الصقه هنا'} style={{ direction: 'ltr', fontSize: 12.5 }} />
+        </Fld>
+        <Fld label="رقم Twilio (منه نتصل — من Active Numbers)">
+          <input value={f.TWILIO_FROM_NUMBER || ''} onChange={set('TWILIO_FROM_NUMBER')} placeholder="+1XXXXXXXXXX" style={{ direction: 'ltr' }} />
+        </Fld>
+        <Fld label="رقم جوالك (نتصل عليه) — بصيغة دولية">
+          <input value={f.TWILIO_TO_NUMBER || ''} onChange={set('TWILIO_TO_NUMBER')} placeholder="+9665XXXXXXXX" style={{ direction: 'ltr' }} />
+        </Fld>
+        <div style={{ fontSize: 12.5, marginBottom: 6 }}>
+          بعد الحفظ، جرّب الاتصال <b>بضغطة واحدة</b> من جوالك:{' '}
+          <a href="/api/voice/twilio/call-me" target="_blank" rel="noreferrer" style={{ direction: 'ltr', display: 'inline-block', wordBreak: 'break-all' }}>https://telyham.com/api/voice/twilio/call-me</a>
+        </div>
+        <div style={{ fontSize: 12 }}>
+          ⚠️ حساب تجريبي: <b>وثّق جوالك</b> في Phone Numbers → Verified Caller IDs · وتأكد أن <b>السعودية مفعّلة</b> في Voice → Settings → Geographic Permissions.
+        </div>
+      </div>
+
       {/* ☎️ المكالمات الصوتية (Wave) */}
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div style={{ fontWeight: 600, marginBottom: 6 }}>☎️ المكالمات الصوتية (Wave) — يتصل البوت ويرد بالصوت</div>
