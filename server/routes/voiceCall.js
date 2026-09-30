@@ -266,6 +266,51 @@ router.get('/wave/test-call', async (req, res) => {
   }
 });
 
+// ---------- 🎙️ تجربة: نتصل ثم نشغّل صوتنا داخل المكالمة (يحتاج calls:write) ----------
+//   GET /api/voice/wave/say-demo            → يتصل على الرقم المحفوظ ويشغّل ترحيبًا صوتيًا
+//   GET /api/voice/wave/say-demo?text=...   → نفس الشي بنص مخصص
+router.get('/wave/say-demo', async (req, res) => {
+  const key = config.wave?.apiKey;
+  if (!key) return res.json({ ok: false, error: 'مفتاح Wave غير مضبوط' });
+  const phone = validatePhone(req.query.phone || config.wave?.fromNumber || '');
+  if (!phone) return res.json({ ok: false, error: 'حدّد رقم الجوال' });
+  const text = String(req.query.text || 'أهلًا وسهلًا، معك تلي هم منصة الطلبات والتوصيل. وش تبي تطلب اليوم؟');
+  const H = { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+  const out = { steps: [] };
+  try {
+    // ① ابدأ المكالمة
+    const cb = await axios.post(`${config.wave.baseUrl}/v1/callback`, { to: phone, caller_id_name: 'Tely Ham', metadata: { source: 'telyham-demo' } }, { headers: H, timeout: 30000 });
+    const callId = cb.data?.call_id || cb.data?.id;
+    out.steps.push({ step: 'callback', ok: true, call_id: callId, status: cb.data?.status });
+    if (!callId) return res.json({ ok: false, out, raw: cb.data });
+    // ② ولّد صوتنا وانشره على رابط عام https
+    const url = await ttsUrl(text);
+    out.steps.push({ step: 'tts', ok: !!url, url: url || null });
+    if (!url) return res.json({ ok: false, out, error: 'تعذّر توليد الصوت' });
+    // ③ شغّل الصوت (مع إعادة المحاولة حتى يرد العميل)
+    let played = null;
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 2500));
+      try {
+        const pr = await axios.post(`${config.wave.baseUrl}/v1/calls/${callId}/play`, { url }, { headers: H, timeout: 25000 });
+        played = { attempt: i + 1, status: pr.status, data: pr.data };
+        break;
+      } catch (e) {
+        played = { attempt: i + 1, status: e.response?.status || null, error: e.response?.data?.message || e.message, code: e.response?.data?.error_code || null };
+        if (e.response?.status === 403 || e.response?.status === 404) break;   // صلاحية/مكالمة غير موجودة ⇒ لا فائدة من التكرار
+      }
+    }
+    out.steps.push({ step: 'play', ...played });
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-demo', ?, ?)", String(phone).slice(-4), JSON.stringify(out).slice(0, 600)); } catch (e) {}
+    return res.json({ ok: !!(played && played.status === 200), out });
+  } catch (e) {
+    const st = e.response?.status || null;
+    const code = e.response?.data?.error_code || null;
+    out.steps.push({ step: 'error', status: st, code, error: e.response?.data?.message || e.message });
+    return res.json({ ok: false, out, raw: e.response?.data || null });
+  }
+});
+
 // ---------- ⑤ Wave: استقبال أحداث المكالمات (Webhooks) ----------
 // أضف هذا الرابط في لوحة Wave → Webhooks: https://<دومينك>/api/voice/wave/webhook
 router.post('/wave/webhook', (req, res) => {
