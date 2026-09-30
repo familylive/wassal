@@ -254,12 +254,14 @@ export async function waSend({ phone, restaurantId, orderId = null, type = 'text
       else if (config.whatsapp.provider === 'letsbot') await sendLetsBot({ phone, type, body, buttons, list, image });
       else await sendCloud({ phone, type, body, buttons, list, image, document });
       console.log('WA_SEND_OK', type, phone);
-      // 🎙️ رد صوتي بعد الكتابي (اختياري — للرسائل النصية القصيرة فقط)
-      // 🎙️ صوت لكل رسائل البوت (نص + قوائم + أزرار) — ما عدا الصور والمواقع
-      // 🎤 المحادثة الصوتية: نرد صوتيًا أيضًا لمن فعّل الوضع الصوتي (ولمردود قصير فقط — لا نقرأ القوائم صوتيًا)
+      // ⛔ الردود الصوتية التلقائية **موقوفة** (قرار المستخدم 2026-09-30):
+      //    كانت ترسل صوتية مع كل رد كتابي — في وضع المحادثة الصوتية أيضًا — وسبّبت زخمًا أثناء الطلب.
+      //    الصوت الآن لا يُرسل إلا بأمر صريح: «جرب الصوت» · /api/whatsapp/voice-test · المكالمات.
+      //    (لإرجاعها لاحقًا: اجعل AUTO_VOICE_REPLIES = true وشغّل إعداد «ردود صوتية للعميل»)
+      const AUTO_VOICE_REPLIES = false;
       try {
-        let want = !!config.voice.replies;
-        if (!want && ['text', 'buttons', 'list'].includes(type)) {
+        let want = AUTO_VOICE_REPLIES && !!config.voice.replies;
+        if (AUTO_VOICE_REPLIES && !want && ['text', 'buttons', 'list'].includes(type)) {
           const { isVoiceMode } = await import('./flow.js');
           want = !!isVoiceMode(phone);
         }
