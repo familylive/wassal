@@ -312,17 +312,42 @@ router.get('/twilio/call-me', async (req, res) => {
   }
 });
 
-// 📊 هل Twilio مضبوط؟
-router.get('/twilio/health', (req, res) => {
+// 📊 هل Twilio مضبوط؟ + تشخيص عميق (اختبار المصادقة · حالة الحساب · الأرقام الموثّقة)
+router.get('/twilio/health', async (req, res) => {
   const t = config.twilio || {};
-  return res.json({
+  const out = {
     ok: true,
     configured: Boolean(t.accountSid && t.authToken && t.fromNumber),
+    sidHead: t.accountSid ? t.accountSid.slice(0, 2) : null,
+    sidLen: t.accountSid ? t.accountSid.length : 0,
     sidTail: t.accountSid ? t.accountSid.slice(-4) : null,
+    tokenLen: t.authToken ? t.authToken.length : 0,
+    tokenTail: t.authToken ? t.authToken.slice(-4) : null,
     fromNumber: t.fromNumber || null,
     toNumber: t.toNumber || null,
     hasToken: Boolean(t.authToken),
-  });
+  };
+  if (!t.accountSid || !t.authToken) return res.json(out);
+  const auth = { username: t.accountSid, password: t.authToken };
+  try {
+    const a = await axios.get(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}.json`, { auth, timeout: 20000 });
+    out.auth = { ok: true, name: a.data?.friendly_name, type: a.data?.type, status: a.data?.status };
+    try {
+      const v = await axios.get(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/OutgoingCallerIds.json?PageSize=20`, { auth, timeout: 20000 });
+      out.verifiedNumbers = (v.data?.outgoing_caller_ids || []).map((x) => x.phone_number);
+      out.toVerified = out.verifiedNumbers.includes(t.toNumber);
+    } catch (e) { out.verifiedError = e.response?.data?.message || e.message; }
+    try {
+      const n = await axios.get(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/IncomingPhoneNumbers.json?PageSize=20`, { auth, timeout: 20000 });
+      out.numbers = (n.data?.incoming_phone_numbers || []).map((x) => x.phone_number);
+    } catch (e) {}
+  } catch (e) {
+    out.auth = { ok: false, status: e.response?.status || null, code: e.response?.data?.code || null, message: e.response?.data?.message || e.message };
+    out.diagnosis = String(t.accountSid).slice(0, 2) !== 'AC'
+      ? 'خانة Account SID لا تبدأ بـ AC ⇒ غالبًا لصقت شيئًا آخر (API Key أو التوكن) فيها ✗'
+      : (String(t.authToken).length < 30 ? 'Auth Token قصير جدًا ⇒ يبدو ناقصًا ✗' : 'SID والتوكن غير متطابقين ⇒ أعد نسخهما من نفس قسم Account Info ⧉');
+  }
+  return res.json(out);
 });
 
 // ---------- 🎙️ تجربة: نتصل ثم نشغّل صوتنا داخل المكالمة (يحتاج calls:write) ----------
