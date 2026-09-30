@@ -312,6 +312,40 @@ router.get('/twilio/call-me', async (req, res) => {
   }
 });
 
+// 📲 توثيق جوالك للحساب التجريبي — بضغطة: Twilio يتصل ويطلب منك الكود من الكيبورد
+//   https://telyham.com/api/voice/twilio/verify-number
+router.get('/twilio/verify-number', async (req, res) => {
+  const t = config.twilio || {};
+  if (!t.accountSid || !t.authToken) return res.json({ ok: false, error: 'بيانات Twilio غير مضبوطة (SID/التوكن)' });
+  const phone = validatePhone(req.query.phone || t.toNumber || '');
+  if (!phone) return res.json({ ok: false, error: 'حدّد الرقم ?phone=%2B9665XXXXXXXX' });
+  const auth = { username: t.accountSid, password: t.authToken };
+  try {
+    const v = await axios.get(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/OutgoingCallerIds.json?PageSize=50`, { auth, timeout: 20000 });
+    const list = (v.data?.outgoing_caller_ids || []).map((x) => x.phone_number);
+    if (list.includes(phone)) return res.json({ ok: true, already: true, verifiedNumbers: list, message: '✅ رقمك موثّق أصلًا — افتح رابط الاتصال الآن 🔔' });
+    const body = new URLSearchParams({ PhoneNumber: phone, FriendlyName: 'Tely Ham' });
+    const r = await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/ValidationRequests.json`, body.toString(), {
+      auth, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000,
+    });
+    return res.json({
+      ok: true, already: false, phone,
+      message: `📞 Twilio يتصل الآن على ${phone} — اررد ثم اكتب الكود من كيبورد الجوال (أو اضغط أي رقم ليُقرأ لك الكود الثاني)`,
+      code_read_aloud_hint: 'Twilio سيقرأ لك كودًا، اكتبه على الكيبورد وانتهى التوثيق',
+      code: r.data?.validation_code || null,
+      callSid: r.data?.call_sid || null,
+    });
+  } catch (e) {
+    const st = e.response?.status || null;
+    const code = e.response?.data?.code || null;
+    const hint = code === 21421 ? 'صيغة الرقم غير مقبولة لهذي الدولة — تأكد أنه +9665XXXXXXXX'
+      : code === 21422 ? 'لا يمكن توثيق هذا الرقم (رقم Twilio نفسه أو غير مدعوم)'
+      : code === 21608 ? 'رقمك غير مسجّل — راجع الخطوة'
+      : st === 401 ? 'بيانات Twilio غير صحيحة' : 'راجع الخطأ';
+    return res.json({ ok: false, error: e.response?.data?.message || e.message, code, status: st, hint, raw: e.response?.data || null });
+  }
+});
+
 // 📊 هل Twilio مضبوط؟ + تشخيص عميق (اختبار المصادقة · حالة الحساب · الأرقام الموثّقة)
 router.get('/twilio/health', async (req, res) => {
   const t = config.twilio || {};
