@@ -325,9 +325,16 @@ router.get('/twilio/verify-number', async (req, res) => {
     const list = (v.data?.outgoing_caller_ids || []).map((x) => x.phone_number);
     if (list.includes(phone)) return res.json({ ok: true, already: true, verifiedNumbers: list, message: '✅ رقمك موثّق أصلًا — افتح رابط الاتصال الآن 🔔' });
     const body = new URLSearchParams({ PhoneNumber: phone, FriendlyName: 'Tely Ham' });
-    const r = await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/ValidationRequests.json`, body.toString(), {
-      auth, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000,
-    });
+    const cfg = { auth, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000 };
+    let r;
+    try {
+      // المسار الحالي في Twilio
+      r = await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/OutgoingCallerIds.json`, body.toString(), cfg);
+    } catch (e1) {
+      if (e1.response?.status !== 404) throw e1;
+      // مسار قديم (بعض الحسابات)
+      r = await axios.post(`https://api.twilio.com/2010-04-01/Accounts/${t.accountSid}/ValidationRequests.json`, body.toString(), cfg);
+    }
     return res.json({
       ok: true, already: false, phone,
       message: `📞 Twilio يتصل الآن على ${phone} — اررد ثم اكتب الكود من كيبورد الجوال (أو اضغط أي رقم ليُقرأ لك الكود الثاني)`,
