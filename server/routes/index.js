@@ -20,6 +20,7 @@ import registrations from './registrations.js';
 import reportRecipients from './reportRecipients.js';
 import adRequests from './adRequests.js';
 import users from './users.js';
+import voiceCall from './voiceCall.js';
 
 const router = Router();
 router.use('/auth', auth);
@@ -43,4 +44,5 @@ router.use('/registrations', registrations);
 router.use('/report-recipients', reportRecipients);
 router.use('/ad-requests', adRequests);
 router.use('/users', users);
+router.use('/voice', voiceCall);   // ☎️ المكالمات الصوتية (TwiML: Twilio/Plivo)
 export default router;
