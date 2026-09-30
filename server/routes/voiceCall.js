@@ -207,6 +207,57 @@ async function handoffToChat(phone, rid, cart) {
   } catch (e) { console.error('VOICE_HANDOFF_FAIL', e.message); return { ok: false }; }
 }
 
+// ---------- ④ Wave: اتصال بصري (click-to-call) ----------
+// POST /api/voice/call-me  { phone, restaurant_id? }  ⇒ يتصل على العميل من رقم المنصة
+router.post('/call-me', async (req, res) => {
+  const phone = validatePhone(req.body?.phone || req.body?.to || '');
+  if (!phone) return res.status(400).json({ error: 'أرسل رقم الجوال (phone) بالصيغة الدولية +9665…' });
+  const key = config.wave?.apiKey;
+  if (!key) return res.status(400).json({ error: 'مفتاح Wave غير مضبوط', hint: 'أضف WAVE_API_KEY من إعدادات اللوحة (أو Render) — من wave.sa → API Keys' });
+  // 🛡️ حد: ٥ اتصالات لنفس الرقم في الساعة
+  try {
+    const n = Number(q.get("SELECT COUNT(*) c FROM webhook_log WHERE kind='wave-callback' AND summary=? AND created_at >= datetime('now','-1 hour')", phone.slice(-4))?.c || 0);
+    if (n >= 5) return res.status(429).json({ error: 'عدد المحاولات كبير — جرّب بعد قليل' });
+  } catch (e) {}
+  try {
+    const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, {
+      to: phone,
+      caller_id_name: req.body?.caller_id_name || 'تلي هم',
+      caller_id_number: config.wave.fromNumber || undefined,
+      metadata: { source: 'telyham', restaurant_id: req.body?.restaurant_id || null },
+    }, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-callback', ?, ?)", phone.slice(-4), JSON.stringify({ status: r.status, call_id: r.data?.call_id || r.data?.id || null }).slice(0, 200)); } catch (e) {}
+    return res.json({ ok: true, sandbox: String(key).startsWith('sk_sandbox'), data: r.data });
+  } catch (e) {
+    const st = e.response?.status || null;
+    const code = e.response?.data?.error_code || e.response?.data?.error?.code || null;
+    const hint = code === 'SANDBOX_EXPIRED' ? 'انتهت نافذة الساندبوكس (٣٠ دقيقة من أول استدعاء) — اطلب Go-Live من لوحة Wave'
+      : code === 'SANDBOX_DESTINATION_NOT_ALLOWED' ? 'في الساندبوكس نتصل فقط على رقمك أنت (رقم التسجيل) — للأرقام الأخرى تحتاج ترقية الإنتاج'
+      : st === 401 ? 'المفتاح مرفوض — تأكد أنه من Wave → API Keys' : 'راجع المفتاح أو الصلاحيات';
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-error', ?, ?)", String(code || st).slice(0, 60), String(e.message).slice(0, 200)); } catch (_) {}
+    return res.status(400).json({ error: e.response?.data?.message || e.message, status: st, error_code: code, hint });
+  }
+});
+
+// ---------- ⑤ Wave: استقبال أحداث المكالمات (Webhooks) ----------
+// أضف هذا الرابط في لوحة Wave → Webhooks: https://<دومينك>/api/voice/wave/webhook
+router.post('/wave/webhook', (req, res) => {
+  const ev = req.body || {};
+  try {
+    q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-event', ?, ?)",
+      String(ev.event || 'unknown').slice(0, 40),
+      JSON.stringify({ call_id: ev.data?.call_id || null, status: ev.data?.status || null, duration: ev.data?.duration || null }).slice(0, 300));
+  } catch (e) {}
+  res.json({ ok: true });   // Wave يعيد المحاولة لو ما رجّعنا 2xx
+});
+
+// ---------- ⑥ حالة Wave ----------
+router.get('/wave/status', (req, res) => {
+  const k = String(config.wave?.apiKey || '');
+  res.json({ ok: true, configured: !!k, mode: !k ? 'none' : (k.startsWith('sk_sandbox') ? 'sandbox' : 'live'),
+    fromNumber: config.wave?.fromNumber || null, keyTail: k ? k.slice(-4) : null });
+});
+
 // ---------- فحص سريع ----------
 router.get('/health', (req, res) => res.json({ ok: true, base: publicBase(), provider: config.whatsapp.provider, hasTts: true }));
 

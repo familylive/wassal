@@ -16,6 +16,12 @@ export const config = {
     appSecret: process.env.WHATSAPP_APP_SECRET || '',
     apiUrl: process.env.WHATSAPP_API_URL || 'https://graph.facebook.com/v21.0'
   },
+  // ☎️ Wave (مكالمات السعودية — wave.sa)
+  wave: {
+    apiKey: process.env.WAVE_API_KEY || '',
+    fromNumber: process.env.WAVE_FROM_NUMBER || '',
+    baseUrl: process.env.WAVE_API_URL || 'https://api.wave.sa',
+  },
   voice: {
     sttApiKey: process.env.STT_API_KEY || '',   // Groq مجاني: console.groq.com
     ttsApiKey: process.env.TTS_API_KEY || '',   // OpenAI بديل: platform.openai.com
