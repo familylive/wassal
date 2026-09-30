@@ -94,6 +94,11 @@ export function publicSettings() {
     tokenSet: Boolean(config.whatsapp.token),
     tokenMask: mask(config.whatsapp.token),
     sttSet: Boolean(config.voice.sttApiKey),
+    // ☎️ Wave (المكالمات الصوتية)
+    waveSet: Boolean(config.wave?.apiKey),
+    waveKeyMask: mask(config.wave?.apiKey),
+    waveMode: !config.wave?.apiKey ? 'none' : (String(config.wave.apiKey).startsWith('sk_sandbox') ? 'sandbox' : 'live'),
+    waveFrom: config.wave?.fromNumber || '',
     ttsSet: Boolean(config.voice.ttsApiKey || config.voice.azureKey || config.voice.elevenKey),
     voiceReplies: Boolean(config.voice.replies),
     quickOrder: Boolean(config.quickOrder),

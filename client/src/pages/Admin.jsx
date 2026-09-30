@@ -883,7 +883,7 @@ function TypesTab() {
 function SettingsTab() {
   const { notify } = useApp();
   const [s, setS] = useState(null);
-  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '', TELEGRAM_ADMIN_PHONE: '' });
+  const [f, setF] = useState({ WHATSAPP_PROVIDER: '', WHATSAPP_PHONE_NUMBER_ID: '', WHATSAPP_VERIFY_TOKEN: '', WHATSAPP_TOKEN: '', STT_API_KEY: '', VOICE_REPLIES: '', ADMIN_PHONE: '', SUPERVISOR_NAME: '', SUPERVISOR_ID: '', COMMISSION_BUSINESS_PERCENT: '', COMMISSION_CAPTAIN_PERCENT: '', BUSINESS_SUBSCRIPTION: '', CAPTAIN_DEPOSIT: '', PAYMENT_MODE: 'mock', TELEGRAM_BOT_TOKEN: '', TELEGRAM_ADMIN_PHONE: '', WAVE_API_KEY: '', WAVE_FROM_NUMBER: '' });
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
   const [testPhone, setTestPhone] = useState('');
@@ -922,7 +922,8 @@ function SettingsTab() {
       COMMISSION_CAPTAIN_PERCENT: d.commissionCaptainPercent != null ? String(d.commissionCaptainPercent) : '',
       BUSINESS_SUBSCRIPTION: d.businessSubscription != null ? String(d.businessSubscription / 100) : '',
       CAPTAIN_DEPOSIT: d.captainDeposit != null ? String(d.captainDeposit / 100) : '',
-      PAYMENT_MODE: d.paymentMode || 'mock'
+      PAYMENT_MODE: d.paymentMode || 'mock',
+      WAVE_FROM_NUMBER: d.waveFrom || ''
     }));
   }).catch(e => notify(e.message));
   useEffect(() => { load(); }, []);
@@ -1020,6 +1021,25 @@ function SettingsTab() {
       <Fld label="مفتاح تفريغ الصوت (Groq STT_API_KEY) — لتفعيل الطلبات الصوتية">
         <textarea value={f.STT_API_KEY} onChange={set('STT_API_KEY')} rows={2} placeholder="gsk_..." style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
       </Fld>
+      {/* ☎️ المكالمات الصوتية (Wave) */}
+      <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>☎️ المكالمات الصوتية (Wave) — يتصل البوت ويرد بالصوت</div>
+        <div style={{ fontSize: 12.5, marginBottom: 8 }}>
+          الحالة:{' '}
+          {s?.waveSet
+            ? <b style={{ color: '#0b7a3b' }}>مفعّل ✓ ({s.waveMode === 'sandbox' ? 'ساندبوكس تجريبي' : 'إنتاج'}) {s.waveKeyMask}</b>
+            : <b style={{ color: '#b3261e' }}>غير مضبوط — الصق المفتاح من wave.sa → API Keys</b>}
+        </div>
+        <Fld label="مفتاح Wave (API Key) — يبدأ بـ sk_sandbox_ أو sk_live_">
+          <textarea value={f.WAVE_API_KEY} onChange={set('WAVE_API_KEY')} rows={2} placeholder={s?.waveSet ? 'مضبوط — اتركه فارغاً للإبقاء عليه، أو الصق مفتاحاً جديداً' : 'sk_sandbox_...'} style={{ width: '100%', direction: 'ltr', fontSize: 12 }} />
+        </Fld>
+        <Fld label="رقم Wave للاتصال (بصيغة دولية — يتصل عليه البوت للتجربة)">
+          <input value={f.WAVE_FROM_NUMBER || ''} onChange={set('WAVE_FROM_NUMBER')} placeholder="+9665XXXXXXXX" style={{ direction: 'ltr' }} />
+        </Fld>
+        <div style={{ fontSize: 12, color: 'var(--muted, #777)' }}>
+          ⚠️ في الساندبوكس: نافذة التجربة ٣٠ دقيقة تبدأ من أول مكالمة، والمكالمة تصل على رقم التسجيل فقط.
+        </div>
+      </div>
       <div className="row" style={{ marginTop: 8 }}>
         <button className="btn" disabled={busy} onClick={onSave}>{busy ? '…' : '💾 حفظ وتطبيق'}</button>
       </div>
