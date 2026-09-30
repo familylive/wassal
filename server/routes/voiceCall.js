@@ -220,12 +220,14 @@ router.post('/call-me', async (req, res) => {
     if (n >= 5) return res.status(429).json({ error: 'عدد المحاولات كبير — جرّب بعد قليل' });
   } catch (e) {}
   try {
-    const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, {
-      to: phone,
-      caller_id_name: req.body?.caller_id_name || 'تلي هم',
-      caller_id_number: config.wave.fromNumber || undefined,
-      metadata: { source: 'telyham', restaurant_id: req.body?.restaurant_id || null },
-    }, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+    // ⚠️ Wave ترفض أي قيمة غير نصية في metadata (مثال: null) — نبنيها نصية فقط
+    const meta = { source: 'telyham' };
+    if (req.body?.restaurant_id != null && req.body.restaurant_id !== '') meta.restaurant_id = String(req.body.restaurant_id);
+    const payload = { to: phone, metadata: meta };
+    if (req.body?.caller_id_name || true) payload.caller_id_name = String(req.body?.caller_id_name || 'تلي هم');
+    if (config.wave.fromNumber) payload.caller_id_number = String(config.wave.fromNumber);
+    if (req.body?.from_queue) payload.from_queue = String(req.body.from_queue);
+    const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, payload, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
     try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-callback', ?, ?)", phone.slice(-4), JSON.stringify({ status: r.status, call_id: r.data?.call_id || r.data?.id || null }).slice(0, 200)); } catch (e) {}
     return res.json({ ok: true, sandbox: String(key).startsWith('sk_sandbox'), data: r.data });
   } catch (e) {
@@ -235,7 +237,32 @@ router.post('/call-me', async (req, res) => {
       : code === 'SANDBOX_DESTINATION_NOT_ALLOWED' ? 'في الساندبوكس نتصل فقط على رقمك أنت (رقم التسجيل) — للأرقام الأخرى تحتاج ترقية الإنتاج'
       : st === 401 ? 'المفتاح مرفوض — تأكد أنه من Wave → API Keys' : 'راجع المفتاح أو الصلاحيات';
     try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-error', ?, ?)", String(code || st).slice(0, 60), String(e.message).slice(0, 200)); } catch (_) {}
-    return res.status(400).json({ error: e.response?.data?.message || e.message, status: st, error_code: code, hint });
+    return res.status(400).json({ error: e.response?.data?.message || e.message, status: st, error_code: code, hint, raw: e.response?.data || null });
+  }
+});
+
+// 🧪 رابط تجربة بضغطة: افتحه من جوالك ⇒ يرن جوالك فورًا
+//   https://telyham.com/api/voice/wave/test-call            (يستخدم الرقم المحفوظ)
+//   https://telyham.com/api/voice/wave/test-call?phone=%2B9665XXXXXXXX (رقم آخر مسموح في الساندبوكس)
+router.get('/wave/test-call', async (req, res) => {
+  const phone = validatePhone(req.query.phone || config.wave?.fromNumber || '');
+  const key = config.wave?.apiKey;
+  if (!phone) return res.json({ ok: false, error: 'حدّد رقم الجوال في ?phone=+9665… أو احفظ WAVE_FROM_NUMBER' });
+  if (!key) return res.json({ ok: false, error: 'مفتاح Wave غير مضبوط — احفظه في إعدادات اللوحة' });
+  try {
+    const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, {
+      to: phone, caller_id_name: 'تلي هم', metadata: { source: 'telyham' },
+      ...(config.wave.fromNumber ? { caller_id_number: String(config.wave.fromNumber) } : {}),
+    }, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
+    try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-callback', ?, ?)", String(phone).slice(-4), JSON.stringify({ via: 'test-call', status: r.status, id: r.data?.call_id || null }).slice(0, 200)); } catch (e) {}
+    return res.json({ ok: true, message: '🔔 جاري الاتصال على ' + phone + ' … استقبل على جوالك', data: r.data });
+  } catch (e) {
+    const st = e.response?.status || null;
+    const code = e.response?.data?.error_code || null;
+    const hint = code === 'SANDBOX_EXPIRED' ? 'انتهت نافذة الساندبوكس (٣٠ دقيقة) — اطلب Go-Live'
+      : code === 'SANDBOX_DESTINATION_NOT_ALLOWED' ? 'الساندبوكس يتصل على رقم التسجيل فقط'
+      : st === 401 ? 'المفتاح مرفوض' : 'راجع الخطأ';
+    return res.status(400).json({ ok: false, error: e.response?.data?.message || e.message, status: st, error_code: code, hint, raw: e.response?.data || null });
   }
 });
 
