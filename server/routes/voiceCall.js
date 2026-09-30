@@ -224,7 +224,7 @@ router.post('/call-me', async (req, res) => {
     const meta = { source: 'telyham' };
     if (req.body?.restaurant_id != null && req.body.restaurant_id !== '') meta.restaurant_id = String(req.body.restaurant_id);
     const payload = { to: phone, metadata: meta };
-    if (req.body?.caller_id_name || true) payload.caller_id_name = String(req.body?.caller_id_name || 'تلي هم');
+    if (req.body?.caller_id_name || true) payload.caller_id_name = String(req.body?.caller_id_name || 'Tely Ham');
     if (config.wave.fromNumber) payload.caller_id_number = String(config.wave.fromNumber);
     if (req.body?.from_queue) payload.from_queue = String(req.body.from_queue);
     const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, payload, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
@@ -251,7 +251,7 @@ router.get('/wave/test-call', async (req, res) => {
   if (!key) return res.json({ ok: false, error: 'مفتاح Wave غير مضبوط — احفظه في إعدادات اللوحة' });
   try {
     const r = await axios.post(`${config.wave.baseUrl}/v1/callback`, {
-      to: phone, caller_id_name: 'تلي هم', metadata: { source: 'telyham' },
+      to: phone, caller_id_name: 'Tely Ham', metadata: { source: 'telyham' },
       ...(config.wave.fromNumber ? { caller_id_number: String(config.wave.fromNumber) } : {}),
     }, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, timeout: 30000 });
     try { q.run("INSERT INTO webhook_log (kind, summary, raw) VALUES ('wave-callback', ?, ?)", String(phone).slice(-4), JSON.stringify({ via: 'test-call', status: r.status, id: r.data?.call_id || null }).slice(0, 200)); } catch (e) {}
