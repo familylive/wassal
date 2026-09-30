@@ -54,12 +54,18 @@ app.get('/call/:token', async (req, res) => {
   }
 });
 
+// ⏱️ وقت الإقلاع (للصحة/الإصدار)
+const BOOT_MS = Date.now();
+const BOOT_AT = new Date(BOOT_MS).toISOString();
+
 app.get('/api/health', async (req, res) => {
   try {
     const { dbLooksSane } = await import('./services/backup.js');
     const { dbUsable } = await import('./services/backup.js');
     const sane = dbLooksSane(undefined, true), usable = dbUsable();
-    return res.json({ ok: true, db: sane ? 'sane' : (usable ? 'malformed_usable' : 'broken'), sane, usable, at: new Date().toISOString() });
+    // 🏷️ بصمة الإصدار: تُتيح التأكد من وصول أي رفعة إلى الإنتاج بلا انتظار (Render يوفّر RENDER_GIT_COMMIT)
+    const commit = String(process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'dev').slice(0, 7);
+    return res.json({ ok: true, commit, startedAt: BOOT_AT, uptimeSec: Math.round((Date.now() - BOOT_MS) / 1000), db: sane ? 'sane' : (usable ? 'malformed_usable' : 'broken'), sane, usable, at: new Date().toISOString() });
   } catch (e) { return res.json({ ok: false, error: e.message }); }
 });
 

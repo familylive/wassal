@@ -1269,9 +1269,16 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
   // (نتخطى هذا أثناء تسجيل نشاط/كابتن حتى لا يخطف مسار الاسم جلسة التسجيل)
   const IN_REG_FLOW = ['welcome', 'reg_type', 'reg_name', 'reg_city', 'reg_district', 'reg_postal', 'reg_owner', 'reg_owner_id', 'reg_items', 'reg_prices', 'reg_review', 'reg_subscribe', 'cap_name', 'cap_id', 'cap_city', 'cap_district', 'cap_vehicle', 'cap_deposit', 'cap_deposit_wait', 'rep_name', 'rep_id', 'rep_phone', 'ad_price', 'ad_content', 'ad_decision', 'ad_waitpay', 'pad_content', 'pad_audience', 'pad_city', 'mgr_pick', 'mgr_name', 'mgr_id', 'mgr_biz', 'mgr_hour', 'rep_hour', 'hour_pick', 'hour_change', 'cash_name', 'cash_nid', 'cash_dob', 'cash_phone', 'cash_hour', 'reg_shift', 'reg_s1f', 'reg_s1t', 'reg_s2f', 'reg_s2t', 'reg_lic', 'reg_cr', 'reg_health', 'reg_hdoc', 'cap_reqs', 'cap_color', 'cap_plate', 'cap_license', 'cap_criminal', 'cap_iddoc', 'cap_pledge',
     'reg_id_doc', 'cap_rej_reason', 'cap_busy_no', 'obr_name', 'obr_city', 'obr_lic', 'obr_licexp', 'obr_cr', 'obr_loc', 'om_note', 'pledge', 'mgr_iddoc', 'mgr_pledge', 'ask_nid', 'ask_dob', 'reg_entity', 'reg_flno', 'reg_fldoc', 'reg_fldate', 'reg_licdate', 'reg_crdate', 'reg_docs', 'reg_location', 'preorder_date', 'preorder_time', 'final_confirm'].includes(state);
-  if (!IN_REG_FLOW && !customer.name && state !== 'ask_name' && state !== 'welcome') {
+  // 🔓 أوامر صريحة تمرّ من بوابة الترحيب (كان «المنيو» يرجّعه لنفس قائمة الخدمة = طريق مسدود)
+  const CLEAR_INTENT = /^(المنيو|القائمة|قائمه|قائمة الطعام|menu|المطاعم|restaurants|الدليل|اطلب|أطلب|طلب|طلب جديد|استفسارات|استفسار|تسجيل|انضمام|انضمام كابتن|مرحبا|مرحبتين|هلا|السلام عليكم|1|2|3|١|٢|٣)$/i.test(String(b || '').trim());
+  if (!IN_REG_FLOW && !customer.name && state !== 'ask_name' && state !== 'welcome' && !CLEAR_INTENT) {
     saveSession(phone, 'welcome', { ...data });
     return send(phone, rid, null, 'text', WELCOME_TEXT);
+  }
+  // 🧭 عميل ما سجّل بعد (بلا اسم): أرقام الخدمة (1/2/3) تُعالج عبر قائمة الترحيب في أي حالة
+  //    (سابقًا: لو صارت الحالة idle يُقرأ الرقم كخيار منيو ⇒ طريق مسدود)
+  if (!IN_REG_FLOW && !customer?.name && /^[123١٢٣]$/.test(String(b || '').trim())) {
+    return handleWelcomeMenu(phone, rid, getSession(phone), b, p, customer);
   }
   if (!IN_REG_FLOW && state === 'ask_name') {
     if (b.length < 2) return send(phone, rid, null, 'text', 'عطني اسمك الكريم 🌸 عشان أكمل طلبك');
@@ -1306,6 +1313,7 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
     return showRestaurants(phone);
   }
   if (['القائمة', 'قائمة الطعام', 'المنيو', 'menu'].includes(bLower) && !IN_REG_FLOW) {
+    if (!rid) return showRestaurants(phone);   // ما اختار نشاطًا بعد ⇒ نعرض له الأنشطة القريبة
     return showMenu(phone, rid);
   }
   if (['ابدأ', 'start', 'رجوع', 'الرئيسية'].includes(bLower) && state !== 'idle' && state !== 'directory') {
@@ -3465,15 +3473,26 @@ function handleWelcomeMenu(phone, rid, session, b, p, customer) {
   const wantCaptain = /^(انضمام|انضم|تسجيل)\s*(كابتن|مندوب|توصيل)$/.test(raw) || (/كابتن|مندوب/.test(raw) && /^(انضم|انضمام|تسجيل|كيف|أريد|اريد|ابغى|أبغى)/.test(raw));
   if (wantCaptain) return startCaptainReg(phone, rid, session);
   if (/^(انضمام|انضم)$/.test(raw) || /^(انضمام|انضم|تسجيل)\s*(نشاط|مطعم|بقالة|سوبر\s?ماركت|صيدلية|متجر|محل|أسرة منتجة|اسر منتجة)$/.test(raw)) return startBusinessReg(phone, rid, session);
-  const num = Number(raw.replace(/[^\d١٢٣]/g, '').replace(/[١٢٣]/g, d => '١٢٣'.indexOf(d) + 1));
-  const text = String(raw);
-  const pick = num === 1 || /^(عميل|اطلب|أطلب|طلب|طلبات)$/.test(text) ? 1
+  const text = String(raw).trim();
+  // 🐞 سابقًا: كان يُقرأ أي رقم داخل الرسالة («ابغى 2 شاورما») كأنه اختيار خدمة → يودّي العميل لمسار تسجيل نشاط
+  const bare = text.replace(/[١٢٣]/g, (d) => String('١٢٣'.indexOf(d) + 1));
+  const num = /^[123]$/.test(bare) ? Number(bare) : 0;
+  // 🛒 أوامر الطلب/المنيو تفتح مسار العميل مباشرة (بدل إجباره على «1»)
+  const WANT_ORDER = /^(المنيو|القائمة|قائمه|قائمة الطعام|menu|اطلب|أطلب|طلب|طلب جديد|ابغى اطلب|أبغى أطلب)$/.test(text);
+  const pick = WANT_ORDER || num === 1 || /^(عميل|اطلب|أطلب|طلب|طلبات)$/.test(text) ? 1
     : num === 2 || /^(نشاط|نشاط تجاري|تسجيل نشاط|مطعم|تسويق)$/.test(text) ? 2
     : num === 3 || /^(استفسار|استفسارات|سؤال|أسئلة)$/.test(text) ? 3 : 0;
   if (pick === 1) return startCustomerSignup(phone, rid, customer, session);
   if (pick === 2) return startBusinessReg(phone, rid, session);
   if (pick === 3) return send(phone, rid, null, 'text', WELCOME_INQUIRY);
-  return send(phone, rid, null, 'text', `اكتب رقم الخدمة: *1* عميل · *2* نشاط تجاري · *3* استفسارات 🙏`);
+  // 💬 رد مهذّب بأزرار — العميل ما يعلق في طريق مسدود
+  return send(phone, rid, null, 'buttons',
+    `أهلًا وسهلًا 🌸 ما فهمت قصدك بالضبط — اختر اللي تبي:`,
+    { buttons: [
+      { id: 'svc:1', title: '🛒 أطلب الآن' },
+      { id: 'svc:3', title: '❓ استفسارات' },
+      { id: 'svc:2', title: '🏪 أسجّل نشاطي' },
+    ] });
 }
 
 function startCustomerSignup(phone, rid, customer, session) {
