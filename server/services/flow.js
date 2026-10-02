@@ -10,7 +10,7 @@ import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cash
 import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage, findPledge } from './pledge.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
-import { isBanned, addBan, liftBan, listBans, BAN_MSG } from './bans.js';
+import { isBanned, addBan, liftBan, listBans, linkBanPhone, BAN_MSG } from './bans.js';
 import crypto from 'crypto';
 
 // ---------- session ----------
@@ -832,11 +832,17 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
       let m;
       if ((m = _t.match(/^حظر\s+(\d{10})\s*(.*)$/))) {
         const id = addBan({ nationalId: m[1], reason: m[2] || '', by: 'admin-bot' });
-        return send(phone, restaurantId || null, null, 'text', id ? `🚫 تم حظر الهوية *${m[1]}*${m[2] ? '\n📝 ' + m[2] : ''}\nمنعنا التسجيل والطلب بها فورًا ✅` : '⚠️ رقم هوية غير صالح (١٠ أرقام، تبدأ بـ1 أو 2)');
+        const _row = id ? (listBans(1)[0] || null) : null;
+        return send(phone, restaurantId || null, null, 'text', id
+          ? `🚫 تم الحظر ✅\n🆔 الهوية: *${m[1]}*\n📱 الجوال: *${_row?.phone || '— (ما له سجل عندنا بعد)'}*${_row?.person_name ? '\n👤 الاسم: ' + _row.person_name : ''}${m[2] ? '\n📝 ' + m[2] : ''}\n\nمنعنا التسجيل والطلب بهما فورًا ✅`
+          : '⚠️ رقم هوية غير صالح (١٠ أرقام، تبدأ بـ1 أو 2)');
       }
       if ((m = _t.match(/^حظر\s+جوال\s+(.+)$/))) {
         const id = addBan({ phone: m[1].trim(), by: 'admin-bot' });
-        return send(phone, restaurantId || null, null, 'text', id ? `🚫 تم حظر الجوال *${m[1].trim()}* ✅` : '⚠️ رقم جوال غير صالح');
+        const _r2 = id ? (listBans(1)[0] || null) : null;
+        return send(phone, restaurantId || null, null, 'text', id
+          ? `🚫 تم حظر الجوال *${m[1].trim()}* ✅\n🆔 الهوية: *${_r2?.national_id || '— (ما له سجل عندنا بعد)'}*${_r2?.person_name ? '\n👤 الاسم: ' + _r2.person_name : ''}`
+          : '⚠️ رقم جوال غير صالح');
       }
       if ((m = _t.match(/^فك\s*حظر\s+(\d{10})$/))) {
         const n = liftBan({ nationalId: m[1], by: 'admin-bot' });
@@ -846,7 +852,7 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
         const list = listBans(20);
         if (!list.length) return send(phone, restaurantId || null, null, 'text', '✅ ما فيه محظورون حاليًا');
         return send(phone, restaurantId || null, null, 'text', `🚫 *المحظورون* (${list.length}):\n` +
-          list.map((b, i) => `${i + 1}. 🆔 ${b.national_id || '—'} · 📱 ${b.phone || '—'}${b.reason ? '\n     📝 ' + b.reason : ''}`).join('\n'));
+          list.map((b, i) => `${i + 1}. 🆔 ${b.national_id || '—'} · 📱 ${b.phone || '—'}${b.person_name ? '\n     👤 ' + b.person_name : ''}${b.reason ? '\n     📝 ' + b.reason : ''}`).join('\n'));
       }
     }
   }
@@ -1321,6 +1327,7 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
     // 🚫 الهوية محظورة ⇒ نرفض التسجيل بهدوء (ولا نكشف السبب)
     const _b1 = isBanned({ nationalId: nid, phone });
     if (_b1) {
+      try { linkBanPhone({ nationalId: nid, phone }); } catch (e) {}
       saveSession(phone, 'idle', {});
       if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🚫 *محاولة تسجيل من محظور*\n🆔 ${nid}\n📱 ${phone}\n🗓 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}` }).catch(() => {});
       return send(phone, rid, null, 'text', BAN_MSG);

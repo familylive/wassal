@@ -210,6 +210,7 @@ try {
   )`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_bans_nid ON bans(national_id, active)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_bans_phone ON bans(phone, active)");
+  try { db.exec("ALTER TABLE bans ADD COLUMN person_name TEXT"); } catch {}
 } catch (e) { console.error('BANS_TABLE_FAIL', e.message); }
 
 // 🆔 اضبط بداية ترقيم الأنشطة على 1001
