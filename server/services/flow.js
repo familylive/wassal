@@ -10,6 +10,7 @@ import { roleAr, isCashierPhone, isOwnerPhone, restUserByPhone, ownerPhone, cash
 import { PLEDGE_TEXT, PLEDGE_BUTTONS, createPledge, pledgeMessage, findPledge } from './pledge.js';
 import { createAdRequest, getAdRequest, setAdPrice, setAdStatus, notifySupervisorNewAd, sendPriceToBusiness, sendToSupervisorForApproval, publishAd, customersInCity, allCustomers, createPlatformAd, saveAdImage } from './ads.js';
 import config from '../config.js';
+import { isBanned, addBan, liftBan, listBans, BAN_MSG } from './bans.js';
 import crypto from 'crypto';
 
 // ---------- session ----------
@@ -823,6 +824,32 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
       return send(phone, restaurantId || null, null, 'text', '🔇 ما قدرت أرسل صوتية — يحتاج مفتاح صوت:\n• Azure: AZURE_TTS_KEY + AZURE_TTS_REGION (مجاني حتى ٥٠٠ ألف حرف/شهر)\n• ElevenLabs: ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID\n• OpenAI: TTS_API_KEY');
     } catch (e) { console.error('VOICE_TEST_FAIL', e.message); }
   }
+  // 🚫 أوامر الحظر من البوت — للمشرف العام فقط: «حظر 1023456789 سبب» · «فك حظر 1023456789» · «حظر جوال 0555...» · «المحظورون»
+  if (!payload && body) {
+    const _admPh = config.adminPhone && (phone === config.adminPhone || validatePhone(phone) === validatePhone(String(config.adminPhone)));
+    if (_admPh) {
+      const _t = String(body).trim();
+      let m;
+      if ((m = _t.match(/^حظر\s+(\d{10})\s*(.*)$/))) {
+        const id = addBan({ nationalId: m[1], reason: m[2] || '', by: 'admin-bot' });
+        return send(phone, restaurantId || null, null, 'text', id ? `🚫 تم حظر الهوية *${m[1]}*${m[2] ? '\n📝 ' + m[2] : ''}\nمنعنا التسجيل والطلب بها فورًا ✅` : '⚠️ رقم هوية غير صالح (١٠ أرقام، تبدأ بـ1 أو 2)');
+      }
+      if ((m = _t.match(/^حظر\s+جوال\s+(.+)$/))) {
+        const id = addBan({ phone: m[1].trim(), by: 'admin-bot' });
+        return send(phone, restaurantId || null, null, 'text', id ? `🚫 تم حظر الجوال *${m[1].trim()}* ✅` : '⚠️ رقم جوال غير صالح');
+      }
+      if ((m = _t.match(/^فك\s*حظر\s+(\d{10})$/))) {
+        const n = liftBan({ nationalId: m[1], by: 'admin-bot' });
+        return send(phone, restaurantId || null, null, 'text', n ? `✅ تم فك الحظر عن *${m[1]}*` : '⚠️ ما فيه حظر نشط لهذا الرقم');
+      }
+      if (/^(المحظورون|قائمة الحظر|الحظر)$/.test(_t)) {
+        const list = listBans(20);
+        if (!list.length) return send(phone, restaurantId || null, null, 'text', '✅ ما فيه محظورون حاليًا');
+        return send(phone, restaurantId || null, null, 'text', `🚫 *المحظورون* (${list.length}):\n` +
+          list.map((b, i) => `${i + 1}. 🆔 ${b.national_id || '—'} · 📱 ${b.phone || '—'}${b.reason ? '\n     📝 ' + b.reason : ''}`).join('\n'));
+      }
+    }
+  }
   // 📍 موقع العميل أثناء التوصيل: يُحفظ على الطلب ويُبلَّغ الكابتن «🚀 انطلق»
   if (type === 'location' && lat != null && lng != null) {
     try {
@@ -1291,6 +1318,13 @@ async function handleIncomingInner({ phone, restaurantId, body = '', type = 'tex
   if (state === 'ask_nid') {
     const nid = validNationalId(b);
     if (!nid) return send(phone, rid, null, 'text', 'رقم الهوية/الإقامة لازم *١٠ أرقام* ويبدأ بـ ١ أو ٢ 🙏\nمثال: 1023456789');
+    // 🚫 الهوية محظورة ⇒ نرفض التسجيل بهدوء (ولا نكشف السبب)
+    const _b1 = isBanned({ nationalId: nid, phone });
+    if (_b1) {
+      saveSession(phone, 'idle', {});
+      if (config.adminPhone) waSend({ phone: config.adminPhone, type: 'text', body: `🚫 *محاولة تسجيل من محظور*\n🆔 ${nid}\n📱 ${phone}\n🗓 ${new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ')}` }).catch(() => {});
+      return send(phone, rid, null, 'text', BAN_MSG);
+    }
     saveSession(phone, 'ask_dob', { ...data, custNid: nid });
     return send(phone, rid, null, 'text', '🎂 و*تاريخ ميلادك*؟ (مثال: 1998-05-20 أو 1415/05/20)');
   }
@@ -2647,6 +2681,9 @@ function pickupAddress(rid) {
 function placeOrder(phone, rid, customer, data) {
   const _block = restaurantBlockMsg(rid);
   if (_block) { send(phone, rid, null, 'text', _block); return null; }
+  // 🚫 محظور؟ (بالهوية أو الجوال) — يمنع الطلب حتى لو غيّر رقم جواله
+  const _ban = isBanned({ nationalId: customer?.national_id, phone });
+  if (_ban) { send(phone, rid, null, 'text', BAN_MSG); return null; }
   const session = getSession(phone);
   const pruned0 = pruneCart(phone, rid, session.data.cart);
   if (pruned0.notes?.length) send(phone, rid, null, 'text', pruned0.notes.join('\n'));
@@ -3507,7 +3544,7 @@ function startCustomerSignup(phone, rid, customer, session) {
     return send(phone, rid, null, 'buttons', 'في واتساب: زر 📎 ← الموقع 👇', { buttons: [{ id: 'send_location', title: '📍 إرسال الموقع' }] });
   }
   saveSession(phone, 'ask_name', { ...session.data, pendingState: 'directory' });
-  return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج أي أوراق — بس *اسمك* و*موقعك* ✅\n\nوش *اسمك الكريم*؟`);
+  return send(phone, rid, null, 'text', `👤 *تسجيل حساب العميل*\n\nما تحتاج *صورًا* ولا أوراقًا — بس:\n١) *اسمك*  ٢) *موقعك* 📍  ٣) *رقم هويتك* 🆔\n_(الهوية ١٠ أرقام — لحمايتك ومنع التلاعب)_\n\nوش *اسمك الكريم*؟`);
 }
 
 // 📜 هل هذا الرقم مستخدم مسجّل ما وقّع التعهد بعد؟ (كابتن · مالك · كاشير · مدير · عميل)

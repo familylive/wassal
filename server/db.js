@@ -194,6 +194,24 @@ try {
 try { db.exec("ALTER TABLE payments ADD COLUMN restaurant_id INTEGER"); } catch {}
 try { db.exec("ALTER TABLE payments ADD COLUMN phone TEXT"); } catch {}
 
+// 🚫 جدول الحظر (بالهوية الوطنية و/أو الجوال) — الحظر بالهوية يمنع العودة بعد تغيير الرقم
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS bans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL DEFAULT 'customer',
+    national_id TEXT,
+    phone TEXT,
+    reason TEXT,
+    created_by TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    active INTEGER NOT NULL DEFAULT 1,
+    lifted_by TEXT,
+    lifted_at TEXT
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_bans_nid ON bans(national_id, active)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_bans_phone ON bans(phone, active)");
+} catch (e) { console.error('BANS_TABLE_FAIL', e.message); }
+
 // 🆔 اضبط بداية ترقيم الأنشطة على 1001
 try { ensureRestaurantSequence(); } catch (e) { console.error('SEQ_FAIL', e.message); }
 // حقن sqlite في خدمة النسخ الاحتياطي (لتجنّب الاستيراد الدائري)
